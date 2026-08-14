@@ -1046,3 +1046,14 @@ Bu proje **başka bir bilgisayara taşınacak**. Yeni makinede kaldığı yerden
 Bu bilgisayarda kurulum tamamen bitti ve proje eski makinedeki son durumuyla (AŞAMA 25'e kadar) birebir çalışır durumda doğrulandı: backend gerçek Firestore verisine bağlanıyor, Flutter uygulaması gerçek Android emulator'de backend'den canlı veri çekip gösteriyor. Sıradaki iş, 26.1'de belirtildiği gibi **Login/Auth ekranı + Firestore Security Rules**.
 
 Eski makineden farklı olarak bu bilgisayarda karşılaşılan tek yeni sorun **Android Emulator Hypervisor** eksikliğiydi (yukarıda çözüldü) — muhtemelen eski makinede Android Studio'nun GUI kurulum sihirbazı çalıştırıldığı için bu adım orada görünmemişti.
+
+### 27.2 Git Deposuna Alma (14.08.2026)
+
+26.1'de not edilen eksiklerden biri ("Proje henüz bir git deposunda değil") bu oturumda giderildi:
+
+- `git init` ile proje kök dizininde depo başlatıldı.
+- Commit kimliği bu depoya özel ayarlandı: `Ensar Çiçek <ensarcckk@gmail.com>` (global git config'e dokunulmadı).
+- `.gitignore`'a `.claude/settings.local.json` eklendi (Claude Code'un bu makineye özel, gizli olmayan ama makineye özgü yerel izin ayarları — depoya girmemeli).
+- Commit öncesi kontrol: `backend/.env`, `backend/.venv`, herhangi bir servis hesabı/`.pem` dosyası staged listede **yoktu**; `android/app/google-services.json` normal şekilde eklendi (client config, gizli anahtar değil).
+- İlk commit: 182 dosya, "İlk commit: AI Yatırım Analiz uygulaması (Flutter + FastAPI backend)".
+- **Uzak depo (GitHub vb.) henüz bağlanmadı** — bu tamamen yerel bir depo. İleride uzak bir depoya push edilmek istenirse ayrıca ele alınmalı.
