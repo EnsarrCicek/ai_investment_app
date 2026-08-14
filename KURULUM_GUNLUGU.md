@@ -9,6 +9,27 @@
 
 ---
 
+## 0.0 ÖNCE BURAYA BAKIN — Bu Depoyu (`git clone`) Yeni Bir Bilgisayara Çektiyseniz
+
+Proje artık private bir GitHub deposunda (`https://github.com/EnsarrCicek/ai_investment_app`). **`git clone` size yalnızca kaynak kodu verir** — aşağıdakiler bilerek `.gitignore` ile depo dışında bırakılmıştır (ya makineye özel ya da gizli oldukları için) ve her yeni bilgisayarda **elle yeniden yapılmalıdır**:
+
+| # | Eksik olan | Neden depoda değil | Nasıl giderilir |
+|---|---|---|---|
+| 1 | **Tüm geliştirme araçları** (Git, Flutter SDK, Dart, Android Studio+SDK+Emulator, Java, Python, Node.js, Firebase CLI, FlutterFire CLI, Google Cloud SDK) | Kod deposu değil, işletim sistemi düzeyinde kurulumlar | Bölüm 1-9 ve 27'deki komutları sırayla uygulayın (`flutter doctor -v` ile doğrulayın) |
+| 2 | **`backend/.env`** | `.gitignore`'da (makineye özel ayar dosyası) | Elle oluşturun, tek satır yeterli: `FIREBASE_PROJECT_ID=ai-investment-app-2026` |
+| 3 | **`backend/.venv`** (Python sanal ortamı) | `.gitignore`'da (makineye özel, taşınabilir değil) | `python -m venv .venv` → `pip install -r requirements.txt` (bkz. Bölüm 13) |
+| 4 | **Flutter paket bağımlılıkları** | `.dart_tool/`, `build/` `.gitignore`'da | Proje kökünde `flutter pub get` |
+| 5 | **Google Cloud kimlik doğrulaması (ADC)** | Kimlik bilgisi dosyası, hiçbir yerde saklanmaz/taşınmaz | O makinede `gcloud auth application-default login` + `gcloud auth application-default set-quota-project ai-investment-app-2026` (bkz. Bölüm 16 ve 27) |
+| 6 | **Firebase CLI girişi** (`firebase login`) | Kimlik bilgisi, makineye özel | O makinede `firebase login` (bkz. Bölüm 8) |
+| 7 | **Windows Geliştirici Modu** (yalnızca Windows'ta native plugin build'i için) | İşletim sistemi ayarı | Ayarlar → Gizlilik ve güvenlik → Geliştiriciler için |
+| 8 | **Android Emulator kullanılacaksa: Hypervisor** (Windows Hypervisor Platform / WHPX ya da macOS'ta HAXM gerekmez, Apple Silicon/Intel HVF otomatik) | İşletim sistemi/donanım özelliği | Windows'ta: `Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All` + yeniden başlatma (bkz. Bölüm 27) |
+
+**Depoda olan, dokunmanıza gerek olmayanlar:** Firebase proje bağlantısı (`lib/firebase_options.dart`, `android/app/google-services.json`) — bunlar gizli anahtar değil, client config dosyaları, zaten repoda. Firebase projesini (`ai-investment-app-2026`) veya Firestore veritabanını **yeniden oluşturmayın**, zaten bulutta mevcut ve tüm veriler orada duruyor.
+
+**Özetle sıra:** `git clone` → Bölüm 1-9 (araçlar) → `flutter pub get` → Bölüm 13 (venv) → Bölüm 27'deki `gcloud`/Firebase login adımları → Bölüm 27 (uçtan uca test).
+
+---
+
 ## 0. Kurulum Durumu Özet Tablosu
 
 | Araç | Durum | Kurulum Tarihi | Doğrulama Komutu |
