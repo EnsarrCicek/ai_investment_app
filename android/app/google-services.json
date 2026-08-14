@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "244094132223",
+    "project_id": "ai-investment-app-2026",
+    "storage_bucket": "ai-investment-app-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:244094132223:android:7933abefc3f4b7e64a51ca",
+        "android_client_info": {
+          "package_name": "com.example.ai_investment_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwqB_cav-pENjxZ1Yjwnk64akcX15vv6o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

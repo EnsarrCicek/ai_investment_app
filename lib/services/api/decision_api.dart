@@ -1,0 +1,22 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../../models/decision.dart';
+
+class DecisionApi {
+  // Android emulator'de host makinenin localhost'una 10.0.2.2 üzerinden erişilir.
+  // Fiziksel cihaz/prod ortamında bu değer gerçek backend URL'i ile değiştirilmelidir.
+  static const String baseUrl = 'http://10.0.2.2:8000';
+
+  Future<Decision> fetchDecision(String symbol) async {
+    final response = await http.get(Uri.parse('$baseUrl/decisions/$symbol'));
+    if (response.statusCode != 200) {
+      throw Exception(
+        "'$symbol' için karar alınamadı (HTTP ${response.statusCode})",
+      );
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes));
+    return Decision.fromJson(json as Map<String, dynamic>);
+  }
+}
