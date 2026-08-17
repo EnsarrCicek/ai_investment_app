@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/decision.dart';
+import '../../models/explanation.dart';
 import '../../services/api/decision_api.dart';
 
 // AŞAMA 14: Ana doküman bölüm 85'teki "Ana Ekran Taslağı" hedef görünümüne göre.
@@ -166,13 +167,7 @@ class _AssetCard extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('AIExplanationEngine henüz uygulanmadı (bkz. AŞAMA 24).'),
-                    ),
-                  );
-                },
+                onPressed: () => _showExplanationDialog(context, result.symbol),
                 child: Text('Neden $label?'),
               ),
             ),
@@ -186,5 +181,74 @@ class _AssetCard extends StatelessWidget {
     if (score == null) return 'Veri yok';
     final sign = score >= 0 ? '+' : '';
     return '$sign${score.toStringAsFixed(0)}';
+  }
+}
+
+void _showExplanationDialog(BuildContext context, String symbol) {
+  showDialog(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: Text('$symbol — Karar Gerekçesi'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: FutureBuilder<Explanation>(
+            future: DecisionApi().fetchExplanation(symbol),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Text('Hata: ${snapshot.error}');
+              }
+              return _ExplanationContent(explanation: snapshot.data!);
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _ExplanationContent extends StatelessWidget {
+  final Explanation explanation;
+
+  const _ExplanationContent({required this.explanation});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(explanation.summary),
+          if (explanation.technicalReasons.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Teknik Analiz:', style: TextStyle(fontWeight: FontWeight.bold)),
+            for (final reason in explanation.technicalReasons) Text('•  $reason'),
+          ],
+          if (explanation.macroReasons.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Makro Etkenler:', style: TextStyle(fontWeight: FontWeight.bold)),
+            for (final reason in explanation.macroReasons) Text('•  $reason'),
+          ],
+          if (explanation.missing.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final note in explanation.missing)
+              Text(note, style: const TextStyle(color: Colors.orange, fontStyle: FontStyle.italic)),
+          ],
+        ],
+      ),
+    );
   }
 }
