@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import analysis, assets, decisions, portfolio, risk
+from app.api import analysis, assets, backtest, decisions, portfolio, risk
 
 app = FastAPI(title="AI Yatirim Analiz Backend")
 
@@ -9,6 +9,7 @@ app.include_router(analysis.router)
 app.include_router(decisions.router)
 app.include_router(portfolio.router)
 app.include_router(risk.router)
+app.include_router(backtest.router)
 
 
 @app.get("/health")
