@@ -1295,3 +1295,49 @@ Doğrulama sırasında emulator'ün ağ bağlantısı geçici olarak yavaşladı
 
 **Tarih / Not:**
 17.08.2026 — Ek Flutter ekranları (Varlık Detayı 4 sekme, Makro, Ayarlar) gerçek emulator'de uçtan uca test edildi, commit `809195c`.
+
+---
+
+## 33. İlk Otomatik Test Paketi (17.08.2026)
+
+Projede daha önce hiç otomatik test yoktu — backend'de sıfır test dosyası, Flutter'da yalnızca `flutter create`'in ürettiği, hiç özelleştirilmemiş şablon `widget_test.dart` (var olmayan bir sayaç uygulamasını test ediyordu, `Firebase.initializeApp()` mock'lanmadığı için zaten patlıyordu). Bütün doğrulamalar bu güne kadar manuel yapılıyordu (curl + emulator screenshot). Kullanıcının "başka eksik var mı" sorusuna verilen kapsamlı kod taramasının ardından "test yaz" talebiyle eklendi.
+
+**Kapsam kararı:** Firestore/ağ gerektiren repository ve API endpoint entegrasyon testleri (Firestore emulator kurulumu gerektirir) ile Firebase Auth mock'lanması gereken widget testleri **kapsam dışı** bırakıldı. Bunun yerine, zaten constructor'dan provider/repo enjekte edilebilecek şekilde tasarlanmış (bu proje baştan beri bu şekilde yazılmıştı) **saf/deterministik mantık** için birim testleri yazıldı — Firestore/Yahoo Finance'e hiç gitmeden, hızlı ve güvenilir.
+
+**Backend — `backend/tests/` (pytest, 36 test):**
+```text
+conftest.py            → FakeMarketDataProvider fixture (sabit fiyat/geçmiş veri döndüren sahte provider)
+test_indicators.py     → indicators.py'nin 8 fonksiyonu (sma, ema, rsi, macd, bollinger_bands, atr,
+                          momentum, roc, volume_sma) — sentetik seriler üzerinde
+test_decision_engine.py → _classify() eşik sınıflandırması (parametrize, 11 sınır durumu) + decide()'ın
+                          eksik-veri ağırlık normalizasyonu ve persist=False'a saygı göstermesi
+test_pnl_calculator.py → kâr/zarar/getiri hesabı (kâr, zarar, sıfır-yatırım durumu)
+test_risk_engine.py    → portfolio_concentration (tek varlık/eşit dağılım/boş) + enjekte edilmiş
+                          provider ile asset_risk
+test_backtest_engine.py → technical_score_series sınırları + simulate()'in al-sat sinyali, düz kalma
+                          ve dönem sonu açık pozisyon kapatma senaryoları
+```
+`requirements.txt`'e `pytest==9.1.1` (+ `iniconfig`, `packaging`, `pluggy`, `Pygments`) eklendi. Çalıştırma: `.venv/Scripts/python.exe -m pytest tests/` (backend/ dizininden — `-m` modül çağrısı cwd'yi otomatik `sys.path`'e ekliyor, bu proje zaten `-m uvicorn` ile aynı desenle çalıştırılıyordu, ekstra `pytest.ini`/`conftest.py` yol ayarı gerekmedi).
+
+**Flutter — `test/` (flutter_test, 12 test):**
+```text
+test/widget_test.dart          → KALDIRILDI (bozuk şablon)
+test/utils/decision_style_test.dart      → decisionLabel/decisionColor (5 bilinen karar + bilinmeyen durum)
+test/models/decision_test.dart           → Decision.fromJson (tüm alanlar + created_at eksik durumu)
+test/models/portfolio_position_test.dart → PortfolioPosition.fromJson (çoklu lot birleşimi + hata durumu),
+                                            PortfolioSummary.fromJson
+test/models/backtest_result_test.dart    → BacktestTrade/BacktestResult.fromJson (iç içe işlem listesi)
+```
+
+**Doğrulama:**
+```text
+.venv/Scripts/python.exe -m pytest tests/ -v   → 36 passed
+flutter test                                    → 12 passed (+0)
+flutter analyze                                 → No issues found!
+```
+
+**Karşılaşılan hata / çözüm (test yazarken gerçek bir edge-case bulundu):**
+İlk RSI testi ("kesinlikle artan bir seri için RSI >95 olmalı") başarısız oldu — sonuç 50 çıktı. Kök neden kodda değil, test verisinde: `indicators.py`'nin `rsi()` fonksiyonu, mutlak monoton (hiç kaybı olmayan) bir seride `avg_loss` tam 0 olduğu için `rs = avg_gain/0` → NaN → `.fillna(50)` (nötr) devreye giriyor — RSI'ın klasik "tüm kazanç = 100" beklentisinin aksine. Bu, gerçek piyasa verisinde (asla mutlak monoton olmayan) neredeyse hiç karşılaşılmayan bir durum; kod değiştirilmedi, test küçük ara düşüşler içeren daha gerçekçi bir seriyle güncellendi ve bu davranış bir yorumla belgelendi.
+
+**Tarih / Not:**
+17.08.2026 — İlk otomatik test paketi (48 test, backend+Flutter) eklendi ve tamamı yeşil, commit `a760317`.
