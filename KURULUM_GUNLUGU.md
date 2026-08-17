@@ -1203,3 +1203,46 @@ lib/services/api/portfolio_api.dart    → her istek FirebaseAuth.instance.curre
 
 **Tarih / Not:**
 17.08.2026 — Login/Auth + backend token doğrulama uçtan uca test edildi, commit `9a10d66`. Bilinen sınır: e-posta doğrulama (email verification) ve şifre sıfırlama akışı bu MVP'de henüz yok; tek kullanıcı için şu an gerekli görülmedi.
+
+---
+
+## 31. AŞAMA 28-29 — BacktestEngine & Walk-Forward Optimization (17.08.2026)
+
+Geçmiş fiyat verisi üzerinde DecisionEngine'in ürettiği sinyallerin gerçekte ne kadar iyi çalıştığını ölçen iki backend motoru.
+
+**Kapsam kararı:** Yalnızca `technical_score` kullanılıyor. `news_score` zaten hiç mevcut değil (EventIntelligenceEngine, LLM bekliyor); `macro_score`'un ise günlük geçmiş serisi henüz saklanmıyor (`macro_snapshots` yalnızca "son görülen" durumu tutuyor, ana doküman kural 6). DecisionEngine'in "Missing Data Davranışı" ilkesi sayesinde bu, kararın yanlış olmasına değil, mevcut tek skorun ağırlığının otomatik %100'e normalize edilmesine yol açıyor — canlı sistemle birebir aynı davranış sözleşmesi.
+
+**Oluşturulan dosyalar (backend):**
+```text
+app/engines/backtest/engine.py        → technical_score_series() (TechnicalAnalysisEngine ile aynı
+                                          formül, vektörize/tüm seri için), simulate() (sinyalde
+                                          pozisyon aç/kapat stratejisi), BacktestEngine.run()
+app/engines/backtest/walk_forward.py  → WalkForwardOptimizer: veriyi kayan pencerelere bölüp karar
+                                          eşiklerini yalnızca eğitim penceresinde seçer, test
+                                          penceresinde (out-of-sample) dener
+app/api/backtest.py                    → GET /backtest/{symbol}?period=2y
+                                          GET /backtest/{symbol}/walk-forward?period=3y
+app/main.py                            → backtest router bağlandı
+```
+
+**Mimari not (bilinçli, dokümante edilmiş):** `technical_score` formülü `TechnicalAnalysisEngine.analyze_with_id` ile elle senkronize tutuluyor, ortak bir yardımcıya taşınmadı — canlı motor yalnızca son günü hesaplarken backtest tüm seriyi vektörize hesaplaması gerektiğinden, paylaşılan soyutlama şu an için gereğinden fazla karmaşıklık katardı (bkz. proje ilkesi: erken soyutlamadan kaçınma).
+
+**Walk-forward tasarım kararı:** Optimize edilen parametre 6 teknik gösterge ağırlığı değil, yalnızca DecisionEngine'in karar eşikleri (buy/weak_buy/weak_sell/sell) — küçük ve yorumlanabilir bir arama uzayı (3 aday: varsayılan/agresif/muhafazakar), "ne kadar sık işlem yapılsın" sorusuna doğrudan karşılık geliyor.
+
+**Doğrulama (gerçek Yahoo Finance verisiyle):**
+```text
+GET /backtest/THYAO?period=2y
+→ 12 işlem, %50 kazanma oranı, toplam getiri -2.43% (al-tut: +9.31%), max drawdown -19.3%
+
+GET /backtest/THYAO/walk-forward?period=3y
+→ 6 pencere, pencere kazanma oranı %33.33, out-of-sample bileşik getiri: -14.8%
+```
+Sayılar iç tutarlı (equity curve, işlem giriş/çıkış fiyatları, pencere tarihleri ardışık). Walk-forward sonucunun düz backtest'ten daha kötü çıkması **beklenen ve dürüst bir sonuç** — basit backtest, eşikleri tüm veriye bakarak seçmenin (üstü kapalı) avantajını taşırken, walk-forward bunu engelliyor ve stratejinin gerçek zamanlı koşullarda ne kadar zayıf kaldığını gösteriyor; sayı iyi görünsün diye ayarlanmadı.
+
+**Flutter tarafı:** Şu an yok — RiskEngine (AŞAMA 33, [Bölüm 24](#24-aşama-33--riskengine)) gibi bilinçli olarak backend-only bırakıldı.
+
+**Karşılaşılan hata / çözüm:**
+Yok — ilk denemede sorunsuz çalıştı.
+
+**Tarih / Not:**
+17.08.2026 — BacktestEngine ve WalkForwardOptimizer gerçek THYAO verisiyle uçtan uca test edildi, commit `3638fcf`.
