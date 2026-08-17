@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import get_current_user_id
 from app.models.portfolio_position import PortfolioPosition
 from app.repositories.portfolio_repository import PortfolioRepository
-from app.schemas.portfolio import PortfolioPositionCreate
+from app.schemas.portfolio import PortfolioPositionCreate, PortfolioPositionUpdate
 from app.services.portfolio.pnl_calculator import calculate_pnl
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
@@ -68,6 +68,15 @@ def list_positions(user_id: str = Depends(get_current_user_id)):
             "total_return_percent": total_return_pct,
         },
     }
+
+
+@router.put("/positions/{asset}")
+def update_position(asset: str, payload: PortfolioPositionUpdate, user_id: str = Depends(get_current_user_id)):
+    position = PortfolioPosition(
+        user_id=user_id, asset=asset, **payload.model_dump(), created_at=datetime.now(timezone.utc)
+    )
+    position_id = PortfolioRepository().replace_for_asset(user_id, asset, position)
+    return {"id": position_id, **position.model_dump()}
 
 
 @router.delete("/positions/{asset}")

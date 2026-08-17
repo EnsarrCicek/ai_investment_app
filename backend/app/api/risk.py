@@ -16,6 +16,30 @@ def get_asset_risk(symbol: str):
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+@router.get("/{symbol}/liquidity")
+def get_asset_liquidity(symbol: str, quantity: float):
+    try:
+        return RiskEngine().asset_liquidity(symbol.upper(), quantity)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/{symbol}/gap")
+def get_asset_gap_risk(symbol: str):
+    try:
+        return RiskEngine().gap_risk(symbol.upper())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/{symbol}/market")
+def get_asset_market_risk(symbol: str):
+    try:
+        return RiskEngine().market_risk(symbol.upper())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @router.get("/portfolio/concentration")
 def get_portfolio_concentration(user_id: str = Depends(get_current_user_id)):
     records = PortfolioRepository().list_for_user(user_id)
@@ -28,3 +52,13 @@ def get_portfolio_concentration(user_id: str = Depends(get_current_user_id)):
         position_values[position.asset] = position_values.get(position.asset, 0.0) + pnl["current_value"]
 
     return RiskEngine().portfolio_concentration(position_values)
+
+
+@router.get("/portfolio/correlation")
+def get_portfolio_correlation(user_id: str = Depends(get_current_user_id)):
+    records = PortfolioRepository().list_for_user(user_id)
+    symbols = [position.asset for _position_id, position in records]
+    try:
+        return RiskEngine().portfolio_correlation(symbols)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))

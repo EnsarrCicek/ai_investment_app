@@ -53,6 +53,26 @@ class PortfolioApi {
     }
   }
 
+  Future<void> updatePosition({
+    required String asset,
+    required double buyPrice,
+    required double quantity,
+    required DateTime buyDate,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/portfolio/positions/$asset'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'buy_price': buyPrice,
+        'quantity': quantity,
+        'buy_date': buyDate.toIso8601String(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Pozisyon güncellenemedi (HTTP ${response.statusCode})');
+    }
+  }
+
   Future<void> deletePosition(String asset) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/portfolio/positions/$asset'),

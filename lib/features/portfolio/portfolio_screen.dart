@@ -35,31 +35,43 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     });
   }
 
-  Future<void> _showAddDialog() async {
-    String asset = _availableAssets.first;
-    final priceController = TextEditingController();
-    final quantityController = TextEditingController();
+  Future<void> _showPositionDialog({PortfolioPosition? existing}) async {
+    final isEdit = existing != null;
+    String asset = existing?.asset ?? _availableAssets.first;
+    final priceController = TextEditingController(text: existing?.buyPrice.toString());
+    final quantityController = TextEditingController(text: existing?.quantity.toStringAsFixed(0));
 
-    final added = await showDialog<bool>(
+    final saved = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Pozisyon Ekle'),
+          title: Text(isEdit ? 'Pozisyonu Düzenle' : 'Pozisyon Ekle'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: asset,
-                items: _availableAssets
-                    .map((a) => DropdownMenuItem(value: a, child: Text(a)))
-                    .toList(),
-                onChanged: (v) => asset = v ?? asset,
-                decoration: const InputDecoration(labelText: 'Varlık'),
-              ),
+              if (isEdit)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(asset, style: Theme.of(context).textTheme.titleMedium),
+                  ),
+                )
+              else
+                DropdownButtonFormField<String>(
+                  initialValue: asset,
+                  items: _availableAssets
+                      .map((a) => DropdownMenuItem(value: a, child: Text(a)))
+                      .toList(),
+                  onChanged: (v) => asset = v ?? asset,
+                  decoration: const InputDecoration(labelText: 'Varlık'),
+                ),
               TextField(
                 controller: priceController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Alış Fiyatı (TL)'),
+                decoration: InputDecoration(
+                  labelText: isEdit ? 'Ort. Alış Fiyatı (TL)' : 'Alış Fiyatı (TL)',
+                ),
               ),
               TextField(
                 controller: quantityController,
@@ -78,22 +90,31 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 final price = double.tryParse(priceController.text);
                 final quantity = double.tryParse(quantityController.text);
                 if (price == null || quantity == null) return;
-                await _api.createPosition(
-                  asset: asset,
-                  buyPrice: price,
-                  quantity: quantity,
-                  buyDate: DateTime.now(),
-                );
+                if (isEdit) {
+                  await _api.updatePosition(
+                    asset: asset,
+                    buyPrice: price,
+                    quantity: quantity,
+                    buyDate: DateTime.now(),
+                  );
+                } else {
+                  await _api.createPosition(
+                    asset: asset,
+                    buyPrice: price,
+                    quantity: quantity,
+                    buyDate: DateTime.now(),
+                  );
+                }
                 if (context.mounted) Navigator.pop(context, true);
               },
-              child: const Text('Ekle'),
+              child: Text(isEdit ? 'Kaydet' : 'Ekle'),
             ),
           ],
         );
       },
     );
 
-    if (added == true) _reload();
+    if (saved == true) _reload();
   }
 
   @override
@@ -101,7 +122,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Portföy')),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddDialog,
+        onPressed: () => _showPositionDialog(),
         child: const Icon(Icons.add),
       ),
       body: FutureBuilder<(List<PortfolioPosition>, PortfolioSummary)>(
@@ -131,6 +152,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     final p = positions[index];
                     return _PositionTile(
                       position: p,
+                      onEdit: () => _showPositionDialog(existing: p),
                       onDelete: () async {
                         await _api.deletePosition(p.asset);
                         _reload();
@@ -191,9 +213,10 @@ class _SummaryCard extends StatelessWidget {
 
 class _PositionTile extends StatelessWidget {
   final PortfolioPosition position;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  const _PositionTile({required this.position, required this.onDelete});
+  const _PositionTile({required this.position, required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -219,6 +242,10 @@ class _PositionTile extends StatelessWidget {
                 '${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(0)} TL',
                 style: TextStyle(color: color, fontWeight: FontWeight.bold),
               ),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: onEdit,
+            ),
             IconButton(
               icon: const Icon(Icons.delete_outline),
               onPressed: onDelete,

@@ -7,14 +7,12 @@ COLLECTION = "portfolio_positions"
 
 
 class PortfolioRepository:
-    """Not: ai_decisions/technical_analyses'in aksine bu kullanıcı verisidir (bölüm 37) —
+    """Not: ai_decisions/technical_analiz'in aksine bu kullanıcı verisidir (bölüm 37) —
     immutable DEĞİLDİR; kullanıcı kendi pozisyonunu düzenleyebilir/silebilir.
 
-    GÜVENLİK NOTU: Auth/Login ekranı henüz yazılmadı (bkz. KURULUM_GUNLUGU AŞAMA 4).
-    Bu yüzden user_id şu an istemciden düz parametre olarak alınıyor — bu geçici bir
-    MVP kısayoludur. Production öncesi mutlaka Firebase Auth token'ından doğrulanmalı
-    ve Firestore Security Rules ile "kullanıcı yalnız kendi verisini okur/yazar"
-    kuralı (ana doküman bölüm 34) uygulanmalıdır.
+    Güvenlik: user_id artık backend'de Firebase ID token'ından doğrulanıyor
+    (bkz. app/core/auth.py, AŞAMA 4/34) — bu repository'ye her zaman zaten
+    doğrulanmış bir user_id gelir.
     """
 
     def __init__(self):
@@ -41,3 +39,13 @@ class PortfolioRepository:
         )
         for doc in docs:
             doc.reference.delete()
+
+    def replace_for_asset(self, user_id: str, asset: str, position: PortfolioPosition) -> str:
+        """O varlığa ait tüm lotları tek bir yeni lotla değiştirir (AŞAMA 30-31
+        Devam — Pozisyon Düzenleme). Görünüm zaten lotları birleştirdiği için
+        (ortalama maliyet) düzenleme de "bu pozisyonu şu yeni değerlerle
+        değiştir" olarak tanımlanıyor; münferit lot geçmişi bilinçli olarak
+        feda ediliyor.
+        """
+        self.delete_for_asset(user_id, asset)
+        return self.add(position)
