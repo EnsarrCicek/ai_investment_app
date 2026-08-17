@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // portfolio_positions: kullanıcı yalnızca kendi verisini okuyabilir/silebilir,
+    // create sırasında user_id alanı token'daki uid ile eşleşmek zorunda (AŞAMA 34).
+    // Not: Backend Firebase Admin SDK kullanır ve bu kuralları bypass eder — bu
+    // dosya, ileride doğrudan istemci erişimi eklenirse devreye giren bir
+    // savunma katmanıdır (defense-in-depth).
+    match /portfolio_positions/{positionId} {
+      allow read, delete: if request.auth != null && request.auth.uid == resource.data.user_id;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.user_id;
+      allow update: if false;
+    }
+
+    // Piyasa geneli/analiz verisi (ai_decisions, technical_analyses, macro_snapshots
+    // vb.) yalnızca backend'in Admin SDK'sı üzerinden yazılır; istemci doğrudan
+    // erişemez.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

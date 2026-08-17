@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.auth import get_current_user_id
 from app.models.portfolio_position import PortfolioPosition
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.schemas.portfolio import PortfolioPositionCreate
@@ -11,16 +12,16 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
 
 @router.post("/positions")
-def create_position(payload: PortfolioPositionCreate):
+def create_position(payload: PortfolioPositionCreate, user_id: str = Depends(get_current_user_id)):
     position = PortfolioPosition(
-        **payload.model_dump(), created_at=datetime.now(timezone.utc)
+        user_id=user_id, **payload.model_dump(), created_at=datetime.now(timezone.utc)
     )
     position_id = PortfolioRepository().add(position)
     return {"id": position_id, **position.model_dump()}
 
 
 @router.get("/positions")
-def list_positions(user_id: str):
+def list_positions(user_id: str = Depends(get_current_user_id)):
     records = PortfolioRepository().list_for_user(user_id)
 
     lots_by_asset: dict[str, list[PortfolioPosition]] = {}
@@ -70,6 +71,6 @@ def list_positions(user_id: str):
 
 
 @router.delete("/positions/{asset}")
-def delete_position(asset: str, user_id: str):
+def delete_position(asset: str, user_id: str = Depends(get_current_user_id)):
     PortfolioRepository().delete_for_asset(user_id, asset)
     return {"deleted_asset": asset}

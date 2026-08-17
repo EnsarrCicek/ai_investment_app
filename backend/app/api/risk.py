@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.auth import get_current_user_id
 from app.engines.risk.engine import RiskEngine
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.services.portfolio.pnl_calculator import calculate_pnl
@@ -16,7 +17,7 @@ def get_asset_risk(symbol: str):
 
 
 @router.get("/portfolio/concentration")
-def get_portfolio_concentration(user_id: str):
+def get_portfolio_concentration(user_id: str = Depends(get_current_user_id)):
     records = PortfolioRepository().list_for_user(user_id)
     position_values: dict[str, float] = {}
     for _position_id, position in records:

@@ -1,11 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/portfolio_position.dart';
 import '../../services/api/portfolio_api.dart';
-
-// AŞAMA 4'te gerçek bir Login ekranı henüz yazılmadığı için tek bir demo
-// kullanıcı kimliğiyle çalışılıyor (bkz. KURULUM_GUNLUGU.md AŞAMA 30-31 notu).
-const String _demoUserId = 'demo_user';
 
 const List<String> _availableAssets = [
   'THYAO',
@@ -30,12 +27,12 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _api.fetchPositions(_demoUserId);
+    _future = _api.fetchPositions();
   }
 
   void _reload() {
     setState(() {
-      _future = _api.fetchPositions(_demoUserId);
+      _future = _api.fetchPositions();
     });
   }
 
@@ -83,7 +80,6 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 final quantity = double.tryParse(quantityController.text);
                 if (price == null || quantity == null) return;
                 await _api.createPosition(
-                  userId: _demoUserId,
                   asset: asset,
                   buyPrice: price,
                   quantity: quantity,
@@ -104,7 +100,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Portföy')),
+      appBar: AppBar(
+        title: const Text('Portföy'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Çıkış Yap',
+            onPressed: () => FirebaseAuth.instance.signOut(),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddDialog,
         child: const Icon(Icons.add),
@@ -137,7 +142,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     return _PositionTile(
                       position: p,
                       onDelete: () async {
-                        await _api.deletePosition(userId: _demoUserId, asset: p.asset);
+                        await _api.deletePosition(p.asset);
                         _reload();
                       },
                     );

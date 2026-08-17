@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/portfolio_position.dart';
@@ -7,8 +8,19 @@ import '../../models/portfolio_position.dart';
 class PortfolioApi {
   static const String baseUrl = 'http://10.0.2.2:8000';
 
-  Future<(List<PortfolioPosition>, PortfolioSummary)> fetchPositions(String userId) async {
-    final response = await http.get(Uri.parse('$baseUrl/portfolio/positions?user_id=$userId'));
+  Future<Map<String, String>> _authHeaders() async {
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
+  Future<(List<PortfolioPosition>, PortfolioSummary)> fetchPositions() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/portfolio/positions'),
+      headers: await _authHeaders(),
+    );
     if (response.statusCode != 200) {
       throw Exception('Portföy alınamadı (HTTP ${response.statusCode})');
     }
@@ -21,7 +33,6 @@ class PortfolioApi {
   }
 
   Future<void> createPosition({
-    required String userId,
     required String asset,
     required double buyPrice,
     required double quantity,
@@ -29,9 +40,8 @@ class PortfolioApi {
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/portfolio/positions'),
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode({
-        'user_id': userId,
         'asset': asset,
         'buy_price': buyPrice,
         'quantity': quantity,
@@ -43,9 +53,10 @@ class PortfolioApi {
     }
   }
 
-  Future<void> deletePosition({required String userId, required String asset}) async {
+  Future<void> deletePosition(String asset) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/portfolio/positions/$asset?user_id=$userId'),
+      Uri.parse('$baseUrl/portfolio/positions/$asset'),
+      headers: await _authHeaders(),
     );
     if (response.statusCode != 200) {
       throw Exception('Pozisyon silinemedi (HTTP ${response.statusCode})');
