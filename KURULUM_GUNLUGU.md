@@ -1246,3 +1246,52 @@ Yok — ilk denemede sorunsuz çalıştı.
 
 **Tarih / Not:**
 17.08.2026 — BacktestEngine ve WalkForwardOptimizer gerçek THYAO verisiyle uçtan uca test edildi, commit `3638fcf`.
+
+---
+
+## 32. Ek Flutter Ekranları — Varlık Detayı, Makro, Ayarlar (17.08.2026)
+
+Ana doküman bölüm 86'da listelenen ek ekranlardan (Teknik Analiz detay, Haber Analizi, Makro Analiz, Geçmiş Kararlar, Performans, Ayarlar) hepsi tek oturumda eklendi.
+
+**Navigasyon kararı (kullanıcıya soruldu):** Teknik/Haberler/Geçmiş/Performans varlık-bazında olduğu için Dashboard'daki her hisse kartı tıklanabilir yapıldı ve 4 sekmeli (Teknik/Haberler/Geçmiş/Performans) tek bir `AssetDetailScreen`'e yönlendirildi — alt navigasyona 6 ayrı sekme eklemek yerine. Makro (piyasa geneli) ve Ayarlar (uygulama geneli) için alt navigasyona 2 yeni sekme eklendi (toplam 4: Analiz/Portföy/Makro/Ayarlar). Ayarlar sade tutuldu: hesap e-postası, uygulama sürümü, çıkış yap — karar ağırlıklarının ekrandan düzenlenmesi (system_config) kapsam dışı bırakıldı.
+
+**Backend'de eksik olup eklenen parçalar:**
+```text
+app/api/news.py                          → GET /news/{symbol}: YahooNewsProvider ile canlı haber
+                                             çekip NewsRawRepository'ye upsert eder, listeyi döner
+app/repositories/ai_decision_repository.py → list_for_asset(asset, limit) eklendi (önceden yalnızca
+                                             get_latest vardı, geçmiş karar listesi mümkün değildi)
+app/api/decisions.py                      → GET /decisions/{symbol}/history eklendi
+```
+`GET /analysis/{symbol}/technical` ve `GET /analysis/macro` (AŞAMA 18/22'den) ve `GET /backtest/{symbol}` (AŞAMA 28) zaten mevcuttu, değiştirilmedi.
+
+**Oluşturulan dosyalar (Flutter):**
+```text
+lib/utils/decision_style.dart                 → decisionLabel()/decisionColor() — Dashboard'daki
+                                                  private kopyalar buradan tek kaynağa taşındı
+lib/models/technical_analysis.dart, macro_snapshot.dart, news_item.dart, backtest_result.dart
+lib/services/api/analysis_api.dart, news_api.dart, backtest_api.dart
+lib/services/api/decision_api.dart            → fetchHistory() eklendi
+lib/features/asset_detail/asset_detail_screen.dart → 4 sekme: Teknik (gösterge katkıları + ham
+                                                  değerler), Haberler ("ham/işlenmemiş" uyarı notuyla),
+                                                  Geçmiş (kronolojik karar listesi), Performans
+                                                  (backtest özeti + işlem listesi)
+lib/features/macro/macro_screen.dart          → makro skor + 6 göstergenin katkısı/ham değeri
+lib/features/settings/settings_screen.dart    → hesap + sürüm + çıkış yap
+```
+
+**Doğrulama (gerçek Android emulator, uçtan uca):**
+1. Giriş yapıldı (bkz. aşağıdaki ağ notu), 4 sekmeli alt navigasyon (Analiz/Portföy/Makro/Ayarlar) doğrulandı.
+2. THYAO kartına dokunulup `AssetDetailScreen` açıldı; 4 sekmenin hepsi gerçek veriyle test edildi:
+   - **Teknik:** Skor -30.2/BEARISH, 6 gösterge katkısı (RSI, MACD, Trend, Bollinger, Momentum, ROC) ve ham değerler doğru göründü.
+   - **Haberler:** 5 gerçek Yahoo Finance haberi, yayıncı ve güvenilirlik yüzdesiyle; "AI analizi henüz yok" uyarı notu görünüyor.
+   - **Geçmiş:** 14.08'den 17.08'e uzanan kronolojik karar listesi, doğru renk/etiketlerle.
+   - **Performans:** Backtest özeti (Strateji -2.4%, Al-Tut +8.9%, Max Düşüş -19.3%, 12 işlem/%50) ve işlem listesi.
+3. Makro sekmesi: 6 göstergenin (DXY, ABD 10Y, VIX, Petrol, Altın, USD/TRY) hem katkı puanı hem ham değer+yüzde değişimi doğru göründü.
+4. Ayarlar sekmesi: hesap e-postası, sürüm, çıkış yap — çalıştı.
+
+**Karşılaşılan hata / çözüm (ağ dalgalanması, kod hatası değil):**
+Doğrulama sırasında emulator'ün ağ bağlantısı geçici olarak yavaşladı (ping ~500ms): (1) Firebase Auth girişi `network-request-failed` (reCAPTCHA doğrulama isteği zaman aşımı) ile art arda birkaç kez başarısız oldu, birkaç tekrar denemeden sonra geçti; (2) GARAN'ın teknik analiz sekmesinde bir kerelik `HTTP 422` hatası çıktı — backend'i doğrudan `curl` ile aynı anda test ettiğimde sorunsuz tam yanıt döndüğü görüldü, yani backend'de bir hata yoktu, yalnızca o anki istek ağ gecikmesinden etkilenmişti. Her iki durumda da hata ekranı Flutter tarafında düzgün gösterildi (uygulama çökmedi) — bu da `FutureBuilder`/`snapshot.hasError` hata yönetiminin doğru çalıştığının kanıtı.
+
+**Tarih / Not:**
+17.08.2026 — Ek Flutter ekranları (Varlık Detayı 4 sekme, Makro, Ayarlar) gerçek emulator'de uçtan uca test edildi, commit `809195c`.
