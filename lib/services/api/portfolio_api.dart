@@ -43,8 +43,10 @@ class PortfolioApi {
     }
   }
 
-  Future<void> deletePosition(String id) async {
-    final response = await http.delete(Uri.parse('$baseUrl/portfolio/positions/$id'));
+  Future<void> deletePosition({required String userId, required String asset}) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/portfolio/positions/$asset?user_id=$userId'),
+    );
     if (response.statusCode != 200) {
       throw Exception('Pozisyon silinemedi (HTTP ${response.statusCode})');
     }

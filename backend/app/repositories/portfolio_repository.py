@@ -32,5 +32,12 @@ class PortfolioRepository:
         )
         return [(doc.id, PortfolioPosition(**doc.to_dict())) for doc in docs]
 
-    def delete(self, position_id: str) -> None:
-        self._db.collection(COLLECTION).document(position_id).delete()
+    def delete_for_asset(self, user_id: str, asset: str) -> None:
+        docs = (
+            self._db.collection(COLLECTION)
+            .where(filter=FieldFilter("user_id", "==", user_id))
+            .where(filter=FieldFilter("asset", "==", asset))
+            .stream()
+        )
+        for doc in docs:
+            doc.reference.delete()

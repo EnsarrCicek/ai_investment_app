@@ -137,7 +137,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     return _PositionTile(
                       position: p,
                       onDelete: () async {
-                        await _api.deletePosition(p.id);
+                        await _api.deletePosition(userId: _demoUserId, asset: p.asset);
                         _reload();
                       },
                     );
@@ -207,11 +207,14 @@ class _PositionTile extends StatelessWidget {
 
     return Card(
       child: ListTile(
-        title: Text('${position.asset}  •  ${position.quantity.toStringAsFixed(0)} adet'),
+        title: Text(
+          '${position.asset}  •  ${position.quantity.toStringAsFixed(0)} adet'
+          '${position.lotCount > 1 ? '  (${position.lotCount} alım)' : ''}',
+        ),
         subtitle: position.error != null
             ? Text('Veri alınamadı: ${position.error}')
             : Text(
-                'Alış: ${position.buyPrice.toStringAsFixed(2)} TL   Güncel: ${position.currentPrice?.toStringAsFixed(2) ?? '-'} TL',
+                'Ort. Alış: ${position.buyPrice.toStringAsFixed(2)} TL   Güncel: ${position.currentPrice?.toStringAsFixed(2) ?? '-'} TL',
               ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
