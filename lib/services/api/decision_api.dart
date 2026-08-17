@@ -21,6 +21,15 @@ class DecisionApi {
     return Decision.fromJson(json as Map<String, dynamic>);
   }
 
+  Future<List<Decision>> fetchHistory(String symbol, {int limit = 20}) async {
+    final response = await http.get(Uri.parse('$baseUrl/decisions/$symbol/history?limit=$limit'));
+    if (response.statusCode != 200) {
+      throw Exception("'$symbol' için karar geçmişi alınamadı (HTTP ${response.statusCode})");
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return json.map((e) => Decision.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   Future<Explanation> fetchExplanation(String symbol) async {
     final response = await http.get(Uri.parse('$baseUrl/decisions/$symbol/explanation'));
     if (response.statusCode != 200) {

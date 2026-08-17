@@ -21,13 +21,15 @@ class AIDecisionRepository:
         return doc_ref.id
 
     def get_latest(self, asset: str) -> AIDecision | None:
+        records = self.list_for_asset(asset, limit=1)
+        return records[0] if records else None
+
+    def list_for_asset(self, asset: str, limit: int = 20) -> list[AIDecision]:
         docs = (
             self._db.collection(COLLECTION)
             .where(filter=FieldFilter("asset", "==", asset))
             .stream()
         )
         records = [AIDecision(**doc.to_dict()) for doc in docs]
-        if not records:
-            return None
         records.sort(key=lambda r: r.created_at, reverse=True)
-        return records[0]
+        return records[:limit]

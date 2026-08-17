@@ -1,9 +1,10 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/decision.dart';
 import '../../models/explanation.dart';
 import '../../services/api/decision_api.dart';
+import '../../utils/decision_style.dart';
+import '../asset_detail/asset_detail_screen.dart';
 
 // AŞAMA 14: Ana doküman bölüm 85'teki "Ana Ekran Taslağı" hedef görünümüne göre.
 const List<String> _testAssets = [
@@ -14,27 +15,6 @@ const List<String> _testAssets = [
   'EREGL',
   'TUPRS',
 ];
-
-const Map<String, String> _decisionLabels = {
-  'BUY': 'AL',
-  'WEAK_BUY': 'ZAYIF AL',
-  'HOLD': 'TUT',
-  'WEAK_SELL': 'ZAYIF SAT',
-  'SELL': 'SAT',
-};
-
-Color _decisionColor(String decision) {
-  switch (decision) {
-    case 'BUY':
-    case 'WEAK_BUY':
-      return Colors.green;
-    case 'SELL':
-    case 'WEAK_SELL':
-      return Colors.red;
-    default:
-      return Colors.grey;
-  }
-}
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -76,16 +56,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Piyasa Analizi'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Çıkış Yap',
-            onPressed: () => FirebaseAuth.instance.signOut(),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Piyasa Analizi')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<List<_AssetResult>>(
@@ -141,47 +112,53 @@ class _AssetCard extends StatelessWidget {
     }
 
     final decision = result.decision!;
-    final label = _decisionLabels[decision.decision] ?? decision.decision;
-    final color = _decisionColor(decision.decision);
+    final label = decisionLabel(decision.decision);
+    final color = decisionColor(decision.decision);
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(result.symbol, style: Theme.of(context).textTheme.titleLarge),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => AssetDetailScreen(symbol: result.symbol)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(result.symbol, style: Theme.of(context).textTheme.titleLarge),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                    ),
                   ),
-                  child: Text(
-                    label,
-                    style: TextStyle(color: color, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('Confidence: %${decision.confidence.toStringAsFixed(0)}'),
-            const SizedBox(height: 4),
-            Text('Technical: ${_fmtScore(decision.technicalScore)}'),
-            Text('News: ${_fmtScore(decision.newsScore)}'),
-            Text('Macro: ${_fmtScore(decision.macroScore)}'),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () => _showExplanationDialog(context, result.symbol),
-                child: Text('Neden $label?'),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text('Confidence: %${decision.confidence.toStringAsFixed(0)}'),
+              const SizedBox(height: 4),
+              Text('Technical: ${_fmtScore(decision.technicalScore)}'),
+              Text('News: ${_fmtScore(decision.newsScore)}'),
+              Text('Macro: ${_fmtScore(decision.macroScore)}'),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => _showExplanationDialog(context, result.symbol),
+                  child: Text('Neden $label?'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
