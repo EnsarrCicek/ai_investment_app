@@ -1078,3 +1078,128 @@ Eski makineden farklı olarak bu bilgisayarda karşılaşılan tek yeni sorun **
 - Commit öncesi kontrol: `backend/.env`, `backend/.venv`, herhangi bir servis hesabı/`.pem` dosyası staged listede **yoktu**; `android/app/google-services.json` normal şekilde eklendi (client config, gizli anahtar değil).
 - İlk commit: 182 dosya, "İlk commit: AI Yatırım Analiz uygulaması (Flutter + FastAPI backend)".
 - **Uzak depo (GitHub vb.) henüz bağlanmadı** — bu tamamen yerel bir depo. İleride uzak bir depoya push edilmek istenirse ayrıca ele alınmalı.
+
+---
+
+## 28. AŞAMA 30-31 (Devam) — Portföy Ortalama Maliyet Birleştirme (17.08.2026)
+
+Aynı varlıktan (ör. THYAO) birden fazla farklı fiyattan alım yapıldığında, portföy listesinde her alımın ayrı bir satır olarak görünmesi yerine tek satırda ağırlıklı ortalama maliyetle birleştirilmesi istendi.
+
+**Değişen dosyalar (backend):**
+```text
+app/api/portfolio.py                 → GET /portfolio/positions artık kayıtları asset'e göre grupluyor,
+                                         ağırlıklı ortalama alış fiyatı = sum(qty×price)/sum(qty) hesaplıyor
+app/repositories/portfolio_repository.py → delete() kaldırıldı, yerine delete_for_asset(user_id, asset)
+                                         eklendi (bir varlığa ait tüm lotları tek seferde siler)
+```
+Firestore'da her alım **hâlâ ayrı bir doküman** olarak saklanıyor (işlem geçmişi/audit trail korunuyor) — birleştirme yalnızca `GET` yanıtında, sunum katmanında yapılıyor. `DELETE /portfolio/positions/{asset}` artık tek bir lot değil, o varlığa ait tüm lotları siliyor (liste ekranında artık tek satır olarak göründükleri için).
+
+**Değişen dosyalar (Flutter):**
+```text
+lib/models/portfolio_position.dart   → id alanı kaldırıldı, lotCount eklendi
+lib/services/api/portfolio_api.dart  → deletePosition artık asset bazlı
+lib/features/portfolio/portfolio_screen.dart → birden fazla lot varsa "(N alım)" etiketi gösteriliyor
+```
+
+**Doğrulama (gerçek Firestore + emulator):**
+```text
+POST asset=GARAN buy_price=100 quantity=5
+POST asset=GARAN buy_price=200 quantity=5
+GET  → {"asset":"GARAN","quantity":10,"buy_price":150.0,"lot_count":2, ...}   ← (5×100+5×200)/10=150 ✓
+```
+Emulator'de "GARAN • 10 adet (2 alım)", "Ort. Alış: 150.00 TL" olarak doğru göründü; silme her iki lotu birden temizledi.
+
+**Karşılaşılan hata / çözüm:**
+Yok — ilk denemede sorunsuz çalıştı.
+
+**Tarih / Not:**
+17.08.2026 — Ortalama maliyet birleştirme uçtan uca test edildi, commit `82865d8`.
+
+---
+
+## 29. AŞAMA 24 — AIExplanationEngine (17.08.2026)
+
+Dashboard'daki "Neden AL/SAT/TUT?" butonu o zamana kadar sadece "AIExplanationEngine henüz uygulanmadı" yazan bir placeholder'dı. Kural tabanlı (LLM'siz) bir açıklama motoruyla dolduruldu — proje mimarisinde bilinçli olarak yalnızca EventIntelligenceEngine'in LLM'e bağımlı bırakılması kararına uygun.
+
+**Oluşturulan/değişen dosyalar (backend):**
+```text
+app/engines/explanation/engine.py   → ExplanationEngine: TechnicalAnalysisEngine ve MacroAnalysisEngine'in
+                                        bileşen kırılımını (RSI, MACD, trend, VIX, DXY, vb.) en etkili 3
+                                        faktöre göre sıralayıp Türkçe cümlelere çeviriyor
+app/api/decisions.py                → GET /decisions/{symbol}/explanation eklendi
+```
+Üretilen açıklama, AI Decision History'e **yazılmıyor** (`persist=False`) — bu uç nokta yalnızca mevcut kararın gerekçesini gösterir, yeni bir resmi karar kaydı oluşturmaz.
+
+**Oluşturulan/değişen dosyalar (Flutter):**
+```text
+lib/models/explanation.dart                  → Explanation modeli
+lib/services/api/decision_api.dart           → fetchExplanation eklendi
+lib/features/dashboard/dashboard_screen.dart → "Neden X?" butonu artık gerçek bir AlertDialog açıyor
+```
+
+**Doğrulama (gerçek Firestore + Yahoo Finance + emulator):**
+```text
+GET /decisions/THYAO/explanation
+→ "THYAO için 'ZAYIF SAT' kararı verildi (final skor: -17.3, güven: %57)."
+   Teknik: Bollinger Bantları -45.3, ROC -27.1, Momentum -26.4 (hepsi olumsuz)
+   Makro: Altın -90.0, VIX +27.7, ABD 10Y Faizi -16.6
+   Not: "Haber analizi (EventIntelligenceEngine) henüz uygulanmadı, karara dahil edilmedi."
+```
+Emulator'de diyalog gerçek verilerle doğru göründü, Kapat butonu düzgün çalıştı.
+
+**Karşılaşılan hata / çözüm:**
+Yok — ilk denemede sorunsuz çalıştı.
+
+**Tarih / Not:**
+17.08.2026 — AIExplanationEngine uçtan uca test edildi, commit `d301a96`.
+
+---
+
+## 30. AŞAMA 4/34 — Firebase Auth Login Ekranı + Backend Token Doğrulama (17.08.2026)
+
+AŞAMA 23/25'te (bkz. [Bölüm 23](#23-aşama-30-31--portföy-modülü--kâr-zarar)) bilinçli olarak ertelenen güvenlik eksiği kapatıldı: gerçek bir Login/Register ekranı ve backend'de Firebase ID token doğrulaması eklendi. `demo_user` sabit kullanıcı kimliği tamamen kaldırıldı.
+
+**Karar (kullanıcıya soruldu, ikisi de "Önerilen" seçildi):**
+1. Giriş yöntemi: **E-posta/Şifre** (Google Sign-In'in gerektirdiği ekstra OAuth kurulumu istenmedi).
+2. Backend güvenliği: **Gerçek token doğrulama** — yalnızca UI eklemek "görsel" kalırdı, çünkü backend Firestore'a Admin SDK ile bağlanıyor ve bu, Firestore Security Rules'ı tamamen bypass ediyor. Gerçek güvenlik sınırı ancak backend'in her istekte Firebase ID token'ı doğrulamasıyla sağlanabilir.
+
+**Oluşturulan/değişen dosyalar (backend):**
+```text
+app/core/auth.py            → get_current_user_id: Authorization: Bearer <token> header'ını
+                                firebase_admin.auth.verify_id_token ile doğrulayıp gerçek uid döner;
+                                token yoksa/geçersizse 401
+app/api/portfolio.py        → tüm endpoint'ler artık user_id parametresi yerine
+                                Depends(get_current_user_id) kullanıyor
+app/api/risk.py             → portfolio/concentration endpoint'i aynı şekilde güncellendi
+app/schemas/portfolio.py    → PortfolioPositionCreate'ten user_id alanı kaldırıldı (artık token'dan geliyor)
+```
+
+**Oluşturulan/değişen dosyalar (Flutter):**
+```text
+lib/features/auth/login_screen.dart   → e-posta/şifre ile giriş+kayıt formu (tek ekran, mod değiştirme)
+lib/main.dart                          → AuthGate: authStateChanges() dinleyip LoginScreen/RootScreen arasında geçiyor
+lib/features/dashboard/dashboard_screen.dart,
+lib/features/portfolio/portfolio_screen.dart → AppBar'a "Çıkış Yap" ikonu eklendi
+lib/services/api/portfolio_api.dart    → her istek FirebaseAuth.instance.currentUser.getIdToken() ile
+                                          Authorization header'ı ekliyor
+```
+
+**Firestore Security Rules (savunma katmanı):**
+`firestore.rules` oluşturulup `firebase deploy --only firestore:rules` ile canlı projeye deploy edildi — `portfolio_positions` koleksiyonunda kullanıcı yalnız `request.auth.uid == resource.data.user_id` eşleşen kendi verisini okur/siler, diğer tüm koleksiyonlar istemciye tamamen kapalı. **Not:** Backend Admin SDK kullandığı için bu kurallar şu an hiçbir isteği etkilemiyor — yalnızca ileride doğrudan istemci-Firestore erişimi eklenirse devreye giren bir savunma katmanı.
+
+**Karşılaşılan hata / çözüm (uzun bir zincir — sırayla elendi):**
+İlk kayıt denemesi Android logcat'te `RecaptchaCallWrapper ... CONFIGURATION_NOT_FOUND` hatasıyla başarısız oldu. Kök nedene ulaşmak için sırayla kontrol edilip düzeltildi:
+1. **Android uygulamasının SHA-1/SHA-256 sertifika parmak izleri Firebase projesine hiç kayıtlı değildi** (bu app o zamana kadar Auth kullanmadığı için gerek olmamıştı) → `keytool` ile debug keystore'dan çıkarılıp `firebase apps:android:sha:create` ile eklendi. Hata devam etti.
+2. **Proje Blaze (ücretli) planına bağlı değildi** (`gcloud billing projects describe` → `billingEnabled: false`) — Firebase Auth'un reCAPTCHA Enterprise tabanlı kötüye kullanım koruması billing gerektiriyor → kullanıcı Firebase Console'dan Blaze'e geçti, `recaptchaenterprise.googleapis.com` API'sini etkinleştirdi. Hata devam etti.
+3. **Kesin kanıt için** `identitytoolkit.googleapis.com/admin/v2/projects/{project}/config` doğrudan REST ile sorgulandı → `404 CONFIGURATION_NOT_FOUND`. Bu, yukarıdakilerin hiçbirinin asıl neden olmadığını, **bu proje için Firebase Authentication ürününün hiç başlatılmamış olduğunu** (Console'da "Get Started" hiç tıklanmamış) kanıtladı — Blaze/SHA/reCAPTCHA gerçekten eksikti ve düzeltilmesi gerekiyordu, ama asıl blokaj bu değildi.
+4. Kullanıcı Firebase Console → Authentication → "Get Started" → E-posta/Şifre sağlayıcısını etkinleştirdi → aynı config sorgusu `signIn.email.enabled: true` döndü → kayıt anında başarılı oldu, gerçek bir Firebase UID üretildi.
+
+**Doğrulama (gerçek Android emulator, uçtan uca):**
+1. Uygulama ilk açılışta LoginScreen gösterdi (henüz giriş yapılmamış).
+2. `test@example.com` ile kayıt olundu → `FirebaseAuth: Notifying id token listeners about user (0nUrHXSkxPZYYL1HnsSkmjpT4hB3)` → otomatik olarak Dashboard'a yönlendirildi.
+3. Portföy sekmesinde boş liste hatasız yüklendi (backend log: token'sız `401`, token'lı `200 OK` — net karşılaştırma).
+4. THYAO 500 TL / 3 adet eklendi, gerçek UID ile Firestore'a yazıldığı ve PnL'in doğru hesaplandığı doğrulandı; silme de çalıştı.
+5. "Çıkış Yap" ikonuna basıldı → `FirebaseAuth.instance.signOut()` → uygulama otomatik olarak LoginScreen'e geri döndü.
+
+**Tarih / Not:**
+17.08.2026 — Login/Auth + backend token doğrulama uçtan uca test edildi, commit `9a10d66`. Bilinen sınır: e-posta doğrulama (email verification) ve şifre sıfırlama akışı bu MVP'de henüz yok; tek kullanıcı için şu an gerekli görülmedi.
