@@ -29,12 +29,15 @@ httpcore==1.0.9
 httpx==0.28.1
 hyperframe==6.1.0
 idna==3.18
+iniconfig==2.3.0
 msgpack==1.2.1
 multitasking==0.0.13
 numpy==2.5.2
+packaging==26.3
 pandas==3.0.5
 peewee==4.3.0
 platformdirs==4.11.2
+pluggy==1.6.0
 proto-plus==1.28.3
 protobuf==7.35.1
 pyasn1==0.6.4
@@ -42,7 +45,9 @@ pyasn1_modules==0.4.2
 pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
+Pygments==2.21.0
 PyJWT==2.13.0
+pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 pytz==2026.3.post1
