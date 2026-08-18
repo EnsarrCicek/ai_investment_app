@@ -1341,3 +1341,55 @@ flutter analyze                                 → No issues found!
 
 **Tarih / Not:**
 17.08.2026 — İlk otomatik test paketi (48 test, backend+Flutter) eklendi ve tamamı yeşil, commit `a760317`.
+
+---
+
+## 34. RiskEngine — Kalan Risk Metrikleri + Portföy Pozisyon Düzenleme (17.08.2026)
+
+Kullanıcının kapsamlı kod taramasında (bkz. Bölüm 33'ün de kaynağı olan tarama) tespit edilen iki eksik aynı oturumda kapatıldı.
+
+**RiskEngine — 4 yeni metrik:**
+```text
+asset_liquidity(symbol, quantity)  → ortalama günlük hacme göre elden çıkarma süresi (gün)
+gap_risk(symbol)                    → önceki kapanış ile o günkü açılış arasındaki sıçrama (%)
+market_risk(symbol, benchmark)      → BIST 100 (XU100) endeksine göre beta + korelasyon
+portfolio_correlation(symbols)      → portföydeki varlıklar arası ortalama korelasyon matrisi
+```
+Yeni endpoint'ler: `GET /risk/{symbol}/liquidity|gap|market`, `GET /risk/portfolio/correlation`. 11 yeni test eklendi (`test_risk_engine.py`, toplam 43 backend testi). **Sektör riski hâlâ bilinçli olarak ertelendi** — `Asset` modelinde sektör alanı yok ve fabrikasyon veri kullanmamak ana doküman kural 11-12 gereği; gerçek bir sektör sınıflandırma kaynağı bulunana kadar eklenmeyecek.
+
+**Doğrulama (gerçek THYAO/BIST100 verisiyle):**
+```text
+GET /risk/THYAO/market → beta: 1.0266, correlation_with_market: 0.7341
+GET /risk/portfolio/correlation (THYAO+GARAN) → average_correlation: 0.7211
+```
+
+**Portföy pozisyon düzenleme:**
+`PortfolioRepository.replace_for_asset()` — o varlığa ait tüm lotları tek yeni lotla değiştirir (AŞAMA 30-31'deki ortalama-maliyet-birleştirme görünümüyle tutarlı: kullanıcı tek bir birleşik satırı düzenliyormuş gibi davranır, ayrı alım tarihleri feda edilir). `PUT /portfolio/positions/{asset}` endpoint'i eklendi. Flutter'da kalem ikonu ile açılan düzenleme diyaloğu, mevcut ortalama fiyat/adetle önceden dolduruluyor.
+
+Bu arada `portfolio_repository.py`'deki bayat "Auth henüz yazılmadı" güvenlik yorumu da güncellendi (AŞAMA 4/34'te Auth zaten yazılmıştı).
+
+**Doğrulama (emulator):** THYAO 250 TL/10 adet eklendi → kalemle 300 TL/5 adete düzenlendi → liste Toplam Yatırım: 1500 TL (5×300) olarak doğru güncellendi → silindi.
+
+**Karşılaşılan hata / çözüm:**
+Yok — ilk denemede sorunsuz çalıştı.
+
+**Tarih / Not:**
+17.08.2026 — RiskEngine'in kalan metrikleri ve portföy düzenleme uçtan uca test edildi, commit `b40a673`.
+
+---
+
+## 35. Native Gösterge Rehberi Ekranı (17.08.2026)
+
+Kullanıcı Makro Analiz ekranındaki yüzdelerin ne anlama geldiğini sordu; cevap önce bir Artifact sayfası (web) olarak yayınlandı, ardından "mobil projeye ekledin di mi" sorusu üzerine aynı içeriğin **native Flutter karşılığı** istendi ve eklendi.
+
+**Oluşturulan dosya:** `lib/features/guide/guide_screen.dart` — Ayarlar'dan erişilen, `ExpansionTile` ile açılıp kapanan 7 bölümlü bir referans ekranı: Analiz (karar eşikleri tablosu + Confidence/Technical/News/Macro alanları), Varlık Detayı → Teknik/Haberler/Geçmiş/Performans, Makro (6 göstergenin yön sözleşmesi dahil), Portföy. Karar eşikleri tablosu, Dashboard'da zaten kullanılan `decisionColor`/`decisionLabel` yardımcılarını (AŞAMA 86/Ek Ekranlar, [Bölüm 32](#32-ek-flutter-ekranları--varlık-detayı-makro-ayarlar-17082026)) yeniden kullanıyor — tek kaynak korunuyor.
+
+`lib/features/settings/settings_screen.dart`'a "Gösterge Rehberi" satırı eklendi (Hesap ile Uygulama Sürümü arasına).
+
+**Doğrulama (emulator):** Ayarlar → Gösterge Rehberi açıldı, 7 bölüm başlığı doğru göründü; Performans ve Makro bölümleri genişletilip içerik (özellikle kullanıcının sorduğu Makro yön sözleşmesi açıklaması) doğru render olduğu doğrulandı. `flutter analyze`: bir yazım hatası (`_MakroSection` vs `_MacroSection` isim uyuşmazlığı) ve fazladan bir `}` parantez hatası düzeltildi, sonra temiz. `flutter test`: 12/12 geçti.
+
+**Karşılaşılan hata / çözüm:**
+İlk yazımda `_MakroSection()` (main listede) ile `_MacroSection` (sınıf tanımı) arasında Türkçe/İngilizce yazım tutarsızlığı vardı — `flutter analyze` `undefined_method` hatasıyla hemen yakaladı, isim düzeltildi. Ayrıca bir bölüm sonunda yanlışlıkla `}}` (fazladan kapanış parantezi) vardı, kaldırıldı.
+
+**Tarih / Not:**
+17.08.2026 — Native Gösterge Rehberi eklendi ve emulator'de doğrulandı, commit `c710b1a`.
