@@ -4,10 +4,11 @@ Geçmiş fiyat verisi üzerinde DecisionEngine'in ürettiği AL/ZAYIF AL/TUT/
 ZAYIF SAT/SAT sinyallerine göre basit bir "sinyalde pozisyon aç/kapat"
 stratejisi simüle edilir.
 
-Kapsam kararı: Yalnızca technical_score kullanılır. news_score zaten hiç
-mevcut değil (EventIntelligenceEngine, LLM bekliyor); macro_score'un ise
-günlük geçmiş serisi henüz saklanmıyor (macro_snapshots yalnızca "son
-görülen" durumu tutuyor, ana doküman kural 6). DecisionEngine'in "Missing
+Kapsam kararı: Yalnızca technical_score kullanılır. news_score ve macro_score
+için günlük geçmiş serisi saklanmıyor (news_analyses/macro_snapshots yalnızca
+"o an geçerli olan" analiz/anlık görüntüyü tutuyor, ana doküman kural 6) —
+bu yüzden geçmişe dönük backtest'te noktasal (point-in-time) olarak
+kullanılamazlar. DecisionEngine'in "Missing
 Data Davranışı" ilkesi sayesinde bu, kararın YANLIŞ olmasına değil, mevcut
 tek skorun ağırlığının otomatik %100'e normalize edilmesine yol açar —
 canlı sistemle aynı davranış sözleşmesi.

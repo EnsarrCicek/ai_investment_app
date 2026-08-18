@@ -1,21 +1,30 @@
 """DecisionEngine — ana doküman bölüm 17-19, 32-33, 72.
 
-Durum: EventIntelligenceEngine henüz yazılmadı (bkz. AŞAMA 16+, bir LLM
-entegrasyonu gerektiriyor), bu yüzden news_score hâlâ hiçbir zaman mevcut
-değil. MacroAnalysisEngine ise AŞAMA 21-22'de eklendi. Bu, bölüm 72'deki
+Durum: EventIntelligenceEngine artık yazıldı (AŞAMA 16+, OpenAI GPT-5.6
+Luna). MacroAnalysisEngine ise AŞAMA 21-22'de eklendi. Bu, bölüm 72'deki
 "Missing Data Davranışı" ilkesinin canlı kanıtıdır: DecisionEngine eksik
 skorları örtbas ETMEZ — kalan skorların ağırlıklarını normalize eder ve
-`confidence`'ı veri eksikliği oranında düşürür. MacroAnalysisEngine
-eklendiğinde `decide()`'ın çekirdek mantığı DEĞİŞMEDİ (tasarım hedefi
-buydu) — yalnızca `decide_for_asset()` artık macro_score'u da topluyor.
+`confidence`'ı veri eksikliği oranında düşürür. Her iki motor eklendiğinde
+de `decide()`'ın çekirdek mantığı DEĞİŞMEDİ (tasarım hedefi buydu) —
+yalnızca `decide_for_asset()` artık macro_score ve news_score'u da topluyor.
+
+Maliyet kararı: `decide_for_asset()` her çağrıldığında (Dashboard her
+açıldığında GET /decisions/{symbol} üzerinden) yeni bir OpenAI çağrısı
+YAPMAZ — yalnızca daha önce ayrıca tetiklenmiş (POST /news/{symbol}/analyze)
+ve Firestore'a zaten kaydedilmiş NewsAnalysis kayıtlarını okur. Bu, macro
+tarafında da uygulanan "en son kaydedilmiş sonucu oku, otomatik yeniden
+hesaplama" desenidir — kararın kendisi asla LLM çağrısına bağımlı/yavaş
+hale gelmez ve maliyet yalnızca haber analizi ayrıca istendiğinde oluşur.
 """
 
 from datetime import datetime, timezone
 
 from app.engines.technical.engine import TechnicalAnalysisEngine
 from app.models.ai_decision import AIDecision
+from app.models.news_analysis import NewsAnalysis
 from app.repositories.ai_decision_repository import AIDecisionRepository
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
+from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.system_config_repository import SystemConfigRepository
 
 ENGINE_VERSION = "1.0.0"
@@ -24,6 +33,25 @@ DEFAULT_WEIGHTS = {"technical": 0.50, "news": 0.30, "macro": 0.20}
 
 # Ana doküman bölüm 18: +40..100 AL, +15..39 ZAYIF AL, -14..14 TUT, -39..-15 ZAYIF SAT, -100..-40 SAT
 DEFAULT_THRESHOLDS = {"buy": 40.0, "weak_buy": 15.0, "weak_sell": -15.0, "sell": -40.0}
+
+NEWS_SCORE_LIMIT = 10
+
+
+def _aggregate_news_score(analyses: list[NewsAnalysis]) -> float | None:
+    """Son N haber analizinin confidence-ağırlıklı ortalama sentiment_score'u.
+
+    Confidence ağırlıklandırması: modelin düşük güvenle verdiği bir analiz,
+    yüksek güvenle verilen bir analizle aynı ağırlıkta kararı etkilememeli.
+    Hiç analiz yoksa None döner (Missing Data Davranışı — 0 gibi yanlış bir
+    "nötr" varsayımı YAPILMAZ).
+    """
+    if not analyses:
+        return None
+    weight_total = sum(a.confidence for a in analyses)
+    if weight_total == 0:
+        return None
+    weighted_sum = sum(a.sentiment_score * a.confidence for a in analyses)
+    return round(weighted_sum / weight_total, 2)
 
 
 def _classify(score: float, t: dict) -> str:
@@ -106,26 +134,33 @@ class DecisionEngine:
         asset: str,
         technical_engine: TechnicalAnalysisEngine | None = None,
         macro_repo: MacroSnapshotRepository | None = None,
+        news_repo: NewsAnalysisRepository | None = None,
         persist: bool = True,
     ) -> AIDecision:
         """Mevcut tüm engine çıktılarını otomatik toplayıp karar üretir.
 
-        NewsScore henüz yok (EventIntelligenceEngine bekliyor, AŞAMA 16+).
         MacroScore, her istekte yeniden hesaplanmaz — piyasa geneli olduğu için
         en son kaydedilmiş `macro_snapshots` kaydı kullanılır (macro engine
-        ayrı bir zamanlamayla / talep üzerine çalıştırılır).
+        ayrı bir zamanlamayla / talep üzerine çalıştırılır). NewsScore de aynı
+        şekilde: burada YENİ bir EventIntelligenceEngine/OpenAI çağrısı
+        YAPILMAZ, yalnızca daha önce POST /news/{symbol}/analyze ile üretilmiş
+        NewsAnalysis kayıtları okunur (bkz. modül docstring'i — maliyet kararı).
         """
         engine = technical_engine or TechnicalAnalysisEngine()
         analysis, analysis_id = engine.analyze_with_id(asset, persist=persist)
 
         macro, macro_id = (macro_repo or MacroSnapshotRepository()).get_latest_with_id()
 
+        news_analyses = (news_repo or NewsAnalysisRepository()).list_for_asset(asset, limit=NEWS_SCORE_LIMIT)
+
         return self.decide(
             asset=asset,
             technical_score=analysis.technical_score,
+            news_score=_aggregate_news_score(news_analyses),
             macro_score=macro.macro_score if macro else None,
             technical_confidence=analysis.confidence,
             technical_analysis_id=analysis_id,
+            news_analysis_ids=[a.news_id for a in news_analyses],
             macro_snapshot_id=macro_id,
             persist=persist,
         )

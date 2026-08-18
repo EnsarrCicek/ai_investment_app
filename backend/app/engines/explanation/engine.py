@@ -9,9 +9,11 @@ bu uç nokta yalnızca mevcut kararın gerekçesini gösterir, yeni bir karar ka
 oluşturmaz.
 """
 
-from app.engines.decision.engine import DecisionEngine
+from app.engines.decision.engine import NEWS_SCORE_LIMIT, DecisionEngine, _aggregate_news_score
 from app.engines.technical.engine import TechnicalAnalysisEngine
+from app.models.news_analysis import NewsAnalysis
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
+from app.repositories.news_analysis_repository import NewsAnalysisRepository
 
 _DECISION_LABELS = {
     "BUY": "AL",
@@ -39,6 +41,15 @@ _MACRO_LABELS = {
     "usdtry": "USD/TRY",
 }
 
+_EVENT_TYPE_LABELS = {
+    "earnings": "Bilanço/Kâr",
+    "regulatory": "Düzenleyici Karar",
+    "corporate_action": "Kurumsal Eylem",
+    "macro": "Makro Haber",
+    "market_sentiment": "Piyasa Algısı",
+    "other": "Diğer",
+}
+
 
 def _direction_phrase(value: float) -> str:
     if value > 5:
@@ -56,27 +67,42 @@ def _top_reasons(components: dict[str, float], labels: dict[str, str], limit: in
     ]
 
 
+def _news_reasons(analyses: list[NewsAnalysis], limit: int = 3) -> list[str]:
+    """En önemli (importance*confidence) haberleri kısa gerekçeleriyle listeler."""
+    ranked = sorted(analyses, key=lambda a: a.importance * a.confidence, reverse=True)
+    return [
+        f"{_EVENT_TYPE_LABELS.get(a.event_type, a.event_type)}: {a.reasoning} "
+        f"({a.sentiment_score:+.0f} puan, {_direction_phrase(a.sentiment_score)})"
+        for a in ranked[:limit]
+    ]
+
+
 class ExplanationEngine:
     def __init__(
         self,
         decision_engine: DecisionEngine | None = None,
         technical_engine: TechnicalAnalysisEngine | None = None,
         macro_repo: MacroSnapshotRepository | None = None,
+        news_repo: NewsAnalysisRepository | None = None,
     ):
         self._decision_engine = decision_engine or DecisionEngine()
         self._technical_engine = technical_engine or TechnicalAnalysisEngine()
         self._macro_repo = macro_repo or MacroSnapshotRepository()
+        self._news_repo = news_repo or NewsAnalysisRepository()
 
     def explain(self, asset: str) -> dict:
         analysis, analysis_id = self._technical_engine.analyze_with_id(asset, persist=False)
         macro, macro_id = self._macro_repo.get_latest_with_id()
+        news_analyses = self._news_repo.list_for_asset(asset, limit=NEWS_SCORE_LIMIT)
 
         decision = self._decision_engine.decide(
             asset=asset,
             technical_score=analysis.technical_score,
+            news_score=_aggregate_news_score(news_analyses),
             macro_score=macro.macro_score if macro else None,
             technical_confidence=analysis.confidence,
             technical_analysis_id=analysis_id,
+            news_analysis_ids=[a.news_id for a in news_analyses],
             macro_snapshot_id=macro_id,
             persist=False,
         )
@@ -89,7 +115,7 @@ class ExplanationEngine:
 
         missing = []
         if decision.news_score is None:
-            missing.append("Haber analizi (EventIntelligenceEngine) henüz uygulanmadı, karara dahil edilmedi.")
+            missing.append("Bu varlık için henüz analiz edilmiş bir haber yok, karara dahil edilmedi.")
         if macro is None:
             missing.append("Güncel bir makro veri anlık görüntüsü bulunamadı.")
 
@@ -101,5 +127,6 @@ class ExplanationEngine:
             "summary": summary,
             "technical_reasons": _top_reasons(analysis.components, _TECHNICAL_LABELS),
             "macro_reasons": _top_reasons(macro.components, _MACRO_LABELS) if macro else [],
+            "news_reasons": _news_reasons(news_analyses),
             "missing": missing,
         }

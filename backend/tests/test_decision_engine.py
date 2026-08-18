@@ -1,6 +1,10 @@
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 import pytest
 
-from app.engines.decision.engine import DEFAULT_THRESHOLDS, DecisionEngine, _classify
+from app.engines.decision.engine import DEFAULT_THRESHOLDS, DecisionEngine, _aggregate_news_score, _classify
+from app.models.news_analysis import NewsAnalysis
 
 
 class _FakeConfigRepo:
@@ -16,6 +20,20 @@ class _FakeDecisionRepo:
 @pytest.fixture
 def engine():
     return DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+
+
+def _news(sentiment_score, confidence, news_id="n"):
+    return NewsAnalysis(
+        news_id=news_id,
+        asset="TEST",
+        sentiment_score=sentiment_score,
+        confidence=confidence,
+        importance=0.5,
+        event_type="other",
+        reasoning="r",
+        model_used="gpt-5.6-luna",
+        created_at=datetime.now(timezone.utc),
+    )
 
 
 @pytest.mark.parametrize(
@@ -69,3 +87,67 @@ def test_decide_with_persist_false_does_not_call_repository(engine):
     # _FakeDecisionRepo.add() çağrılırsa AssertionError fırlatır — sessizce
     # tamamlanması persist=False'un gerçekten saygı gördüğünü kanıtlar.
     engine.decide(asset="TEST", technical_score=10.0, persist=False)
+
+
+def test_aggregate_news_score_returns_none_when_no_analyses():
+    assert _aggregate_news_score([]) is None
+
+
+def test_aggregate_news_score_weights_by_confidence():
+    analyses = [_news(sentiment_score=100.0, confidence=0.9), _news(sentiment_score=-100.0, confidence=0.1)]
+    # (100*.9 + -100*.1) / (.9+.1) = (90 - 10) / 1.0 = 80
+    assert _aggregate_news_score(analyses) == pytest.approx(80.0)
+
+
+def test_aggregate_news_score_none_when_all_zero_confidence():
+    analyses = [_news(sentiment_score=50.0, confidence=0.0)]
+    assert _aggregate_news_score(analyses) is None
+
+
+class _FakeTechnicalEngine:
+    def analyze_with_id(self, symbol, persist=True):
+        return SimpleNamespace(technical_score=100.0, confidence=1.0), "tech-id"
+
+
+class _FakeMacroRepo:
+    def get_latest_with_id(self):
+        return None, None
+
+
+class _FakeNewsRepo:
+    def __init__(self, analyses):
+        self._analyses = analyses
+
+    def list_for_asset(self, asset, limit=10):
+        return self._analyses
+
+
+def test_decide_for_asset_includes_aggregated_news_score(engine):
+    news_repo = _FakeNewsRepo([_news(sentiment_score=-100.0, confidence=1.0, news_id="n1")])
+
+    decision = engine.decide_for_asset(
+        "TEST",
+        technical_engine=_FakeTechnicalEngine(),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=news_repo,
+        persist=False,
+    )
+
+    assert decision.news_score == -100.0
+    assert decision.news_analysis_ids == ["n1"]
+    # final_score = 100*.5 + -100*.3 = 50 - 30 = 20 (macro eksik, ağırlığı normalize edilmiyor çünkü
+    # technical+news ağırlığı zaten toplamın .8'i, macro sadece katkı yapmıyor)
+    assert decision.final_score == pytest.approx((100 * 0.50 + -100 * 0.30) / 0.80)
+
+
+def test_decide_for_asset_news_score_none_when_no_analyses(engine):
+    decision = engine.decide_for_asset(
+        "TEST",
+        technical_engine=_FakeTechnicalEngine(),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=_FakeNewsRepo([]),
+        persist=False,
+    )
+
+    assert decision.news_score is None
+    assert decision.news_analysis_ids == []
