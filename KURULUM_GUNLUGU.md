@@ -1512,3 +1512,43 @@ Yok — ilk denemede sorunsuz çalıştı.
 
 **Tarih / Not:**
 18.08.2026 — news_score DecisionEngine ve ExplanationEngine'e bağlandı, 65/65 test geçti, THYAO ile gerçek uçtan uca doğrulandı, commit `e9662f8`.
+
+---
+
+## 39. API Kullanımı / Maliyet Takip Ekranı (18.08.2026)
+
+Kullanıcı isteği: OpenAI API'sinin ne kadar "yediğini" gösteren bir mobil ekran. Netleştirme: bütçe toplamda tek seferlik **$5**; gerçek OpenAI billing/usage API'sinden anlık çekmiyoruz (kullanıcı kararı: "direkt api üzerinden çekmemize gerek yok") — bunun yerine her gerçek çağrının kendi `response.usage`'ı (prompt/completion token sayısı) OpenAI'nin yayınladığı GPT-5.6 fiyat tarifesiyle çarpılıp maliyet tahmin ediliyor.
+
+**Oluşturulan/değişen dosyalar (backend):**
+```text
+app/core/config.py                              → EVENT_INTELLIGENCE_BUDGET_USD (varsayılan 5.0, .env'den değiştirilebilir)
+app/models/token_usage.py                       → TokenUsageLog (immutable, ai_decisions/news_analyses ile aynı ilke)
+app/repositories/token_usage_repository.py       → add/list_all
+app/engines/event_intelligence/usage.py          → MODEL_PRICING_PER_1M (Luna $0.20/$1.20, Terra $2.50/$15, Sol
+                                                     $5/$20 — 1M token başına), compute_cost_usd(), summarize()
+app/engines/event_intelligence/engine.py         → analyze_item() artık her çağrıda _log_usage() ile gerçek
+                                                     token sayısını ve tahmini maliyeti kaydediyor
+app/api/usage.py                                 → GET /usage: budget_usd, spent_total_usd, remaining_usd,
+                                                     spent_today_usd, calls/tokens (bugün+toplam), son 7 gün dökümü
+```
+8 yeni test (pricing + summarize + engine'in artık usage_repo'ya log yazdığının doğrulanması), toplam 71 backend testi.
+
+**Oluşturulan dosyalar (Flutter):**
+```text
+lib/models/usage_summary.dart          → UsageSummary + DailyUsage
+lib/services/api/usage_api.dart        → fetchUsage()
+lib/features/usage/usage_screen.dart   → Kalan Bakiye (büyük rakam + ilerleme çubuğu, %70/%90 eşiklerinde
+                                           yeşil/turuncu/kırmızı), Bugün Harcanan, Toplam, Son 7 Gün (basit
+                                           bar liste — yeni bir chart paketi eklenmedi)
+lib/features/settings/settings_screen.dart → "API Kullanımı" satırı eklendi (Gösterge Rehberi ile Uygulama
+                                               Sürümü arasına)
+```
+1 yeni Flutter model testi (`usage_summary_test.dart`).
+
+**Doğrulama (emulator, gerçek THYAO verisiyle uçtan uca):** Ayarlar → API Kullanımı açıldı: "Kalan Bakiye: $4.9997", "$0.0003 / $5.0000 harcandı (%0.0)", "Bugün Harcanan: $0.0003, 1 çağrı · 714 token", "Son 7 Gün" bar grafiğinde 2026-08-18 için $0.0003 doğru göründü.
+
+**Karşılaşılan hata / çözüm:**
+Doğrulama sırasında emulator'de "News: Veri yok" görünmeye devam etti ve `/usage` `404 Not Found` döndü — kök neden, arka planda AŞAMA 37'den beri hâlâ çalışan **eski bir uvicorn süreciydi** (yeni kodu hiç yüklememişti, `--reload` ile başlatılmamış). Süreç sonlandırılıp güncel kodla yeniden başlatılınca hem `/usage` hem `news_score` doğru döndü. Kod tarafında hata yoktu — geliştirme ortamı hijyeni sorunuydu.
+
+**Tarih / Not:**
+18.08.2026 — API Kullanımı ekranı eklendi, 71/71 backend testi ve yeni Flutter model testi geçti, emulator'de gerçek verilerle uçtan uca doğrulandı, commit `5727888`.
