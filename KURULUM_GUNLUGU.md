@@ -1552,3 +1552,74 @@ Doğrulama sırasında emulator'de "News: Veri yok" görünmeye devam etti ve `/
 
 **Tarih / Not:**
 18.08.2026 — API Kullanımı ekranı eklendi, 71/71 backend testi ve yeni Flutter model testi geçti, emulator'de gerçek verilerle uçtan uca doğrulandı, commit `5727888`.
+
+---
+
+## 40. Ücretsiz BIST Fiyat Verisi (yfinance) + Fiyat Sekmesi + AI Destekli Haber Duygu Analizi (18.08.2026)
+
+**Kullanıcı kararı:** Piyasa verisi için tamamen ücretsiz bir çözüm — ücretli API yok. İlk adım: `yfinance` zaten kurulu muydu diye kontrol edilip gerçek BIST sembolleriyle (`THYAO.IS`, `ASELS.IS`, `TUPRS.IS`, `GARAN.IS`, `AKBNK.IS`) doğrulama yapıldı. `yfinance` zaten kuruluydu (v1.5.2, `requirements.txt`'de zaten pinli) — yeni paket kurulmadı.
+
+**Doğrulama (standalone script, gerçek veri):** fast_info ile güncel fiyat/önceki kapanış/günlük değişim, günlük OHLCV+timestamp, THYAO.IS için 5 dakikalık veri (423 satır/5 gün), haftalık/aylık/uzun dönem geçmiş fiyatlar, ve gerçek kapanışlardan 1g/1h/1a/3a/6a/1y yüzde değişim hesapları — hepsi çalıştı. Gün-içi veride gözlemlenen gerçek gecikme **~15 dakika** (Yahoo'nun bilinen politikasıyla uyumlu, gizlenmiyor).
+
+**Backend entegrasyonu:**
+```text
+app/services/market_data/bist_provider.py → get_quote() eklendi (güncel fiyat, önceki kapanış,
+                                              değişim/%, gerçek timestamp); get_history() artık
+                                              interval parametresi alıyor (geriye uyumlu, varsayılan "1d")
+app/services/market_data/base.py          → ABC'ye get_quote eklendi, get_history imzası güncellendi
+app/models/market_data.py                 → Quote modeli eklendi
+app/services/market_data/changes.py       → compute_period_changes(): 1g/1h/1a/3a/6a/1y yüzde değişim,
+                                              yetersiz geçmiş varsa None (sahte değer YOK)
+app/api/market_data.py                    → GET /market-data/{symbol}/quote|history|changes
+tests/conftest.py                         → FakeMarketDataProvider get_quote/interval ile güncellendi
+```
+
+**Flutter — yeni "Fiyat" sekmesi (Varlık Detayı'nda ilk sekme):** güncel fiyat + değişim, gerçek timestamp ("Yahoo Finance, hafif gecikmeli olabilir" notuyla), açılış/yüksek/düşük/hacim, 6 periyotlu (1G/1H/1A/3A/6A/1Y) gerçek OHLCV grafik (`CustomPainter` ile basit sparkline — yeni chart paketi eklenmedi), 1g/1h/1a/3a/6a/1y yüzde değişim kartları.
+
+**Haberler sekmesi artık AI destekli:** Önceden yalnızca ham liste + "henüz uygulanmadı" notu vardı. Şimdi:
+```text
+app/api/news_analysis.py → GET /news/{symbol}/analysis eklendi (maliyetsiz — yalnızca daha önce
+                            üretilmiş NewsAnalysis kayıtlarını okur, YENİ OpenAI çağrısı yapmaz)
+lib/features/asset_detail/asset_detail_screen.dart → her haber kartında (varsa) Luna'nın duygu
+                            skoru/olay tipi/güven/etki yüzdesi ve Türkçe gerekçesi renkli kutuda
+                            gösteriliyor; "Analiz Et" butonu POST /news/{symbol}/analyze'ı tetikliyor
+```
+Maliyet ilkesi korundu: sekme açıldığında otomatik LLM çağrısı YAPILMAZ, yalnızca kullanıcı "Analiz Et"e bastığında (ve yalnızca henüz analiz edilmemiş haberler için) gerçek maliyet oluşur.
+
+12 yeni backend testi (pricing/changes + provider ABC güncellemeleri, toplam 78), 5 yeni Flutter model testi.
+
+**Doğrulama (emulator, THYAO ile uçtan uca):** Fiyat sekmesinde gerçek fiyat/grafik/yüzde değişimler doğru göründü; periyot chip'leri (1G seçilince gün-içi 5dk grafiğe geçiş) doğru çalıştı. Haberler sekmesinde "Analiz Et"e basılınca gerçek Luna yanıtları (ör. "+58 puan, Bilanço/Kâr", "-18 puan, Diğer") Türkçe gerekçeleriyle renkli kartlarda göründü.
+
+**Karşılaşılan hata / çözüm:**
+Doğrulama sırasında yine arka planda eski bir uvicorn süreci çalışıyordu (yeni `/market-data` ve `/news/{symbol}/analysis` route'larını yüklememişti) — süreç sonlandırılıp güncel kodla yeniden başlatıldı. Bu, projede tekrarlayan bir geliştirme-ortamı alışkanlığı sorunu; kod tarafında hata değil.
+
+**Tarih / Not:**
+18.08.2026 — Ücretsiz BIST fiyat verisi entegre edildi (Fiyat sekmesi) ve Haberler sekmesi AI duygu analizine bağlandı, 78/78 backend + yeni Flutter testleri geçti, emulator'de uçtan uca doğrulandı, commit `12b1a9d`.
+
+---
+
+## 41. Haberlerde AL/TUT/SAT Etiketi + Analiz Et Artık Ekrandaki Tüm Haberleri Kapsar (18.08.2026)
+
+Kullanıcı, Haberler sekmesindeki "Analiz Et" butonunun tam olarak ne yaptığını sorduktan sonra, her haberin duygu skorunun Dashboard'daki AL/ZAYIF AL/TUT/ZAYIF SAT/SAT diliyle de gösterilmesini istedi.
+
+`lib/utils/decision_style.dart`'a `classifyScore(double score)` eklendi — `DecisionEngine.DEFAULT_THRESHOLDS` (40/15/-15/-40) ile **birebir aynı eşiklerle** bir skoru karara çeviriyor; `decisionLabel`/`decisionColor` zaten var olan tek kaynak fonksiyonlarla birleştirilip her haber kartında renkli bir rozet (`AL`, `ZAYIF SAT` vb.) gösteriliyor. Ayrıca "Analiz Et" butonu artık sabit `limit=5` yerine `limit=items.length` ile çağrılıyor — ekranda kaç haber listeleniyorsa hepsi kapsanıyor (zaten analiz edilmiş olanlar backend'de otomatik atlandığı için tekrar maliyet oluşmuyor).
+
+1 yeni test (`classifyScore` eşik sınırları, DecisionEngine testleriyle birebir aynı parametrelerle).
+
+**Doğrulama (emulator, THYAO):** Önceden analiz edilmiş haberlerde rozetler (`ZAYIF SAT`, `AL`) doğru göründü; "Analiz Et"e basılınca listenin alt sıralarındaki (önceden analiz edilmemiş) haberler de `TUT`/`ZAYIF SAT` rozetleriyle geldi.
+
+**Tarih / Not:**
+18.08.2026 — Haberlerde AL/TUT/SAT rozeti eklendi, Analiz Et tüm listelenmiş haberleri kapsıyor, 20/20 Flutter testi geçti, emulator'de uçtan uca doğrulandı, commit `9523d21`.
+
+---
+
+## 42. Performans Sekmesinde İşlemlerin Detaylı Türkçe Anlatımı (18.08.2026)
+
+Kullanıcı, Performans sekmesindeki kırmızı/yeşil işlem satırlarının ne anlama geldiğini (satıp zarar mı ettik, yoksa hisse mi düştü) netleştirmek istedi.
+
+Her işlem kartı artık yalnızca renk/yüzde değil, tam bir Türkçe cümle: *"18.03.2026'de 250.00 TL'den alındı, 02.04.2026'de 270.00 TL'den satıldı. Fiyat %8.0 yükseldi, kâr edildi."* (kırmızıda "düştü, zarar edildi"). Liste başına, stratejinin her zaman önce alıp sonra sattığını (açığa satış yok) ve renklerin anlamını açıklayan bir not eklendi. Bu netlik, `BacktestEngine`'in gerçek davranışına dayanıyor: `simulate()` yalnızca `shares == 0` iken AL/ZAYIF AL sinyalinde pozisyon açıyor, `shares > 0` iken SAT/ZAYIF SAT sinyalinde kapatıyor — yani her satır zaten bir "önce aldık, sonra sattık" round-trip'i, backend kodu doğrulanarak teyit edildi.
+
+**Doğrulama (emulator, THYAO):** Yeşil kartlarda "...yükseldi, kâr edildi", kırmızı kartlarda "...düştü, zarar edildi" cümleleri gerçek backtest verisiyle doğru göründü.
+
+**Tarih / Not:**
+18.08.2026 — Performans sekmesi işlem anlatımları detaylandırıldı, 20/20 Flutter testi geçti, emulator'de uçtan uca doğrulandı, commit `0503f51`.
