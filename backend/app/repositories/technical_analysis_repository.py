@@ -17,13 +17,22 @@ class TechnicalAnalysisRepository:
         return doc_ref.id
 
     def get_latest(self, asset: str) -> TechnicalAnalysis | None:
-        docs = (
+        analysis, _doc_id = self.get_latest_with_id(asset)
+        return analysis
+
+    def get_latest_with_id(self, asset: str) -> tuple[TechnicalAnalysis | None, str | None]:
+        # Not: where(asset==X) + order_by(created_at) Firestore'da composite
+        # index gerektirir (yeni bir altyapı değişikliği olurdu). Bunun yerine
+        # news_analysis_repository ile aynı desen: tek alanlı filtre + Python'da
+        # sıralama — index gerektirmez.
+        docs = list(
             self._db.collection(COLLECTION)
             .where(filter=FieldFilter("asset", "==", asset))
             .stream()
         )
-        records = [TechnicalAnalysis(**doc.to_dict()) for doc in docs]
-        if not records:
-            return None
-        records.sort(key=lambda r: r.created_at, reverse=True)
-        return records[0]
+        if not docs:
+            return None, None
+        records = [(doc.id, TechnicalAnalysis(**doc.to_dict())) for doc in docs]
+        records.sort(key=lambda pair: pair[1].created_at, reverse=True)
+        latest_id, latest = records[0]
+        return latest, latest_id

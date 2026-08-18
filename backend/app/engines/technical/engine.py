@@ -8,6 +8,14 @@ ayrı bir "Trend Strength" metriği ve Relative Strength bu ilk sürümde
 YOKTUR — ana doküman bölüm 5 bunları "ilk etapta desteklenebilecek"
 göstergeler olarak listeliyor (zorunlu değil); bilinçli olarak sonraki bir
 iyileştirmeye bırakılmıştır (bkz. KURULUM_GUNLUGU.md).
+
+Performans (AŞAMA 44): analyze_with_id() her çağrıldığında yfinance'e taze
+bir istek atardı — Dashboard tüm BIST100'ü (100 sembol) her açılışta yeniden
+hesaplıyordu, bu da ~60-80 saniyelik yükleme süresine yol açıyordu. Şimdi
+macro/news ile aynı ilke uygulanıyor: TECHNICAL_CACHE_TTL_SECONDS'tan daha
+taze bir TechnicalAnalysis zaten Firestore'da varsa, yfinance'e HİÇ
+gidilmeden o kayıt döner. BIST günlük bar kullandığından (gün içi anlık
+tick değil), birkaç dakikalık bir gecikme kararın doğruluğunu etkilemez.
 """
 
 from datetime import datetime, timezone
@@ -31,6 +39,7 @@ DEFAULT_WEIGHTS = {
 }
 
 MIN_HISTORY_DAYS = 60
+TECHNICAL_CACHE_TTL_SECONDS = 900  # 15 dakika
 
 
 def _clamp(value: float, low: float = -100.0, high: float = 100.0) -> float:
@@ -53,8 +62,14 @@ class TechnicalAnalysisEngine:
         return analysis
 
     def analyze_with_id(
-        self, symbol: str, persist: bool = True
+        self, symbol: str, persist: bool = True, max_age_seconds: int = TECHNICAL_CACHE_TTL_SECONDS
     ) -> tuple[TechnicalAnalysis, str | None]:
+        cached, cached_id = self._analysis_repo.get_latest_with_id(symbol)
+        if cached is not None:
+            age = (datetime.now(timezone.utc) - cached.created_at).total_seconds()
+            if age < max_age_seconds:
+                return cached, cached_id
+
         df = self._provider.get_history(symbol, period="6mo")
         if len(df) < MIN_HISTORY_DAYS:
             raise ValueError(
