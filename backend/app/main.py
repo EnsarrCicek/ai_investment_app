@@ -1,6 +1,18 @@
 from fastapi import FastAPI
 
-from app.api import analysis, assets, backtest, decisions, news, news_analysis, notifications, portfolio, risk, usage
+from app.api import (
+    analysis,
+    assets,
+    backtest,
+    decisions,
+    market_data,
+    news,
+    news_analysis,
+    notifications,
+    portfolio,
+    risk,
+    usage,
+)
 
 app = FastAPI(title="AI Yatirim Analiz Backend")
 
@@ -14,6 +26,7 @@ app.include_router(news.router)
 app.include_router(news_analysis.router)
 app.include_router(notifications.router)
 app.include_router(usage.router)
+app.include_router(market_data.router)
 
 
 @app.get("/health")

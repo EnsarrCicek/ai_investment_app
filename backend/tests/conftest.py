@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.models.market_data import MarketData
+from app.models.market_data import MarketData, Quote
 from app.services.market_data.base import MarketDataProvider
 
 
@@ -25,7 +25,22 @@ class FakeMarketDataProvider(MarketDataProvider):
             source="fake",
         )
 
-    def get_history(self, symbol: str, period: str = "6mo"):
+    def get_quote(self, symbol: str) -> Quote:
+        return Quote(
+            asset_id=symbol,
+            timestamp=datetime.now(timezone.utc),
+            last_price=self._close_price,
+            previous_close=self._close_price,
+            change=0.0,
+            change_percent=0.0,
+            open=self._close_price,
+            high=self._close_price,
+            low=self._close_price,
+            volume=0,
+            source="fake",
+        )
+
+    def get_history(self, symbol: str, period: str = "6mo", interval: str = "1d"):
         if self._history_df is None:
             raise NotImplementedError
         return self._history_df

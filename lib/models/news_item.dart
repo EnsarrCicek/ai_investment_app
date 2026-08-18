@@ -1,4 +1,5 @@
 class NewsItem {
+  final String externalId;
   final String title;
   final String summary;
   final String url;
@@ -7,6 +8,7 @@ class NewsItem {
   final DateTime publishedAt;
 
   NewsItem({
+    required this.externalId,
     required this.title,
     required this.summary,
     required this.url,
@@ -17,6 +19,7 @@ class NewsItem {
 
   factory NewsItem.fromJson(Map<String, dynamic> json) {
     return NewsItem(
+      externalId: json['external_id'] as String,
       title: json['title'] as String,
       summary: json['summary'] as String,
       url: json['url'] as String,
