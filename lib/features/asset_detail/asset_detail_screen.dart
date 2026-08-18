@@ -513,26 +513,78 @@ class _PerformanceTabState extends State<_PerformanceTab> {
             ),
             const SizedBox(height: 16),
             const Text('İşlemler', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(
+              'Bu strateji her zaman önce alır, sonra satar (açığa satış yok). '
+              'Yeşil: satış fiyatı alış fiyatından yüksek — kâr. '
+              'Kırmızı: satış fiyatı alış fiyatından düşük — zarar.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+            ),
             const SizedBox(height: 8),
             if (r.trades.isEmpty) const Text('Bu dönemde işlem yapılmadı.'),
-            ...r.trades.reversed.map(
-              (t) => Card(
-                child: ListTile(
-                  title: Text('${t.entryDate} → ${t.exitDate}'),
-                  subtitle: Text('${t.entryPrice.toStringAsFixed(2)} → ${t.exitPrice.toStringAsFixed(2)} TL'),
-                  trailing: Text(
-                    '${t.returnPct >= 0 ? '+' : ''}${t.returnPct.toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      color: t.returnPct >= 0 ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            ...r.trades.reversed.map((t) => _TradeCard(trade: t)),
           ],
         );
       },
+    );
+  }
+}
+
+String _fmtTradeDate(String iso) {
+  final parsed = DateTime.parse(iso);
+  final day = parsed.day.toString().padLeft(2, '0');
+  final month = parsed.month.toString().padLeft(2, '0');
+  return '$day.$month.${parsed.year}';
+}
+
+class _TradeCard extends StatelessWidget {
+  final BacktestTrade trade;
+  const _TradeCard({required this.trade});
+
+  @override
+  Widget build(BuildContext context) {
+    final isProfit = trade.returnPct >= 0;
+    final color = isProfit ? Colors.green : Colors.red;
+    final priceDirection = isProfit ? 'yükseldi' : 'düştü';
+    final result = isProfit ? 'kâr edildi' : 'zarar edildi';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(isProfit ? Icons.trending_up : Icons.trending_down, color: color, size: 20),
+                const SizedBox(width: 6),
+                Text(
+                  '${isProfit ? '+' : ''}${trade.returnPct.toStringAsFixed(1)}%',
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const Spacer(),
+                Text(
+                  '${_fmtTradeDate(trade.entryDate)} — ${_fmtTradeDate(trade.exitDate)}',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_fmtTradeDate(trade.entryDate)}\'de ${trade.entryPrice.toStringAsFixed(2)} TL\'den alındı, '
+              '${_fmtTradeDate(trade.exitDate)}\'de ${trade.exitPrice.toStringAsFixed(2)} TL\'den satıldı. '
+              'Fiyat %${trade.returnPct.abs().toStringAsFixed(1)} $priceDirection, $result.',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
