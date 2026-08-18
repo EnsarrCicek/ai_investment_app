@@ -1475,7 +1475,40 @@ Bu örnekte `importance` (0.86), `HIGH_IMPORTANCE_THRESHOLD`'u (0.8) geçiyor �
 İlk denemede OpenAI hesabında kota/bakiye yoktu (`insufficient_quota`) — kod tarafında hata değildi, kullanıcı hesabına bakiye ekleyince ikinci denemede sorunsuz çalıştı.
 
 **Kapsam dışı bırakılan (bilinçli erteleme):**
-Terra fallback'in gerçek ikinci LLM çağrısı henüz yapılmıyor — yalnızca karar mantığı (`_should_escalate`) hazır. `DecisionEngine`'in `news_score` alanını (şu an her zaman `None`) bu motorun çıktısıyla beslemek de henüz yapılmadı, ayrı bir aşama olarak planlanıyor.
+Terra fallback'in gerçek ikinci LLM çağrısı henüz yapılmıyor — yalnızca karar mantığı (`_should_escalate`) hazır. `DecisionEngine`'in `news_score` alanını bu motorun çıktısıyla beslemek [Bölüm 38](#38-news_score-decisionengineye-bağlandı-18082026)'de yapıldı.
 
 **Tarih / Not:**
 18.08.2026 — EventIntelligenceEngine (OpenAI GPT-5.6 Luna) eklendi, 57/57 test geçti, gerçek API anahtarıyla uçtan uca doğrulandı (gerçek Luna yanıtı alındı), commit `d6d7b96`.
+
+---
+
+## 38. news_score DecisionEngine'e Bağlandı (18.08.2026)
+
+AŞAMA 37'de bilinçli olarak ertelenen parça: `DecisionEngine`'in `news_score` alanı artık her zaman `None` değil — `EventIntelligenceEngine`'in ürettiği `NewsAnalysis` kayıtlarından besleniyor.
+
+**Maliyet kararı (önemli):** `decide_for_asset()` — Dashboard her açıldığında `GET /decisions/{symbol}` üzerinden çağrılıyor — bu sırada **yeni bir OpenAI çağrısı YAPMIYOR**. Yalnızca daha önce ayrıca tetiklenmiş (`POST /news/{symbol}/analyze`) ve Firestore'a zaten kaydedilmiş `NewsAnalysis` kayıtlarını okuyor. Bu, `macro_score`'un zaten kullandığı "en son kaydedilmiş sonucu oku, otomatik yeniden hesaplama" deseniyle birebir aynı — karar hesaplaması hiçbir zaman LLM'e bağımlı/yavaş hale gelmiyor, maliyet yalnızca haber analizi ayrıca istendiğinde oluşuyor.
+
+**Değişen dosyalar (backend):**
+```text
+app/engines/decision/engine.py     → _aggregate_news_score() eklendi: son 10 analizin (NEWS_SCORE_LIMIT)
+                                       confidence-ağırlıklı ortalaması. Hiç analiz yoksa None (Missing
+                                       Data Davranışı korunuyor — 0 gibi yanlış bir "nötr" varsayımı yok).
+                                       decide_for_asset() artık news_repo enjekte edilebiliyor.
+app/engines/explanation/engine.py  → aynı aggregasyon kullanılıyor; yeni "news_reasons" alanı en önemli
+                                       (importance*confidence) haberleri Türkçe gerekçeleriyle listeliyor;
+                                       "missing" mesajı yalnızca gerçekten hiç analiz yokken gösteriliyor.
+app/engines/backtest/engine.py     → bayat "EventIntelligenceEngine henüz yok" yorumu güncellendi.
+```
+8 yeni test (`test_decision_engine.py`'de 5, yeni `test_explanation_engine.py`'de 3 — hepsi fake repo'larla, gerçek Firestore/OpenAI'ye gitmeden), toplam 65 backend testi.
+
+**Doğrulama (gerçek THYAO verisiyle, uçtan uca):**
+1. `GET /news/THYAO` → 10 gerçek haber çekildi.
+2. `POST /news/THYAO/analyze?limit=5` → 5 haber gerçek Luna ile analiz edildi (ör. earnings +58 puan, corporate_action +45 puan, other -18 puan).
+3. `GET /decisions/THYAO` → `news_score: 17.9` (5 analizin confidence-ağırlıklı ortalaması), `news_analysis_ids` 5 kayıtla dolu, `final_score: -12.71` → `HOLD`, güven %82.
+4. `GET /decisions/THYAO/explanation` → `missing: []`, `news_reasons` en önemli 3 haberi doğru sırada (importance×confidence) Türkçe gerekçeleriyle listeledi.
+
+**Karşılaşılan hata / çözüm:**
+Yok — ilk denemede sorunsuz çalıştı.
+
+**Tarih / Not:**
+18.08.2026 — news_score DecisionEngine ve ExplanationEngine'e bağlandı, 65/65 test geçti, THYAO ile gerçek uçtan uca doğrulandı, commit `e9662f8`.
