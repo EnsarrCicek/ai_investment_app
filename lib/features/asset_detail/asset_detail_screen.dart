@@ -181,12 +181,6 @@ const Map<String, String> _eventTypeLabels = {
   'other': 'Diğer',
 };
 
-Color _sentimentColor(double score) {
-  if (score > 5) return Colors.green;
-  if (score < -5) return Colors.red;
-  return Colors.grey;
-}
-
 class _NewsTab extends StatefulWidget {
   final String symbol;
   const _NewsTab({required this.symbol});
@@ -215,10 +209,12 @@ class _NewsTabState extends State<_NewsTab> {
     await Future.wait([_newsFuture, _analysisFuture]);
   }
 
-  Future<void> _analyzeNow() async {
+  Future<void> _analyzeNow(int newsCount) async {
     setState(() => _analyzing = true);
     try {
-      await NewsAnalysisApi().analyze(widget.symbol, limit: 5);
+      // Ekrandaki HER haberi kapsayacak şekilde analiz iste — zaten analiz
+      // edilmiş olanlar backend'de otomatik atlanır, tekrar maliyet oluşturmaz.
+      await NewsAnalysisApi().analyze(widget.symbol, limit: newsCount);
       setState(() {
         _analysisFuture = NewsAnalysisApi().fetchAnalysis(widget.symbol);
       });
@@ -269,7 +265,7 @@ class _NewsTabState extends State<_NewsTab> {
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
-                        onPressed: _analyzing ? null : _analyzeNow,
+                        onPressed: _analyzing ? null : () => _analyzeNow(items.length),
                         icon: _analyzing
                             ? const SizedBox(
                                 width: 14,
@@ -347,7 +343,13 @@ class _AnalysisBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _sentimentColor(analysis.sentimentScore);
+    // Tek bir haberin duygu skoru, Dashboard'daki AL/TUT/SAT kararıyla AYNI
+    // eşiklerle (DecisionEngine.DEFAULT_THRESHOLDS) sınıflandırılır — bu
+    // haberin TEK BAŞINA bir varlık kararı olmadığını, yalnızca o haberin
+    // yönünü aynı ölçekte gösterdiğini unutmayın.
+    final decision = classifyScore(analysis.sentimentScore);
+    final color = decisionColor(decision);
+    final label = decisionLabel(decision);
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -360,25 +362,28 @@ class _AnalysisBadge extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                analysis.sentimentScore > 5
-                    ? Icons.trending_up
-                    : (analysis.sentimentScore < -5 ? Icons.trending_down : Icons.trending_flat),
-                color: color,
-                size: 18,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6)),
+                child: Text(
+                  label,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
               ),
-              const SizedBox(width: 6),
-              Text(
-                '${_eventTypeLabels[analysis.eventType] ?? analysis.eventType} · '
-                '${analysis.sentimentScore >= 0 ? '+' : ''}${analysis.sentimentScore.toStringAsFixed(0)} puan',
-                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-              const Spacer(),
-              Text(
-                'Güven %${(analysis.confidence * 100).toStringAsFixed(0)} · Etki %${(analysis.importance * 100).toStringAsFixed(0)}',
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${_eventTypeLabels[analysis.eventType] ?? analysis.eventType} · '
+                  '${analysis.sentimentScore >= 0 ? '+' : ''}${analysis.sentimentScore.toStringAsFixed(0)} puan',
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
               ),
             ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Güven %${(analysis.confidence * 100).toStringAsFixed(0)} · Etki %${(analysis.importance * 100).toStringAsFixed(0)}',
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 6),
           Text(analysis.reasoning, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),

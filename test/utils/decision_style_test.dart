@@ -33,4 +33,20 @@ void main() {
       expect(decisionColor('UNKNOWN'), Colors.grey);
     });
   });
+
+  group('classifyScore', () {
+    test('eşik sınırlarını DecisionEngine ile birebir aynı sınıflandırır', () {
+      expect(classifyScore(50), 'BUY');
+      expect(classifyScore(40), 'BUY');
+      expect(classifyScore(39.9), 'WEAK_BUY');
+      expect(classifyScore(15), 'WEAK_BUY');
+      expect(classifyScore(14.9), 'HOLD');
+      expect(classifyScore(0), 'HOLD');
+      expect(classifyScore(-14.9), 'HOLD');
+      expect(classifyScore(-15), 'WEAK_SELL');
+      expect(classifyScore(-39.9), 'WEAK_SELL');
+      expect(classifyScore(-40), 'SELL');
+      expect(classifyScore(-50), 'SELL');
+    });
+  });
 }
