@@ -8,6 +8,7 @@ import 'features/macro/macro_screen.dart';
 import 'features/portfolio/portfolio_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'firebase_options.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,6 +62,14 @@ class _RootScreenState extends State<RootScreen> {
     MacroScreen(),
     SettingsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) NotificationService.initialize(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -22,3 +22,22 @@ def get_current_user_id(authorization: str | None = Header(default=None)) -> str
         raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş oturum") from exc
 
     return decoded["uid"]
+
+
+def get_current_user_id_optional(authorization: str | None = Header(default=None)) -> str | None:
+    """get_current_user_id ile aynı, ama token yoksa/geçersizse 401 fırlatmak yerine
+    None döner. Herkese açık uç noktalarda (ör. GET /decisions/{symbol}) "eğer bir
+    kullanıcı oturum açmışsa ek bir şey yap" davranışı için — çağrının kendisi auth
+    zorunlu tutmaz.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    token = authorization.removeprefix("Bearer ").strip()
+    get_firestore_client()
+    try:
+        decoded = firebase_auth.verify_id_token(token)
+    except firebase_exceptions.FirebaseError:
+        return None
+
+    return decoded["uid"]

@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- FCM bildirimleri için — Android 13+ (API 33) çalışma zamanı izni gerektiriyor -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="ai_investment_app"
         android:name="${applicationName}"
