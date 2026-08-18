@@ -1623,3 +1623,59 @@ Her işlem kartı artık yalnızca renk/yüzde değil, tam bir Türkçe cümle: 
 
 **Tarih / Not:**
 18.08.2026 — Performans sekmesi işlem anlatımları detaylandırıldı, 20/20 Flutter testi geçti, emulator'de uçtan uca doğrulandı, commit `0503f51`.
+
+---
+
+## 43. Dashboard: BIST100'ün Tamamı + final_score'a Göre Sıralama (18.08.2026)
+
+Kullanıcı geri bildirimi: "sen tüm BIST100'e bakıyor musun, çok az hisse var burada" — Dashboard o ana kadar `_testAssets` adlı sabit 6 sembollük bir test listesi (THYAO, ASELS, GARAN, AKBNK, EREGL, TUPRS) kullanıyordu; backend'in `assets` koleksiyonu da yalnızca aynı 6 kaydı içeriyordu.
+
+Önce sıralama isteği ayrıca ele alındı: `dashboard_screen.dart`'ta `_loadAll()` artık sonuçları `decision.finalScore`'a göre azalan sırada döndürüyor (en güçlü AL üstte, en güçlü SAT altta; hata alan varlıklar sıralanamadığı için en altta kalıyor).
+
+**Gerçek BIST100 listesi:** getmidas.com'dan (18.08.2026) 100 sembollük gerçek bileşen listesi alındı, **100 sembolün TAMAMI** gerçek bir yfinance script'iyle tek tek doğrulandı (100/100 başarılı, şirket isimleri de Yahoo Finance'in kendi verisinden) — hiçbir sembol uydurulmadı. `backend/scripts/seed_assets.py` bu 100 kaydı içerecek şekilde güncellendi ve çalıştırılıp canlı Firestore'a uygulandı (`GET /assets` artık 100 döner).
+
+`lib/models/asset.dart`, `lib/services/api/asset_api.dart` eklendi; `dashboard_screen.dart` artık sabit liste yerine `GET /assets`'i dinamik çekiyor.
+
+**Doğrulama (emulator, gerçek veriyle):** Dashboard 100 hissenin tamamını yükledi, final_score'a göre doğru sıralı (TUPRS/TKFEN/IEYHO en üstte AL). **Dürüst performans notu:** ilk (soğuk) yükleme ~60-80 saniye sürdü — bu sorun [Bölüm 44](#44-dashboard-performansı-technicalanalysisengine-15-dakikalık-ttl-cache)'te ele alındı.
+
+**Tarih / Not:**
+18.08.2026 — Dashboard tam BIST100'e genişletildi ve final_score'a göre sıralandı, commit `2f72545` ve `142e755`.
+
+---
+
+## 44. Dashboard Performansı: TechnicalAnalysisEngine'e 15 Dakikalık TTL Cache
+
+Kullanıcı: "önce performansı çözelim." Kök neden: `TechnicalAnalysisEngine.analyze_with_id()` her çağrıldığında yfinance'e taze bir istek atıyordu — cache yoktu. 100 hisseli Dashboard'da bu, her açılışta ~60-80 saniyelik yükleme demekti.
+
+Macro/news skorlarında zaten kullanılan "son kaydedilmiş sonucu oku, otomatik yeniden hesaplama" ilkesi technical analize de uygulandı: `TECHNICAL_CACHE_TTL_SECONDS` (900s = 15dk) içinde zaten hesaplanmış bir kayıt varsa, yfinance'e HİÇ gidilmeden o kayıt döner.
+
+`TechnicalAnalysisRepository`'ye `get_latest_with_id()` eklendi. Firestore'un `where + order_by` composite index gerektirdiği **canlı olarak test edilip doğrulandı** (`FailedPrecondition` hatası gerçekten alındı) — yeni bir Firestore index oluşturmak yerine `news_analysis_repository` ile aynı, index gerektirmeyen desen (filtrele + Python'da sırala) kullanıldı.
+
+4 yeni test (cache hit'te provider'a hiç gidilmediği, sahte bir provider `NotImplementedError` fırlatacak şekilde kurularak kanıtlandı; bayat cache'te yeniden hesaplama; cache yokken hesaplama; özel TTL parametresi).
+
+**Doğrulama (emulator, gerçek BIST100 verisiyle):** Uygulama yeniden başlatılıp Dashboard tekrar açıldığında 100 hisse birkaç saniyede yüklendi (önceden 60-80 saniye). İlk soğuk yükleme hâlâ yavaş — ücretsiz/toplu-olmayan bir veri kaynağıyla (yfinance) 100 sembolü kapsamanın doğal maliyeti, ödemeli bir API olmadan aşılamıyor.
+
+**Tarih / Not:**
+18.08.2026 — Technical analiz cache'i eklendi, 78/78 backend testi geçti, emulator'de gerçek verilerle uçtan uca doğrulandı, commit `0a27d08`.
+
+---
+
+## 45. AL Butonu ile Hızlı Portföy Ekleme + Bildirimleri Portföy Sahipliğine Sınırlama (18.08.2026)
+
+Kullanıcı: "AL butonu olacak ve aldığımız hisselerde al veya sat durumu olursa bildirim yollayacak."
+
+**AL butonu:** Varlık Detayı → Fiyat sekmesine "AL — Portföye Ekle" butonu eklendi; güncel fiyat (`Quote.lastPrice`) otomatik dolduruluyor, kullanıcı yalnızca adet giriyor, mevcut `POST /portfolio/positions` kullanılarak tek dokunuşla portföye ekleniyor. Portföy ekranındaki "Pozisyon Ekle" dialog'u da sabit 6 sembol yerine `Autocomplete` ile BIST100'ün tamamında arama yapacak şekilde güncellendi.
+
+**Bildirim kapsamı daraltıldı (kritik):** Dashboard artık BIST100'ün tamamını sorguladığından ([Bölüm 43](#43-dashboard-bist100ün-tamamı--final_scorea-göre-sıralama-18082026)), eski davranış ("her sorgulanan varlık güçlü AL/SAT ise bildir") onlarca alakasız bildirime yol açacaktı. `PortfolioRepository.get_position_for_asset()` eklendi (lotları birleştirip tek pozisyon döner); `GET /decisions/{symbol}` artık bildirimi **yalnızca** o varlık kullanıcının portföyünde varsa tetikliyor, ve bildirim metni kaç adet elde olduğunu belirtiyor (`fcm_sender.py`'ye `quantity_held` parametresi eklendi).
+
+**Bulunup düzeltilen gerçek bir arka plan hatası:** `DecisionApi.fetchDecision` (Flutter) backend'e hiç Firebase auth token'ı göndermiyordu — bu yüzden `get_current_user_id_optional` her zaman `None` dönüyor ve bildirim mantığı **AŞAMA 32'den beri hiç çalışmıyordu**, sessizce. Token eklendi.
+
+8 yeni/güncellenmiş backend testi.
+
+**Doğrulama (emulator, gerçek uçtan uca):** TUPRS, AL butonuyla 10 adet portföye eklendi (Portföy ekranında `TUPRS · 10 adet, Ort. Alış: 372.00 TL` doğru göründü). Backend debug logları ile: (1) auth token'ının artık her istekte doğru `user_id`'yi çözdüğü, (2) `get_position_for_asset`'in doğru pozisyonu döndürdüğü, (3) TUPRS'in güçlü BUY (63.74) olarak sınıflandığı, (4) `notify_if_strong_decision`'ın çağrıldığı — hepsi kanıtlandı. Gerçek FCM gönderimi test edildiğinde `UnregisteredError: NotRegistered` alındı — bu, AŞAMA 32'de zaten belgelenmiş, mevcut AVD'nin (Play Store'suz) bilinen kısıtlaması; kod tarafı uçtan uca doğru, yalnızca gerçek push teslimi bu emulator'de doğrulanamıyor.
+
+**Karşılaşılan hata / çözüm:**
+- Bildirim beklenenden gelmiyordu → sırayla auth token eksikliği (asıl kök neden) ve ardından bilinen emulator FCM kısıtlaması tespit edildi; ikisi de yukarıda detaylandırıldı.
+
+**Tarih / Not:**
+18.08.2026 — AL butonu ve portföy-kapsamlı bildirimler eklendi, 80 backend + 21 Flutter testi geçti, emulator'de uçtan uca doğrulandı (gerçek push hariç, bilinen kısıtlama), commit `3a8bf2f`.
