@@ -1462,13 +1462,20 @@ requirements.txt                                 → openai==3.2.0 + transitive 
 
 9 yeni test eklendi (`test_event_intelligence_engine.py`, sahte OpenAI istemcisi ile — gerçek API'ye hiç gitmeden model adının hard-code edilmediğini, structured JSON şemasının gönderildiğini, tekrar-analiz atlamasını ve `_should_escalate` eşiklerini doğruluyor), toplam 57 backend testi.
 
-**Doğrulama (gerçek OpenAI çağrısı):** Kullanıcının kendi API anahtarıyla tek bir haber üzerinde gerçek `analyze_item()` çağrısı yapıldı. İstek doğru şekilde kabul edildi (kimlik doğrulama hatası yok) ama hesapta kota/bakiye olmadığı için `openai.RateLimitError: insufficient_quota` alındı — bu, entegrasyon kodunun doğru çalıştığını, sorunun OpenAI hesabının billing tarafında olduğunu gösteriyor. Kullanıcıya hesabına bakiye eklemesi ve (sohbete yapıştırdığı için) anahtarı iptal edip yenisini oluşturması önerildi.
+**Doğrulama (gerçek OpenAI çağrısı):** Kullanıcının kendi API anahtarıyla tek bir haber üzerinde gerçek `analyze_item()` çağrısı yapıldı. İlk denemede hesapta kota/bakiye olmadığı için `openai.RateLimitError: insufficient_quota` alındı (kimlik doğrulama sorunsuzdu — entegrasyon kodunun doğru çalıştığını, sorunun yalnızca billing tarafında olduğunu doğruladı). Kullanıcı hesabına bakiye ekledikten sonra aynı test tekrarlandı ve **gerçek bir Luna yanıtı başarıyla alındı**:
+```text
+model: gpt-5.6-luna
+sentiment_score: 82.0, confidence: 0.97, importance: 0.86, event_type: earnings
+reasoning: "Beklentilerin belirgin şekilde üzerinde net kâr ve yüzde 20 satış
+büyümesi, şirketin finansal performansına yönelik olumlu algı yaratır..."
+```
+Bu örnekte `importance` (0.86), `HIGH_IMPORTANCE_THRESHOLD`'u (0.8) geçiyor — yani `_should_escalate()` burada `True` dönerdi; Terra fallback mimarisi tam tasarlandığı gibi tetiklenecek bir senaryoydu (henüz gerçek ikinci çağrı yapılmıyor, beklendiği gibi).
 
 **Karşılaşılan hata / çözüm:**
-Yok — kod ilk denemede sorunsuz çalıştı; tek engel OpenAI hesabındaki kota eksikliği (kullanıcı tarafı, kod dışı).
+İlk denemede OpenAI hesabında kota/bakiye yoktu (`insufficient_quota`) — kod tarafında hata değildi, kullanıcı hesabına bakiye ekleyince ikinci denemede sorunsuz çalıştı.
 
 **Kapsam dışı bırakılan (bilinçli erteleme):**
 Terra fallback'in gerçek ikinci LLM çağrısı henüz yapılmıyor — yalnızca karar mantığı (`_should_escalate`) hazır. `DecisionEngine`'in `news_score` alanını (şu an her zaman `None`) bu motorun çıktısıyla beslemek de henüz yapılmadı, ayrı bir aşama olarak planlanıyor.
 
 **Tarih / Not:**
-18.08.2026 — EventIntelligenceEngine (OpenAI GPT-5.6 Luna) eklendi, 57/57 test geçti, gerçek API anahtarıyla bağlantı doğrulandı (kota hatası hariç), commit `d6d7b96`.
+18.08.2026 — EventIntelligenceEngine (OpenAI GPT-5.6 Luna) eklendi, 57/57 test geçti, gerçek API anahtarıyla uçtan uca doğrulandı (gerçek Luna yanıtı alındı), commit `d6d7b96`.
