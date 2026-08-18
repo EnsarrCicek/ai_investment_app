@@ -2,19 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../models/decision.dart';
 import '../../models/explanation.dart';
+import '../../services/api/asset_api.dart';
 import '../../services/api/decision_api.dart';
 import '../../utils/decision_style.dart';
 import '../asset_detail/asset_detail_screen.dart';
-
-// AŞAMA 14: Ana doküman bölüm 85'teki "Ana Ekran Taslağı" hedef görünümüne göre.
-const List<String> _testAssets = [
-  'THYAO',
-  'ASELS',
-  'GARAN',
-  'AKBNK',
-  'EREGL',
-  'TUPRS',
-];
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -34,8 +25,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<List<_AssetResult>> _loadAll() async {
+    // BIST100'ün tamamı — backend'deki assets koleksiyonundan dinamik çekilir,
+    // sabit bir test listesi değil (bkz. KURULUM_GUNLUGU AŞAMA 43).
+    final assets = await AssetApi().fetchAssets();
+    final symbols = assets.map((a) => a.symbol).toList();
     final results = await Future.wait(
-      _testAssets.map((symbol) async {
+      symbols.map((symbol) async {
         try {
           final decision = await _api.fetchDecision(symbol);
           return _AssetResult(symbol: symbol, decision: decision);
