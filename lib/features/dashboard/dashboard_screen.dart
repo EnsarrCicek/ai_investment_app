@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<List<_AssetResult>> _loadAll() async {
-    return Future.wait(
+    final results = await Future.wait(
       _testAssets.map((symbol) async {
         try {
           final decision = await _api.fetchDecision(symbol);
@@ -44,6 +44,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }),
     );
+    // En güçlü AL sinyali üstte, en güçlü SAT sinyali altta — final_score'a göre
+    // azalan sıralama. Veri alınamayan (hata) varlıklar sıralanamaz, en altta kalır.
+    results.sort((a, b) {
+      if (a.decision == null && b.decision == null) return 0;
+      if (a.decision == null) return 1;
+      if (b.decision == null) return -1;
+      return b.decision!.finalScore.compareTo(a.decision!.finalScore);
+    });
+    return results;
   }
 
   Future<void> _refresh() async {
