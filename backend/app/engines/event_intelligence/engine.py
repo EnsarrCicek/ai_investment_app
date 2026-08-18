@@ -22,6 +22,10 @@ Yapılandırılmış çıktı: OpenAI'nin structured outputs özelliği (JSON Sc
 strict=True) modelin şema dışına çıkmasını API seviyesinde engeller; dönen
 JSON ayrıca Pydantic NewsAnalysis modeliyle ikinci kez doğrulanır (savunma
 katmanı) — hiçbir zaman serbest metin olarak saklanmaz.
+
+Maliyet takibi (AŞAMA 39): her gerçek çağrının response.usage'ı (prompt/
+completion token sayısı) usage.py'deki fiyat tarifesiyle çarpılıp
+TokenUsageLog olarak kaydedilir — bkz. GET /usage.
 """
 
 import json
@@ -34,10 +38,13 @@ from app.core.config import (
     EVENT_INTELLIGENCE_PRIMARY_MODEL,
     OPENAI_API_KEY,
 )
+from app.engines.event_intelligence.usage import compute_cost_usd
 from app.models.news_analysis import NewsAnalysis
 from app.models.news_raw import NewsRawItem
+from app.models.token_usage import TokenUsageLog
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.news_raw_repository import NewsRawRepository
+from app.repositories.token_usage_repository import TokenUsageRepository
 
 ENGINE_VERSION = "1.0.0"
 
@@ -105,6 +112,7 @@ class EventIntelligenceEngine:
         client: OpenAI | None = None,
         analysis_repo: NewsAnalysisRepository | None = None,
         news_repo: NewsRawRepository | None = None,
+        usage_repo: TokenUsageRepository | None = None,
         primary_model: str | None = None,
     ):
         if client is None and not OPENAI_API_KEY:
@@ -114,6 +122,7 @@ class EventIntelligenceEngine:
         self._client = client or OpenAI(api_key=OPENAI_API_KEY)
         self._analysis_repo = analysis_repo or NewsAnalysisRepository()
         self._news_repo = news_repo or NewsRawRepository()
+        self._usage_repo = usage_repo or TokenUsageRepository()
         self._primary_model = primary_model or EVENT_INTELLIGENCE_PRIMARY_MODEL
 
     def analyze_item(self, news: NewsRawItem, asset: str) -> NewsAnalysis:
@@ -134,17 +143,43 @@ class EventIntelligenceEngine:
         )
         raw = response.choices[0].message.content
         data = json.loads(raw)
+        created_at = datetime.now(timezone.utc)
 
         analysis = NewsAnalysis(
             news_id=news.external_id,
             asset=asset,
             model_used=self._primary_model,
-            created_at=datetime.now(timezone.utc),
+            created_at=created_at,
             engine_version=ENGINE_VERSION,
             **data,
         )
         self._analysis_repo.add(analysis)
+        self._log_usage(response, news.external_id, asset, created_at)
         return analysis
+
+    def _log_usage(self, response, news_id: str, asset: str, created_at: datetime) -> None:
+        """Gerçek API yanıtındaki token sayılarını maliyete çevirip kaydeder.
+
+        OpenAI'nin billing/usage API'sinden anlık çekmek yerine (kullanıcı
+        kararı), her çağrının kendi `response.usage`'ı kaynak olarak kullanılır
+        — bu, ek bir ağ çağrısı gerektirmez ve gerçek token sayımına dayanır.
+        """
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        cost_usd = compute_cost_usd(self._primary_model, usage.prompt_tokens, usage.completion_tokens)
+        self._usage_repo.add(
+            TokenUsageLog(
+                news_id=news_id,
+                asset=asset,
+                model_used=self._primary_model,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+                cost_usd=cost_usd,
+                created_at=created_at,
+            )
+        )
 
     def analyze_recent_for_asset(self, asset: str, limit: int = 5) -> list[NewsAnalysis]:
         """Bu varlık için en son haberleri getirir; daha önce analiz edilmemiş

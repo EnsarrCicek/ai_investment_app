@@ -15,20 +15,21 @@ from app.models.news_raw import NewsRawItem
 
 
 class _FakeCompletions:
-    def __init__(self, response_json: dict):
+    def __init__(self, response_json: dict, usage: SimpleNamespace | None = None):
         self.response_json = response_json
+        self.usage = usage or SimpleNamespace(prompt_tokens=100, completion_tokens=50, total_tokens=150)
         self.calls: list[dict] = []
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
         message = SimpleNamespace(content=json.dumps(self.response_json))
         choice = SimpleNamespace(message=message)
-        return SimpleNamespace(choices=[choice])
+        return SimpleNamespace(choices=[choice], usage=self.usage)
 
 
 class _FakeOpenAIClient:
-    def __init__(self, response_json: dict):
-        self.completions = _FakeCompletions(response_json)
+    def __init__(self, response_json: dict, usage: SimpleNamespace | None = None):
+        self.completions = _FakeCompletions(response_json, usage=usage)
         self.chat = SimpleNamespace(completions=self.completions)
 
 
@@ -51,6 +52,15 @@ class _FakeNewsRepo:
 
     def get_recent(self, symbol, limit=20):
         return self._items[:limit]
+
+
+class _FakeUsageRepo:
+    def __init__(self):
+        self.added: list = []
+
+    def add(self, log):
+        self.added.append(log)
+        return "fake-usage-id"
 
 
 def _news_item(external_id="n1", title="Şirket rekor kâr açıkladı"):
@@ -84,6 +94,7 @@ def test_analyze_item_uses_configured_model_not_hardcoded():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
         primary_model="some-other-model-from-env",
     )
 
@@ -96,7 +107,11 @@ def test_analyze_item_returns_validated_news_analysis():
     client = _FakeOpenAIClient(_VALID_RESPONSE)
     repo = _FakeAnalysisRepo()
     engine = EventIntelligenceEngine(
-        client=client, analysis_repo=repo, news_repo=_FakeNewsRepo([]), primary_model="gpt-5.6-luna"
+        client=client,
+        analysis_repo=repo,
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
+        primary_model="gpt-5.6-luna",
     )
 
     result = engine.analyze_item(_news_item(external_id="n42"), "THYAO")
@@ -112,7 +127,11 @@ def test_analyze_item_returns_validated_news_analysis():
 def test_analyze_item_requests_structured_json_schema():
     client = _FakeOpenAIClient(_VALID_RESPONSE)
     engine = EventIntelligenceEngine(
-        client=client, analysis_repo=_FakeAnalysisRepo(), news_repo=_FakeNewsRepo([]), primary_model="m"
+        client=client,
+        analysis_repo=_FakeAnalysisRepo(),
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
+        primary_model="m",
     )
 
     engine.analyze_item(_news_item(), "THYAO")
@@ -120,6 +139,29 @@ def test_analyze_item_requests_structured_json_schema():
     response_format = client.completions.calls[0]["response_format"]
     assert response_format["type"] == "json_schema"
     assert response_format["json_schema"]["strict"] is True
+
+
+def test_analyze_item_logs_token_usage_with_cost():
+    usage = SimpleNamespace(prompt_tokens=1_000_000, completion_tokens=1_000_000, total_tokens=2_000_000)
+    client = _FakeOpenAIClient(_VALID_RESPONSE, usage=usage)
+    usage_repo = _FakeUsageRepo()
+    engine = EventIntelligenceEngine(
+        client=client,
+        analysis_repo=_FakeAnalysisRepo(),
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=usage_repo,
+        primary_model="gpt-5.6-luna",
+    )
+
+    engine.analyze_item(_news_item(external_id="n7"), "THYAO")
+
+    assert len(usage_repo.added) == 1
+    log = usage_repo.added[0]
+    assert log.news_id == "n7"
+    assert log.prompt_tokens == 1_000_000
+    assert log.completion_tokens == 1_000_000
+    # Luna: $0.20/1M girdi + $1.20/1M çıktı = $1.40
+    assert log.cost_usd == pytest.approx(1.40)
 
 
 def test_analyze_recent_for_asset_skips_already_analyzed():
@@ -140,6 +182,7 @@ def test_analyze_recent_for_asset_skips_already_analyzed():
         client=client,
         analysis_repo=_FakeAnalysisRepo(existing={"already-done": existing_analysis}),
         news_repo=_FakeNewsRepo([news]),
+        usage_repo=_FakeUsageRepo(),
         primary_model="m",
     )
 
@@ -156,6 +199,7 @@ def test_analyze_recent_for_asset_analyzes_new_items():
         client=client,
         analysis_repo=repo,
         news_repo=_FakeNewsRepo([_news_item(external_id="new1")]),
+        usage_repo=_FakeUsageRepo(),
         primary_model="m",
     )
 
