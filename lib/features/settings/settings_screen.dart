@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../guide/guide_screen.dart';
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -17,6 +19,19 @@ class SettingsScreen extends StatelessWidget {
               leading: const Icon(Icons.person_outline),
               title: const Text('Hesap'),
               subtitle: Text(user?.email ?? 'Bilinmiyor'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('Gösterge Rehberi'),
+              subtitle: const Text('Ekranlardaki skor ve terimler ne anlama geliyor'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const GuideScreen()),
+              ),
             ),
           ),
           const SizedBox(height: 8),
