@@ -1393,3 +1393,45 @@ Kullanıcı Makro Analiz ekranındaki yüzdelerin ne anlama geldiğini sordu; ce
 
 **Tarih / Not:**
 17.08.2026 — Native Gösterge Rehberi eklendi ve emulator'de doğrulandı, commit `c710b1a`.
+
+---
+
+## 36. AŞAMA 32 — FCM Push Bildirimleri (17-18.08.2026)
+
+**Mimari kısıt (kullanıcıya soruldu, karar alındı):** Bu projede hiç zamanlayıcı/scheduler (cron, APScheduler, Cloud Scheduler) yok — her motor yalnızca bir HTTP isteği geldiğinde çalışıyor. Bu yüzden "gerçek zamanlı, arka planda kendiliğinden" bildirim mümkün değil. Seçilen yaklaşım: kullanıcı bir kararı sorguladığında (`GET /decisions/{symbol}` — Dashboard her açıldığında zaten çağrılıyor) sonuç güçlü bir AL/SAT ise ve bu, o kullanıcı için daha önce bildirilmemiş yeni bir kararsa, bildirim gönderilir. Aynı kararın her Dashboard açılışında tekrar tekrar bildirilmemesi için `notification_log` koleksiyonunda basit bir "son bildirilen karar" karşılaştırması tutuluyor.
+
+**Oluşturulan dosyalar (backend):**
+```text
+app/models/fcm_token.py                        → FcmToken (user_id, token, updated_at)
+app/repositories/fcm_token_repository.py        → kullanıcı başına tek cihaz token'ı (doküman ID = user_id)
+app/repositories/notification_log_repository.py → {user_id}_{asset} başına son bildirilen karar
+app/services/notifications/fcm_sender.py        → notify_if_strong_decision() — repo'lar enjekte edilebilir
+app/schemas/notifications.py, app/api/notifications.py → POST /notifications/register-token
+app/core/auth.py                                → get_current_user_id_optional eklendi (401 fırlatmaz, None döner)
+app/api/decisions.py                            → GET /decisions/{symbol} artık opsiyonel auth alıp
+                                                     bildirimi tetikliyor; yetkisiz çağrılar hâlâ normal çalışıyor
+```
+5 yeni test (`test_fcm_sender.py`, `messaging.send` monkeypatch ile taklit ediliyor — gerçek ağa hiç gitmiyor), toplam 53 backend testi.
+
+**Oluşturulan/değişen dosyalar (Flutter):**
+```text
+pubspec.yaml                          → firebase_messaging ^16.5.0 (flutter pub add ile çözümlendi)
+lib/services/api/notification_api.dart → registerToken()
+lib/services/notification_service.dart → izin iste, token al, backend'e kaydet, foreground mesajını SnackBar ile göster
+lib/main.dart                          → RootScreen girişte NotificationService.initialize()'ı çağırıyor
+android/.../AndroidManifest.xml        → POST_NOTIFICATIONS izni (Android 13+)
+```
+
+**Doğrulama (gerçek emulator, uçtan uca):**
+1. Uygulama açıldığında bildirim izni sistem dialogu otomatik çıktı, "Allow" ile onaylandı.
+2. Backend log: `POST /notifications/register-token → 200 OK` — gerçek FCM cihaz token'ı kaydedildi.
+3. TUPRS için `GET /decisions/TUPRS` → `BUY` (güçlü sinyal) → bildirim mantığı tetiklendi.
+4. **Gerçek push teslimi başarısız oldu**: bildirim çekmecesinde bildirim görünmedi. Kök neden Python ile doğrudan `messaging.send()` çağrılarak izole edildi: `UnregisteredError: NotRegistered`. Bu, mevcut AVD'nin (`Pixel_7_API_36`, `google_apis` — **Play Store'suz**) FCM token'ı üretebildiği ama Google'ın FCM sunucusuna gerçek anlamda kayıt olamadığı bilinen bir emulator kısıtlaması — kodda hata yok. Gerçek cihazda veya Play Store etiketli bir emulator image'ında çalışması beklenir.
+5. Kullanıcıya soruldu: yeni bir Play Store'lu AVD kurup tekrar test etmek yerine, kod tarafının (token kaydı, otomatik tetikleme, sessiz hata yönetimi) tam doğrulanmış olmasını yeterli kabul edip devam etmesi seçildi.
+
+**Karşılaşılan hata / çözüm:**
+- `firebase_admin` 7.5.0'da `messaging.Message(token=...)` deprecated — `fid=...` parametresine geçildi (SDK deprecation uyarısı doğru okundu ve düzeltildi, davranış aynı).
+- Gerçek push teslimi emulator kısıtlaması nedeniyle doğrulanamadı (yukarıda ayrıntılı).
+
+**Tarih / Not:**
+17-18.08.2026 — FCM bildirim altyapısı (token kaydı, otomatik tetikleme, tekrar-bildirmeme mantığı) uçtan uca test edildi; gerçek push teslimi emulator kısıtlaması nedeniyle doğrulanamadı ama kod tarafı tam doğru, commit `81a9409`.
