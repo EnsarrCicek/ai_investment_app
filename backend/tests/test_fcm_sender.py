@@ -88,3 +88,29 @@ def test_decision_change_renotifies(monkeypatch):
         "u1", _decision(decision="SELL"), token_repo=_FakeTokenRepo("tok"), log_repo=log_repo
     )
     assert sent is True
+
+
+def test_quantity_held_included_in_notification_body(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="SELL"),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+        quantity_held=100.0,
+    )
+
+    assert "100 adet" in sent_messages[0].notification.body
+
+
+def test_no_quantity_held_omits_holding_text(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_strong_decision(
+        "u1", _decision(decision="SELL"), token_repo=_FakeTokenRepo("tok"), log_repo=_FakeLogRepo()
+    )
+
+    assert "adet" not in sent_messages[0].notification.body

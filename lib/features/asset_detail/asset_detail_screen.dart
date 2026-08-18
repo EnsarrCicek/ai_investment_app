@@ -12,6 +12,7 @@ import '../../services/api/decision_api.dart';
 import '../../services/api/market_data_api.dart';
 import '../../services/api/news_analysis_api.dart';
 import '../../services/api/news_api.dart';
+import '../../services/api/portfolio_api.dart';
 import '../../utils/decision_style.dart';
 
 const Map<String, ({String period, String interval})> _chartPeriods = {
@@ -641,6 +642,86 @@ class _PriceTabState extends State<_PriceTab> {
     return '$day.$month.${local.year} $hour:$minute';
   }
 
+  Future<void> _showQuickBuyDialog(BuildContext context, double lastPrice) async {
+    final priceController = TextEditingController(text: lastPrice.toStringAsFixed(2));
+    final quantityController = TextEditingController();
+    bool saving = false;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: Text('${widget.symbol} — Portföye Ekle'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: priceController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Alış Fiyatı (TL)'),
+                  ),
+                  TextField(
+                    controller: quantityController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Adet'),
+                    autofocus: true,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(dialogContext, false),
+                  child: const Text('İptal'),
+                ),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final price = double.tryParse(priceController.text);
+                          final quantity = double.tryParse(quantityController.text);
+                          if (price == null || quantity == null || quantity <= 0) return;
+                          setDialogState(() => saving = true);
+                          try {
+                            await PortfolioApi().createPosition(
+                              asset: widget.symbol,
+                              buyPrice: price,
+                              quantity: quantity,
+                              buyDate: DateTime.now(),
+                            );
+                            if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                          } catch (e) {
+                            setDialogState(() => saving = false);
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                SnackBar(content: Text('Eklenemedi: $e')),
+                              );
+                            }
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Ekle'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (saved == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.symbol} portföye eklendi.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -689,6 +770,16 @@ class _PriceTabState extends State<_PriceTab> {
                         'Güncelleme: ${_fmtTimestamp(quote.timestamp)} '
                         '(Yahoo Finance, hafif gecikmeli olabilir)',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(backgroundColor: Colors.green),
+                          onPressed: () => _showQuickBuyDialog(context, quote.lastPrice),
+                          icon: const Icon(Icons.add_shopping_cart),
+                          label: const Text('AL — Portföye Ekle'),
+                        ),
                       ),
                     ],
                   ),

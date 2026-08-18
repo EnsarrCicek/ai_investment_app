@@ -30,6 +30,31 @@ class PortfolioRepository:
         )
         return [(doc.id, PortfolioPosition(**doc.to_dict())) for doc in docs]
 
+    def get_position_for_asset(self, user_id: str, asset: str) -> PortfolioPosition | None:
+        """Bu varlığa ait tüm lotları (varsa) tek bir birleşik pozisyona
+        indirger — AŞAMA 45'te bildirim gate'i için: "bu kullanıcı bu
+        hisseyi elinde tutuyor mu" sorusuna cevap verir. Hiç lot yoksa None.
+        """
+        docs = list(
+            self._db.collection(COLLECTION)
+            .where(filter=FieldFilter("user_id", "==", user_id))
+            .where(filter=FieldFilter("asset", "==", asset))
+            .stream()
+        )
+        if not docs:
+            return None
+        lots = [PortfolioPosition(**doc.to_dict()) for doc in docs]
+        quantity = sum(lot.quantity for lot in lots)
+        avg_buy_price = round(sum(lot.quantity * lot.buy_price for lot in lots) / quantity, 2)
+        return PortfolioPosition(
+            user_id=user_id,
+            asset=asset,
+            buy_price=avg_buy_price,
+            buy_date=min(lot.buy_date for lot in lots),
+            quantity=quantity,
+            created_at=max(lot.created_at for lot in lots),
+        )
+
     def delete_for_asset(self, user_id: str, asset: str) -> None:
         docs = (
             self._db.collection(COLLECTION)

@@ -1,16 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../models/portfolio_position.dart';
+import '../../services/api/asset_api.dart';
 import '../../services/api/portfolio_api.dart';
-
-const List<String> _availableAssets = [
-  'THYAO',
-  'ASELS',
-  'GARAN',
-  'AKBNK',
-  'EREGL',
-  'TUPRS',
-];
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -22,11 +14,15 @@ class PortfolioScreen extends StatefulWidget {
 class _PortfolioScreenState extends State<PortfolioScreen> {
   final _api = PortfolioApi();
   late Future<(List<PortfolioPosition>, PortfolioSummary)> _future;
+  List<String> _availableSymbols = [];
 
   @override
   void initState() {
     super.initState();
     _future = _api.fetchPositions();
+    AssetApi().fetchAssets().then((assets) {
+      if (mounted) setState(() => _availableSymbols = assets.map((a) => a.symbol).toList());
+    });
   }
 
   void _reload() {
@@ -37,7 +33,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
   Future<void> _showPositionDialog({PortfolioPosition? existing}) async {
     final isEdit = existing != null;
-    String asset = existing?.asset ?? _availableAssets.first;
+    String asset = existing?.asset ?? '';
     final priceController = TextEditingController(text: existing?.buyPrice.toString());
     final quantityController = TextEditingController(text: existing?.quantity.toStringAsFixed(0));
 
@@ -58,13 +54,25 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   ),
                 )
               else
-                DropdownButtonFormField<String>(
-                  initialValue: asset,
-                  items: _availableAssets
-                      .map((a) => DropdownMenuItem(value: a, child: Text(a)))
-                      .toList(),
-                  onChanged: (v) => asset = v ?? asset,
-                  decoration: const InputDecoration(labelText: 'Varlık'),
+                Autocomplete<String>(
+                  optionsBuilder: (textEditingValue) {
+                    if (textEditingValue.text.isEmpty) return const Iterable<String>.empty();
+                    final query = textEditingValue.text.toUpperCase();
+                    return _availableSymbols.where((s) => s.contains(query));
+                  },
+                  onSelected: (selected) => asset = selected,
+                  fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
+                    return TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Varlık (BIST100 sembolü yazın)',
+                        hintText: 'ör. THYAO',
+                      ),
+                      onChanged: (v) => asset = v.toUpperCase(),
+                    );
+                  },
                 ),
               TextField(
                 controller: priceController,
@@ -89,7 +97,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               onPressed: () async {
                 final price = double.tryParse(priceController.text);
                 final quantity = double.tryParse(quantityController.text);
-                if (price == null || quantity == null) return;
+                if (price == null || quantity == null || asset.isEmpty) return;
                 if (isEdit) {
                   await _api.updatePosition(
                     asset: asset,

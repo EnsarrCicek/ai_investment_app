@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/decision.dart';
@@ -11,7 +12,15 @@ class DecisionApi {
   static const String baseUrl = 'http://10.0.2.2:8000';
 
   Future<Decision> fetchDecision(String symbol) async {
-    final response = await http.get(Uri.parse('$baseUrl/decisions/$symbol'));
+    // Auth token buraya bilerek eklendi: backend GET /decisions/{symbol}
+    // yalnızca kullanıcı kimliği çözülebiliyorsa (bu header ile) portföy
+    // bildirimi (AŞAMA 45) tetikleyebiliyor. Token yoksa (misafir/oturum
+    // yok) backend zaten opsiyonel kabul ediyor, normal çalışmaya devam eder.
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/decisions/$symbol'),
+      headers: {if (token != null) 'Authorization': 'Bearer $token'},
+    );
     if (response.statusCode != 200) {
       throw Exception(
         "'$symbol' için karar alınamadı (HTTP ${response.statusCode})",
