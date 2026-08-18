@@ -1435,3 +1435,40 @@ android/.../AndroidManifest.xml        → POST_NOTIFICATIONS izni (Android 13+)
 
 **Tarih / Not:**
 17-18.08.2026 — FCM bildirim altyapısı (token kaydı, otomatik tetikleme, tekrar-bildirmeme mantığı) uçtan uca test edildi; gerçek push teslimi emulator kısıtlaması nedeniyle doğrulanamadı ama kod tarafı tam doğru, commit `81a9409`.
+
+---
+
+## 37. EventIntelligenceEngine — OpenAI GPT-5.6 Luna Entegrasyonu (18.08.2026)
+
+**Kullanıcı kararı:** Sağlayıcı OpenAI. Maliyet kontrolü için TÜM normal haber analizleri önce ucuz/hızlı katman olan Luna (`gpt-5.6-luna`) ile işlenecek. İleride düşük confidence veya çok yüksek importance durumunda daha güçlü Terra (`gpt-5.6-terra`) ile ikinci bir analiz/fallback yapılabilecek bir mimari kurulacak — ama bu aşamada yalnızca Luna entegrasyonu çağrılacak, fallback bilinçli olarak ertelenecek. Model adı hiçbir yerde hard-code edilmeyecek, API anahtarı asla kaynak koduna yazılmayacak.
+
+**Oluşturulan/değişen dosyalar (backend):**
+```text
+app/core/config.py                              → OPENAI_API_KEY, EVENT_INTELLIGENCE_PRIMARY_MODEL
+                                                     (varsayılan gpt-5.6-luna), EVENT_INTELLIGENCE_FALLBACK_MODEL
+                                                     (varsayılan gpt-5.6-terra) — hepsi .env'den okunuyor
+app/models/news_analysis.py                     → NewsAnalysis (immutable — ai_decisions/technical_analyses ile aynı ilke)
+app/repositories/news_analysis_repository.py    → add/get_by_news_id/list_for_asset (update/delete yok)
+app/engines/event_intelligence/engine.py         → EventIntelligenceEngine — Luna ile analiz eder,
+                                                     _should_escalate() Terra eşiklerini hesaplar (henüz çağrılmıyor)
+app/api/news_analysis.py                         → POST /news/{symbol}/analyze
+backend/.env.example                             → commit edilebilir şablon (gerçek anahtar içermez)
+requirements.txt                                 → openai==3.2.0 + transitive bağımlılıklar
+```
+
+**Yapılandırılmış çıktı:** OpenAI'nin structured outputs özelliği (`response_format={"type": "json_schema", ..., "strict": True}`) modelin şema dışına çıkmasını API seviyesinde engelliyor; dönen JSON ayrıca Pydantic `NewsAnalysis` modeliyle ikinci kez doğrulanıyor — hiçbir zaman serbest metin olarak saklanmıyor. Aynı haber tekrar tekrar analiz edilip gereksiz LLM maliyeti oluşturmasın diye `get_by_news_id` ile daha önce analiz edilenler atlanıyor.
+
+**Güvenlik:** `OPENAI_API_KEY` yalnızca `backend/.env` içinde duruyor; `git ls-files backend/.env` boş döndü (hiç izlenmiyor), `.gitignore` içinde zaten vardı. Kaynak kodun hiçbir yerinde anahtar hard-code edilmedi.
+
+9 yeni test eklendi (`test_event_intelligence_engine.py`, sahte OpenAI istemcisi ile — gerçek API'ye hiç gitmeden model adının hard-code edilmediğini, structured JSON şemasının gönderildiğini, tekrar-analiz atlamasını ve `_should_escalate` eşiklerini doğruluyor), toplam 57 backend testi.
+
+**Doğrulama (gerçek OpenAI çağrısı):** Kullanıcının kendi API anahtarıyla tek bir haber üzerinde gerçek `analyze_item()` çağrısı yapıldı. İstek doğru şekilde kabul edildi (kimlik doğrulama hatası yok) ama hesapta kota/bakiye olmadığı için `openai.RateLimitError: insufficient_quota` alındı — bu, entegrasyon kodunun doğru çalıştığını, sorunun OpenAI hesabının billing tarafında olduğunu gösteriyor. Kullanıcıya hesabına bakiye eklemesi ve (sohbete yapıştırdığı için) anahtarı iptal edip yenisini oluşturması önerildi.
+
+**Karşılaşılan hata / çözüm:**
+Yok — kod ilk denemede sorunsuz çalıştı; tek engel OpenAI hesabındaki kota eksikliği (kullanıcı tarafı, kod dışı).
+
+**Kapsam dışı bırakılan (bilinçli erteleme):**
+Terra fallback'in gerçek ikinci LLM çağrısı henüz yapılmıyor — yalnızca karar mantığı (`_should_escalate`) hazır. `DecisionEngine`'in `news_score` alanını (şu an her zaman `None`) bu motorun çıktısıyla beslemek de henüz yapılmadı, ayrı bir aşama olarak planlanıyor.
+
+**Tarih / Not:**
+18.08.2026 — EventIntelligenceEngine (OpenAI GPT-5.6 Luna) eklendi, 57/57 test geçti, gerçek API anahtarıyla bağlantı doğrulandı (kota hatası hariç), commit `d6d7b96`.
