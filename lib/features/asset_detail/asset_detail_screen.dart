@@ -37,10 +37,81 @@ const Map<String, String> _technicalLabels = {
   'rsi': 'RSI',
   'macd': 'MACD',
   'trend': 'EMA Trend (20/50)',
+  'ema_slope': 'EMA Eğimi',
   'bollinger': 'Bollinger Bantları',
   'momentum': 'Momentum',
   'roc': 'ROC (Değişim Oranı)',
 };
+
+const Map<String, String> _signalClassLabels = {
+  'STRONG_BULLISH_INITIATION': 'Güçlü Yükseliş Başlangıcı',
+  'BULLISH_CONFIRMED': 'Yükseliş Teyitli',
+  'BULLISH_CANDIDATE': 'Yükseliş Adayı',
+  'WATCHLIST': 'İzleme Listesi',
+  'NEUTRAL': 'Nötr',
+  'BEARISH_CANDIDATE': 'Düşüş Adayı',
+  'NO_SIGNAL': 'Sinyal Yok',
+};
+
+const Map<String, String> _marketStructureLabels = {
+  'UPTREND': 'Yükseliş Trendi',
+  'DOWNTREND': 'Düşüş Trendi',
+  'RANGE': 'Yatay Bant',
+  'UNKNOWN': 'Belirsiz',
+};
+
+const Map<String, String> _volatilityRegimeLabels = {
+  'LOW': 'Düşük',
+  'NORMAL': 'Normal',
+  'HIGH': 'Yüksek',
+  'EXTREME': 'Aşırı Yüksek',
+  'UNKNOWN': 'Belirsiz',
+};
+
+const Map<String, String> _trendRegimeLabels = {
+  'TRENDING': 'Güçlü/Az Gürültülü',
+  'CHOPPY': 'Gürültülü/Yatay',
+  'UNKNOWN': 'Belirsiz',
+};
+
+const Map<String, String> _relativeVolumeLabels = {
+  'LOW': 'Düşük Hacim',
+  'NORMAL': 'Normal Hacim',
+  'HIGH': 'Yüksek Hacim',
+  'VERY_HIGH': 'Çok Yüksek Hacim',
+  'UNKNOWN': 'Belirsiz',
+};
+
+const Map<String, String> _gapClassLabels = {
+  'NO_SIGNIFICANT_GAP': 'Belirgin gap yok',
+  'GAP_FILLED': 'Gap dolduruldu',
+  'GAP_UP_OPEN': 'Yukarı gap (açık)',
+  'GAP_DOWN_OPEN': 'Aşağı gap (açık)',
+  'UNKNOWN': 'Belirsiz',
+};
+
+const Map<String, String> _candlestickLabels = {
+  'DOJI': 'Doji',
+  'HAMMER': 'Çekiç (Hammer)',
+  'SHOOTING_STAR': 'Kayan Yıldız',
+  'BULLISH_ENGULFING': 'Yutan Boğa Formasyonu',
+  'BEARISH_ENGULFING': 'Yutan Ayı Formasyonu',
+};
+
+Color _signalClassColor(String? signalClass) {
+  switch (signalClass) {
+    case 'STRONG_BULLISH_INITIATION':
+    case 'BULLISH_CONFIRMED':
+      return Colors.green;
+    case 'BULLISH_CANDIDATE':
+    case 'WATCHLIST':
+      return Colors.lightGreen;
+    case 'BEARISH_CANDIDATE':
+      return Colors.red;
+    default:
+      return Colors.grey;
+  }
+}
 
 class AssetDetailScreen extends StatelessWidget {
   final String symbol;
@@ -124,7 +195,7 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                           'Teknik Skor: ${data.technicalScore.toStringAsFixed(1)}',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
-                        Text('Güven: %${data.confidence.toStringAsFixed(0)}'),
+                        Text('Güven: %${(data.confidence * 100).toStringAsFixed(0)}'),
                       ],
                     ),
                     Text(data.trend, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -132,6 +203,10 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                 ),
               ),
             ),
+            if (data.signalClass != null) ...[
+              const SizedBox(height: 12),
+              _SignalSummaryCard(data: data),
+            ],
             const SizedBox(height: 16),
             const Text('Gösterge Katkıları', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -169,6 +244,130 @@ class _TechnicalTabState extends State<_TechnicalTab> {
           ],
         );
       },
+    );
+  }
+}
+
+class _SignalSummaryCard extends StatelessWidget {
+  final TechnicalAnalysisDetail data;
+  const _SignalSummaryCard({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final signalColor = _signalClassColor(data.signalClass);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: signalColor, borderRadius: BorderRadius.circular(6)),
+              child: Text(
+                _signalClassLabels[data.signalClass] ?? data.signalClass!,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 20,
+              runSpacing: 10,
+              children: [
+                if (data.marketStructure != null)
+                  _InfoChip(
+                    label: 'Piyasa Yapısı',
+                    value: _marketStructureLabels[data.marketStructure] ?? data.marketStructure!,
+                  ),
+                if (data.trendRegime != null)
+                  _InfoChip(label: 'Trend Rejimi', value: _trendRegimeLabels[data.trendRegime] ?? data.trendRegime!),
+                if (data.volatilityRegime != null)
+                  _InfoChip(
+                    label: 'Volatilite',
+                    value: _volatilityRegimeLabels[data.volatilityRegime] ?? data.volatilityRegime!,
+                  ),
+                if (data.relativeVolumeClass != null)
+                  _InfoChip(
+                    label: 'Göreli Hacim',
+                    value: _relativeVolumeLabels[data.relativeVolumeClass] ?? data.relativeVolumeClass!,
+                  ),
+                if (data.gapClass != null && data.gapClass != 'NO_SIGNIFICANT_GAP')
+                  _InfoChip(label: 'Gap', value: _gapClassLabels[data.gapClass] ?? data.gapClass!),
+              ],
+            ),
+            if (data.candlestickPatterns.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Mum Formasyonu: ${data.candlestickPatterns.map((p) => _candlestickLabels[p] ?? p).join(', ')}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              Text(
+                'Not: mum formasyonları tek başına bir sinyal değildir, bağlamla birlikte değerlendirilmelidir.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey, fontStyle: FontStyle.italic),
+              ),
+            ],
+            if (data.nearestSupport != null || data.nearestResistance != null) ...[
+              const SizedBox(height: 12),
+              if (data.nearestSupport != null)
+                Text(
+                  'En yakın destek: ${data.nearestSupport!.low.toStringAsFixed(2)}–${data.nearestSupport!.high.toStringAsFixed(2)} TL '
+                  '(${data.nearestSupport!.touchCount}x test edildi)',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              if (data.nearestResistance != null)
+                Text(
+                  'En yakın direnç: ${data.nearestResistance!.low.toStringAsFixed(2)}–${data.nearestResistance!.high.toStringAsFixed(2)} TL '
+                  '(${data.nearestResistance!.touchCount}x test edildi)',
+                  style: const TextStyle(fontSize: 13),
+                ),
+            ],
+            if (data.breakout != null) ...[const SizedBox(height: 12), _BreakoutInfoRow(breakout: data.breakout!)],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+      ],
+    );
+  }
+}
+
+class _BreakoutInfoRow extends StatelessWidget {
+  final BreakoutInfo breakout;
+  const _BreakoutInfoRow({required this.breakout});
+
+  @override
+  Widget build(BuildContext context) {
+    final directionLabel = breakout.direction == 'BULLISH' ? 'Yukarı yönlü kırılım' : 'Aşağı yönlü kırılım';
+    final statusLabel = breakout.confirmed == true
+        ? 'teyitli'
+        : breakout.confirmed == false
+        ? 'geçersiz (fiyat geri döndü)'
+        : 'henüz teyit bekliyor';
+    final retestLabel = breakout.retestHeld == true
+        ? ' Seviye retest edildi ve tutuldu.'
+        : breakout.retestHeld == false
+        ? ' Retest\'te seviye kırıldı.'
+        : '';
+    return Text(
+      '$directionLabel ($statusLabel), ${breakout.breakoutAtr.toStringAsFixed(2)} ATR büyüklüğünde.$retestLabel',
+      style: const TextStyle(fontSize: 13),
     );
   }
 }

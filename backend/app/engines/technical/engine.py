@@ -3,13 +3,21 @@
 Kapsam notu: RSI, MACD, EMA trend (kesişim), Bollinger Bands, Momentum, ROC
 ve EMA eğimi (AŞAMA 48/9) göstergeleri TechnicalScore'a doğrudan katkı
 sağlar; ATR volatilite normalizasyonu için, Volume/Volume SMA ise yön değil
-"doğrulama" (confidence) amacıyla kullanılır. ADX, Stochastic RSI, Support/
-Resistance, Breakout/Retest, Market Structure, Relative Strength ve rejim
-tabanlı DİNAMİK ağırlıklandırma bu sürümde YOKTUR — bağımsız modüller olarak
-yazıldı (market_structure.py, support_resistance.py, breakout.py, regime.py)
-ama henüz skora bağlanmadı; TECHNICAL_ANALYSIS_RESEARCH1.md analiz raporunun
-9. adımından sonrasıdır, backtest ile kalibre edilerek ayrı aşamalarda
-entegre edilecek (bkz. KURULUM_GUNLUGU.md).
+"doğrulama" (confidence) amacıyla kullanılır. ADX, Stochastic RSI ve rejim
+tabanlı DİNAMİK ağırlıklandırma bu sürümde YOKTUR.
+
+AŞAMA 48/15 — zenginleştirme katmanı: market_structure/support_resistance/
+breakout/relative_volume/regime/gap_analysis/candlestick_patterns/
+signal_classifier modülleri artık her analyze_with_id() çağrısında
+hesaplanıp TechnicalAnalysis'e EK, AYRI alanlar (market_structure,
+signal_class, nearest_support/resistance, breakout, vb.) olarak ekleniyor —
+final_score/components hesaplamasını HİÇ ETKİLEMEZ, yalnızca UI'da
+gösterilecek açıklayıcı bağlam sağlar. Bilinçli olarak DAHİL EDİLMEYENLER:
+relative_strength ve multi_timeframe (her ikisi de ek bir yfinance isteği
+gerektirir — Dashboard'un 100 sembolü tek seferde yüklediği göz önüne
+alınırsa bu, AŞAMA 44'te çözülen N+1 istek sorununu geri getirirdi) ve
+VWAP/session_timing (intraday bar biriktirme altyapısı henüz otomatik
+çalışmıyor, bkz. scripts/fetch_intraday_bars.py).
 
 AŞAMA 48/9 — RSI/MACD/Bollinger ağırlığı düşürüldü: TECHNICAL_ANALYSIS_
 RESEARCH1.md, bu göstergelerin bağımsız birincil sürücü değil "doğrulama"
@@ -40,8 +48,23 @@ tick değil), birkaç dakikalık bir gecikme kararın doğruluğunu etkilemez.
 
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from app.engines.technical import indicators as ind
+from app.engines.technical.breakout import BreakoutEvent, check_retest, confirm_breakout, detect_breakout
+from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
 from app.engines.technical.data_quality import check_data_quality
+from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
+from app.engines.technical.market_structure import analyze_market_structure
+from app.engines.technical.regime import (
+    atr_percentile,
+    classify_trend_regime,
+    classify_volatility_regime,
+    efficiency_ratio,
+)
+from app.engines.technical.relative_volume import classify_relative_volume, relative_volume_series
+from app.engines.technical.signal_classifier import SignalInputs, classify_signal
+from app.engines.technical.support_resistance import SRZone, build_zones, nearest_zone
 from app.models.technical_analysis import TechnicalAnalysis
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
@@ -66,6 +89,86 @@ TECHNICAL_CACHE_TTL_SECONDS = 900  # 15 dakika
 
 def _clamp(value: float, low: float = -100.0, high: float = 100.0) -> float:
     return max(low, min(high, value))
+
+
+def _zone_to_dict(zone: SRZone | None) -> dict | None:
+    if zone is None:
+        return None
+    return {
+        "type": zone.type,
+        "low": round(zone.low, 4),
+        "high": round(zone.high, 4),
+        "touch_count": zone.touch_count,
+    }
+
+
+def _breakout_to_dict(event: BreakoutEvent | None) -> dict | None:
+    if event is None:
+        return None
+    return {
+        "direction": event.direction,
+        "breakout_atr": event.breakout_atr,
+        "confirmed": event.confirmed,
+        "retest_held": event.retest_held,
+        "zone": _zone_to_dict(event.zone),
+    }
+
+
+def _compute_enrichment(df: pd.DataFrame, atr_val: float, close_val: float, final_score: float) -> dict:
+    """market_structure/S-R/breakout/hacim/rejim/gap/mum/sinyal sınıfı katmanı
+    — tamamı, `analyze_with_id`'nin zaten çekmiş olduğu AYNI df üzerinden
+    hesaplanır (ek bir yfinance isteği YOK, bkz. modül docstring'i).
+    """
+    close, volume = df["Close"], df["Volume"]
+
+    structure_result = analyze_market_structure(df)
+    zones = build_zones(structure_result["swing_points"], atr=atr_val)
+    support = nearest_zone(zones, price=close_val, zone_type="SUPPORT")
+    resistance = nearest_zone(zones, price=close_val, zone_type="RESISTANCE")
+
+    breakout_event: BreakoutEvent | None = None
+    active_zone = nearest_zone(zones, price=close_val)
+    if active_zone is not None:
+        breakout_event = detect_breakout(close, active_zone, index=len(df) - 1, atr=atr_val)
+        if breakout_event is not None:
+            breakout_event = confirm_breakout(close, breakout_event)
+            breakout_event = check_retest(close, breakout_event)
+
+    rv_series = relative_volume_series(volume)
+    rv_ratio = rv_series.iloc[-1]
+    rv_class = classify_relative_volume(rv_ratio)
+
+    vol_percentile = atr_percentile(ind.atr(df)).iloc[-1]
+    vol_regime = classify_volatility_regime(vol_percentile)
+    er = efficiency_ratio(close).iloc[-1]
+    trend_regime_val = classify_trend_regime(er)
+
+    gap = latest_gap(df, atr=atr_val)
+    filled = is_gap_filled(df)
+    gap_class = classify_gap(gap, filled)
+
+    candlestick = detect_candlestick_patterns(df)
+
+    signal_inputs = SignalInputs(
+        technical_score=final_score,
+        market_structure=structure_result["structure"],
+        breakout_event=breakout_event,
+        relative_volume_class=rv_class,
+    )
+    signal_class = classify_signal(signal_inputs)
+
+    return {
+        "market_structure": structure_result["structure"],
+        "signal_class": signal_class,
+        "relative_volume_class": rv_class,
+        "volatility_regime": vol_regime,
+        "trend_regime": trend_regime_val,
+        "gap_class": gap_class,
+        "candlestick_patterns": candlestick,
+        "nearest_support": _zone_to_dict(support),
+        "nearest_resistance": _zone_to_dict(resistance),
+        "breakout": _breakout_to_dict(breakout_event),
+    }
 
 
 class TechnicalAnalysisEngine:
@@ -138,12 +241,15 @@ class TechnicalAnalysisEngine:
 
         trend = "BULLISH" if final_score > 15 else "BEARISH" if final_score < -15 else "NEUTRAL"
 
+        enrichment = _compute_enrichment(df, atr_val, close_val, final_score)
+
         analysis = TechnicalAnalysis(
             asset=symbol,
             technical_score=final_score,
             trend=trend,
             confidence=confidence,
             components=components,
+            **enrichment,
             indicators={
                 "rsi": round(rsi_val, 2),
                 "macd_histogram": round(macd_hist_val, 4),
