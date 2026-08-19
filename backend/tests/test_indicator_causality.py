@@ -17,6 +17,7 @@ import pytest
 from app.engines.technical import indicators as ind
 from app.engines.technical.regime import atr_percentile, efficiency_ratio
 from app.engines.technical.relative_volume import relative_volume_series
+from app.engines.technical.vwap import vwap_series
 
 CUT = 50
 
@@ -48,6 +49,7 @@ _INDICATOR_CASES = [
     ("ema_slope", lambda df: ind.ema_slope(df["Close"], 20, 5)),
     ("atr_percentile", lambda df: atr_percentile(ind.atr(df), window=20)),
     ("efficiency_ratio", lambda df: efficiency_ratio(df["Close"], window=10)),
+    ("vwap", lambda df: vwap_series(df)),
 ]
 
 
