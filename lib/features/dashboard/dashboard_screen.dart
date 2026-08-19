@@ -17,11 +17,35 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final _api = DecisionApi();
   late Future<List<_AssetResult>> _future;
+  final _searchController = TextEditingController();
+  bool _searching = false;
+  String _query = '';
 
   @override
   void initState() {
     super.initState();
     _future = _loadAll();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text.trim().toUpperCase());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startSearch() {
+    setState(() => _searching = true);
+  }
+
+  void _stopSearch() {
+    setState(() {
+      _searching = false;
+      _query = '';
+      _searchController.clear();
+    });
   }
 
   // Gerçek bulut backend'ine (Cloud Run) karşı 100 sembolü TAMAMEN eşzamanlı
@@ -73,7 +97,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Piyasa Analizi')),
+      appBar: AppBar(
+        title: _searching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  hintText: 'Hisse ara (ör. THYAO)',
+                  border: InputBorder.none,
+                ),
+              )
+            : const Text('Piyasa Analizi'),
+        actions: [
+          IconButton(
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            onPressed: _searching ? _stopSearch : _startSearch,
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<List<_AssetResult>>(
@@ -82,7 +124,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
             if (snapshot.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            final results = snapshot.data ?? [];
+            final allResults = snapshot.data ?? [];
+            final results = _query.isEmpty
+                ? allResults
+                : allResults.where((r) => r.symbol.contains(_query)).toList();
+
+            if (results.isEmpty) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 80),
+                    child: Center(child: Text('"$_query" için sonuç bulunamadı.')),
+                  ),
+                ],
+              );
+            }
+
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
