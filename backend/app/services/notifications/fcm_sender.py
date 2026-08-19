@@ -15,6 +15,17 @@ Sebep: Dashboard artık BIST100'ün tamamını sorguluyor (AŞAMA 43) — eskide
 onlarcası için spam bildirime yol açardı. Bu fonksiyonun kendisi hâlâ
 varlık-agnostik ve genel amaçlı — kapsam kararı çağıran tarafın
 sorumluluğunda, test edilebilirliği bozmamak için.
+
+AŞAMA 48/19 — yarı-otomatik alım-satım (kullanıcı: "sat veya şu kadar
+miktar al gibisinden bildirim yeter, sonra otomatiğe geçeriz"): bildirimler
+artık somut bir eylem öneriyor — SAT için elde tutulan adet ("X adet
+SATMANIZ öneriliyor"), AL için önerilen adet ("~X adet ALMANIZ önerilir").
+Elde TUTULMAYAN bir varlık için "AL" önerisi `notify_if_new_opportunity()`
+ile ayrı bir fonksiyonda ele alınır — AŞAMA 45'te çözülen spam sorununun
+AYNISINI yeniden yaratmamak için (100 sembolün "AL" diyen onlarcası değil)
+yalnızca en yüksek güvenilirlikli sinyal sınıfında (STRONG_BULLISH_
+INITIATION — market structure/breakout/hacim/çoklu-zaman-dilimi hepsi aynı
+anda uyumlu) tetiklenir; eşik bilinçli olarak çok yüksek tutuldu.
 """
 
 from firebase_admin import exceptions as firebase_exceptions
@@ -23,9 +34,16 @@ from firebase_admin import messaging
 from app.models.ai_decision import AIDecision
 from app.repositories.fcm_token_repository import FcmTokenRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
+from app.repositories.system_config_repository import SystemConfigRepository
+from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
+from app.services.market_data.base import MarketDataProvider
+from app.services.market_data.bist_provider import BistProvider
 
 STRONG_DECISIONS = {"BUY", "SELL"}
 _DECISION_LABELS = {"BUY": "AL", "SELL": "SAT"}
+
+STRONG_NEW_OPPORTUNITY_SIGNAL_CLASS = "STRONG_BULLISH_INITIATION"
+DEFAULT_NOTIFICATION_SETTINGS = {"default_trade_budget_tl": 5000.0}
 
 
 def notify_if_strong_decision(
@@ -34,12 +52,17 @@ def notify_if_strong_decision(
     token_repo: FcmTokenRepository | None = None,
     log_repo: NotificationLogRepository | None = None,
     quantity_held: float | None = None,
+    suggested_buy_quantity: float | None = None,
+    budget_tl: float | None = None,
 ) -> bool:
     """Koşullar sağlanıp bildirim gönderilirse True döner (testte doğrulamak için).
 
     `quantity_held` verilirse (çağıran taraf bu varlığın portföyde olduğunu
-    zaten biliyorsa) bildirim metninde kaç adet elde olduğu da belirtilir —
-    ek bir sorgu/hesaplama bu fonksiyon içinde YAPILMAZ, çağıran taraf sağlar.
+    zaten biliyorsa) SAT bildirimi "elinizdeki X adeti satın" şeklinde somut
+    bir eylem önerir. `suggested_buy_quantity`/`budget_tl` verilirse AL
+    bildirimi "yaklaşık X adet (~Y TL) alın" şeklinde somut bir eylem önerir
+    — miktar hesaplaması bu fonksiyon içinde YAPILMAZ, çağıran taraf sağlar
+    (bkz. notify_if_new_opportunity).
     """
     if decision.decision not in STRONG_DECISIONS:
         return False
@@ -54,9 +77,20 @@ def notify_if_strong_decision(
         return False
 
     label = _DECISION_LABELS[decision.decision]
-    body = f"Final skor: {decision.final_score:+.1f}, Güven: %{decision.confidence:.0f}"
-    if quantity_held is not None:
-        body = f"Elinizde {quantity_held:.0f} adet var. {body}"
+    score_line = f"Final skor: {decision.final_score:+.1f}, Güven: %{decision.confidence:.0f}"
+
+    if decision.decision == "SELL" and quantity_held is not None:
+        action = f"Elinizdeki {quantity_held:.0f} adet {decision.asset} hissesini SATMANIZ öneriliyor."
+        body = f"{action} {score_line}"
+    elif decision.decision == "BUY" and suggested_buy_quantity is not None:
+        budget_text = f" (~{budget_tl:.0f} TL)" if budget_tl is not None else ""
+        action = f"Yaklaşık {suggested_buy_quantity:.0f} adet{budget_text} ALMANIZ önerilir."
+        body = f"{action} {score_line}"
+    elif quantity_held is not None:
+        body = f"Elinizde {quantity_held:.0f} adet var. {score_line}"
+    else:
+        body = score_line
+
     message = messaging.Message(
         notification=messaging.Notification(
             title=f"{decision.asset}: {label} sinyali",
@@ -71,3 +105,58 @@ def notify_if_strong_decision(
 
     log_repo.set_last_decision(user_id, decision.asset, decision.decision)
     return True
+
+
+def notify_if_new_opportunity(
+    user_id: str,
+    decision: AIDecision,
+    analysis_repo: TechnicalAnalysisRepository | None = None,
+    provider: MarketDataProvider | None = None,
+    config_repo: SystemConfigRepository | None = None,
+    token_repo: FcmTokenRepository | None = None,
+    log_repo: NotificationLogRepository | None = None,
+) -> bool:
+    """Elde TUTULMAYAN bir varlık için "yeni AL fırsatı" bildirimi — yalnızca
+    DecisionEngine "BUY" derse VE o varlığın en son TechnicalAnalysis'i
+    STRONG_BULLISH_INITIATION sinyal sınıfındaysa gönderilir (bkz. modül
+    docstring'i — spam'i önlemek için bilinçli olarak yüksek bir eşik).
+
+    Önerilen miktar, config'ten gelen sabit bir TL bütçesinin (varsayılan
+    5000 TL, `system_config/notification_settings`) o anki fiyata
+    bölünmesiyle hesaplanır — bu, kullanıcının risk toleransını/portföy
+    büyüklüğünü BİLMEDEN yapılabilecek en basit, en şeffaf tahmindir; ileride
+    otomatik alım-satıma geçilince (kullanıcının kendi ifadesiyle "sonra
+    otomatiğe geçeriz") gerçek bir pozisyon büyüklüğü stratejisiyle
+    değiştirilmesi gerekecek.
+    """
+    if decision.decision != "BUY":
+        return False
+
+    analysis_repo = analysis_repo or TechnicalAnalysisRepository()
+    analysis = analysis_repo.get_latest(decision.asset)
+    if analysis is None or analysis.signal_class != STRONG_NEW_OPPORTUNITY_SIGNAL_CLASS:
+        return False
+
+    provider = provider or BistProvider()
+    try:
+        quote = provider.get_quote(decision.asset)
+    except ValueError:
+        return False
+    if quote.last_price <= 0:
+        return False
+
+    config_repo = config_repo or SystemConfigRepository()
+    settings = config_repo.get("notification_settings", DEFAULT_NOTIFICATION_SETTINGS)
+    budget_tl = settings.get("default_trade_budget_tl", DEFAULT_NOTIFICATION_SETTINGS["default_trade_budget_tl"])
+    suggested_quantity = int(budget_tl // quote.last_price)
+    if suggested_quantity <= 0:
+        return False
+
+    return notify_if_strong_decision(
+        user_id,
+        decision,
+        token_repo=token_repo,
+        log_repo=log_repo,
+        suggested_buy_quantity=suggested_quantity,
+        budget_tl=budget_tl,
+    )

@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
 from app.models.ai_decision import AIDecision
+from app.models.market_data import Quote
+from app.models.technical_analysis import TechnicalAnalysis
 from app.services.notifications import fcm_sender
 
 
@@ -114,3 +116,160 @@ def test_no_quantity_held_omits_holding_text(monkeypatch):
     )
 
     assert "adet" not in sent_messages[0].notification.body
+
+
+def test_sell_with_quantity_held_instructs_to_sell(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="SELL", asset="TUPRS"),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+        quantity_held=50.0,
+    )
+
+    body = sent_messages[0].notification.body
+    assert "50 adet" in body
+    assert "SATMANIZ" in body
+
+
+def test_suggested_buy_quantity_included_in_notification_body(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="BUY"),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+        suggested_buy_quantity=25.0,
+        budget_tl=5000.0,
+    )
+
+    body = sent_messages[0].notification.body
+    assert "25 adet" in body
+    assert "ALMANIZ" in body
+    assert "5000 TL" in body
+
+
+class _FakeAnalysisRepo:
+    def __init__(self, analysis: TechnicalAnalysis | None):
+        self._analysis = analysis
+
+    def get_latest(self, asset):
+        return self._analysis
+
+
+class _FakeQuoteProvider:
+    def __init__(self, last_price: float = 100.0, raise_error: bool = False):
+        self._last_price = last_price
+        self._raise_error = raise_error
+
+    def get_quote(self, symbol):
+        if self._raise_error:
+            raise ValueError(f"'{symbol}' için fiyat alınamadı")
+        now = datetime.now(timezone.utc)
+        return Quote(
+            asset_id=symbol,
+            timestamp=now,
+            last_price=self._last_price,
+            previous_close=self._last_price,
+            change=0.0,
+            change_percent=0.0,
+            open=self._last_price,
+            high=self._last_price,
+            low=self._last_price,
+            volume=1000,
+            source="fake",
+        )
+
+
+class _FakeSettingsConfigRepo:
+    def __init__(self, settings: dict | None = None):
+        self._settings = settings
+
+    def get(self, key, defaults):
+        return self._settings if self._settings is not None else defaults
+
+
+def _strong_analysis(signal_class: str = "STRONG_BULLISH_INITIATION") -> TechnicalAnalysis:
+    return TechnicalAnalysis(
+        asset="THYAO",
+        technical_score=50.0,
+        trend="BULLISH",
+        confidence=0.9,
+        components={},
+        indicators={},
+        created_at=datetime.now(timezone.utc),
+        signal_class=signal_class,
+    )
+
+
+def test_new_opportunity_skipped_when_decision_is_not_buy():
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="SELL"), analysis_repo=_FakeAnalysisRepo(_strong_analysis())
+    )
+    assert sent is False
+
+
+def test_new_opportunity_skipped_without_cached_analysis():
+    sent = fcm_sender.notify_if_new_opportunity("u1", _decision(decision="BUY"), analysis_repo=_FakeAnalysisRepo(None))
+    assert sent is False
+
+
+def test_new_opportunity_skipped_when_signal_class_not_strong():
+    analysis = _strong_analysis(signal_class="BULLISH_CANDIDATE")
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY"), analysis_repo=_FakeAnalysisRepo(analysis)
+    )
+    assert sent is False
+
+
+def test_new_opportunity_skipped_when_quote_unavailable():
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
+        provider=_FakeQuoteProvider(raise_error=True),
+    )
+    assert sent is False
+
+
+def test_new_opportunity_sends_with_computed_quantity(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
+        provider=_FakeQuoteProvider(last_price=200.0),
+        config_repo=_FakeSettingsConfigRepo({"default_trade_budget_tl": 1000.0}),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+    )
+
+    assert sent is True
+    body = sent_messages[0].notification.body
+    assert "5 adet" in body  # 1000 TL / 200 TL = 5 adet
+    assert "1000 TL" in body
+
+
+def test_new_opportunity_uses_default_budget_when_not_configured(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
+        provider=_FakeQuoteProvider(last_price=100.0),
+        config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+    )
+
+    body = sent_messages[0].notification.body
+    assert "50 adet" in body  # varsayılan 5000 TL / 100 TL = 50 adet

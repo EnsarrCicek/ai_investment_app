@@ -5,7 +5,7 @@ from app.engines.decision.engine import DecisionEngine
 from app.engines.explanation.engine import ExplanationEngine
 from app.repositories.ai_decision_repository import AIDecisionRepository
 from app.repositories.portfolio_repository import PortfolioRepository
-from app.services.notifications.fcm_sender import notify_if_strong_decision
+from app.services.notifications.fcm_sender import notify_if_new_opportunity, notify_if_strong_decision
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
@@ -25,6 +25,11 @@ def get_decision(symbol: str, user_id: str | None = Depends(get_current_user_id_
         holding = PortfolioRepository().get_position_for_asset(user_id, symbol.upper())
         if holding is not None:
             notify_if_strong_decision(user_id, decision, quantity_held=holding.quantity)
+        else:
+            # AŞAMA 48/19: elde tutulmayan varlıklar için yalnızca en yüksek
+            # güvenilirlikli sinyalde ("STRONG_BULLISH_INITIATION") ve somut
+            # bir miktar öneriyle bildirim gönderilir (bkz. fcm_sender.py).
+            notify_if_new_opportunity(user_id, decision)
 
     return decision
 
