@@ -1712,3 +1712,59 @@ Ayrıca ilgisiz bir flaky test bulunup düzeltildi: `test_summarize_splits_today
 
 **Tarih / Not:**
 18.08.2026 — Backend Cloud Run'a deploy edildi, APK gerçek adrese bağlandı ve gerçek internetten uçtan uca doğrulandı, 80 backend testi geçti, commit `97984c3`.
+
+---
+
+## 47. Portföy Geçmişi — Pozisyon Kapatma, Gerçekleşen Kâr/Zarar Takibi (19.08.2026)
+
+Kullanıcı: "portföyde geçmiş yok, hisse geçmişi de olsun istiyorum, ne kadar kâr zarar yaptığımızda olsun, geçmişten bugüne toplam kâr zarar." O ana kadar bir pozisyonu silmek, o pozisyona dair TÜM geçmişi sessizce kaybettiriyordu — kullanıcı hiçbir zaman "TUPRS'ten şu kadar kâr ettim" diyemiyordu.
+
+**Çözüm — silme yerine "kapatma":** Pozisyon artık doğrudan silinmiyor; kullanıcı bir satış fiyatı girip pozisyonu "kapatıyor", gerçekleşen kâr/zarar hesaplanıp ayrı, değiştirilemez bir `PortfolioTransaction` kaydına yazılıyor, ANCAK SONRA açık pozisyon siliniyor. Bu, projenin AI karar kayıtlarında (`ai_decisions`, `news_analyses`) zaten uygulanan "geçmiş asla değiştirilmez/silinmez" ilkesinin kullanıcı işlemlerine de (analoji yoluyla) genişletilmesi.
+
+**Backend:** `models/portfolio_transaction.py` (immutable), `repositories/portfolio_transaction_repository.py`, `services/portfolio/pnl_calculator.py`'ye `calculate_realized_pnl()` eklendi, `POST /portfolio/positions/{asset}/close` (satış fiyatı alır, K/Z hesaplar, transaction'a yazar, pozisyonu siler), `GET /portfolio/history` (tüm işlemler + toplam gerçekleşen K/Z).
+
+**Flutter:** Portföy ekranındaki çöp kutusu ikonu "Sattım" (satış fiyatı dialogu) ile değiştirildi; yeni `PortfolioHistoryScreen` — gerçekleşen K/Z + açık pozisyon K/Z + toplam özet, her işlem için Performans sekmesindeki `_TradeCard` ile tutarlı Türkçe anlatı cümlesi ("18.08.2026'de 372 TL'den 10 adet alındı, 19.08.2026'de 390 TL'den satıldı. Fiyat %4.8 yükseldi, kâr edildi.").
+
+**Doğrulama:** Backend testleri + Cloud Run'a deploy + emulator'de uçtan uca (pozisyon kapatma, Geçmiş ekranı, toplam K/Z hesabı) doğrulandı.
+
+**Tarih / Not:**
+19.08.2026 — Portföy Geçmişi eklendi, commit `a71fa94`.
+
+---
+
+## 48. TECHNICAL_ANALYSIS_RESEARCH1.md — Teknik Analiz Altyapısını Araştırma Raporuna Göre Genişletme (19.08.2026)
+
+Kullanıcı kendi araştırdığı bir teknik analiz dokümanı (`TECHNICAL_ANALYSIS_RESEARCH1.md`, proje kökünde, 1625 satır) oluşturup "incele, yaptığım araştırmalara göre projemizdeki AL/SAT/TUT durumuna eklemeler yapıp doğruluğu artıralım" dedi. Dokümanın kendi 47. bölümü açıkça şunu istiyordu: önce mevcut kodu incele, bir analiz raporu çıkar (mevcut özellikler / eksikler / hatalı hesaplamalar / look-ahead-bias riskleri / gereken yeni modüller / önerilen sıra), kör kör özellik ekleme. Bu yöntem birebir izlendi.
+
+**Analiz raporu (kod değişikliğinden önce sunuldu):** Mevcut motor yalnızca RSI/MACD/EMA-trend(kesişim)/Bollinger/Momentum/ROC kullanıyordu, hepsi eşit ağırlıklı. Eksikler: market structure (HH/HL/LH/LL), destek/direnç bölgeleri, breakout/false-breakout/retest, gerçek göreli hacim, VWAP, çoklu zaman dilimi, göreli güç, volatilite/trend rejimi, veri kalitesi hard-veto'ları, sinyal sınıfı taksonomisi, walk-forward backtest. En kritik look-ahead-bias riski: `BistProvider.get_history` piyasa açıkken bugünün tamamlanmamış barını da döndürüyordu. Dokümanın önerdiği 14 aşamalı geliştirme sırası, backtest ile doğrulanmadan hiçbir eşiğin "evrensel doğru" sayılmaması uyarısıyla birlikte kabul edildi.
+
+Kullanıcı: "sırayla hepsini kademe kademe ekleyelim" — 14 aşamanın tamamı (+ canlı skora entegrasyon + UI bağlama + bir prod hatası düzeltmesi) tamamlandı:
+
+- **1-8 (altyapı, henüz skora bağlanmadı):** `data_quality.py` (skorlama öncesi hard-veto: eksik sütun/yetersiz geçmiş/eksik OHLCV/bayat veri — hem canlı motora hem BacktestEngine'e bağlandı), `test_indicator_causality.py` (tüm göstergelerin gelecekteki veriyi "görmediğini" doğrulayan regresyon testi, yeni özelliklerden ÖNCE kuruldu), `market_structure.py` (onay-gecikmeli swing high/low + HH/HL/LH/LL), `support_resistance.py` (ATR-normalize destek/direnç bölgeleri), `breakout.py` (breakout kalitesi + false breakout + retest onayı), `relative_volume.py` (medyan tabanlı), `indicators.ema_slope` (EMA'nın anlık farkı değil zaman içindeki eğimi), `regime.py` (ATR percentile + Kaufman Efficiency Ratio).
+- **9 (canlı skora entegrasyon — riskli adım, backtest ile doğrulandı):** RSI/MACD/Bollinger ağırlığı 0.1667'den 0.10'a düşürüldü (doğrulama amaçlı kullanım), `ema_slope` yeni bir bileşen olarak eklendi, `final_score` artık ağırlık toplamına bölünerek normalize ediliyor (Firestore'daki eski 6 anahtarlı config'in yeni "ema_slope" anahtarını bozmadan birleşebilmesi için — regresyon testiyle kilitlendi). 10 BIST sembolünde (2 yıl) eski/yeni ağırlıklandırma karşılaştırıldı: ortalama getiri %39.68 → %43.10, ortalama max drawdown -%26.13 → -%25.62, kazanma oranı %44.20 → %47.34, daha az işlem sayısı.
+- **10-13:** `relative_strength.py` (BIST100/XU100'e göre — RiskEngine'de zaten kullanılan aynı benchmark mekanizması), `multi_timeframe.py` (farklı zaman dilimlerinde EMA eğimi yönü karşılaştırması), `signal_classifier.py` (7 sınıflı sinyal taksonomisi: STRONG_BULLISH_INITIATION..NO_SIGNAL — TechnicalScore/DecisionEngine kararını değiştirmez, ayrı bir zenginleştirme katmanı), `metrics.py` (Sharpe/Sortino/Profit Factor/Expectancy), `weight_walk_forward.py` (ağırlık grid'i için walk-forward optimizasyon: train'de seç, testte/out-of-sample ölç).
+- **14a-b:** `gap_analysis.py`, `candlestick_patterns.py` (Doji/Hammer/Shooting Star/Engulfing — bilinçli olarak yalnızca TESPİT eder, bağlamdan bağımsız yorumlamaz), `chart_patterns.py` (Double Bottom/Top, yalnızca neckline kırılımıyla onaylanır) — hepsi günlük barla çalışır, altyapı gerektirmez. Ayrıca `IntradayBar` modeli/repository'si, `scripts/fetch_intraday_bars.py` (mevcut `fetch_market_data.py` ile aynı elle-tetiklenen script deseni — otomatik zamanlama BİLİNÇLİ OLARAK kurulmadı), `vwap.py`, `session_timing.py` (BIST seansını OPENING/MIDDAY/CLOSING/CLOSED olarak sınıflandırır).
+- **15 (UI'ya bağlama):** market_structure/S-R/breakout/relative_volume/regime/gap/candlestick/signal_classifier artık her `analyze_with_id()` çağrısında (AYNI veriden, ek ağ isteği olmadan) hesaplanıp `TechnicalAnalysis`'e ekleniyor. Teknik sekmesine yeni bir "Sinyal Özeti" kartı eklendi (sinyal rozeti, piyasa yapısı, trend/volatilite rejimi, göreli hacim, en yakın destek/direnç, breakout durumu). Test sırasında bu değişiklikten ÖNCE de var olan bir görüntüleme hatası bulunup düzeltildi: "Güven" yüzdesi 0-1 ölçekli değeri 100'le çarpmadan gösteriyordu (%85 yerine %1).
+- **16 (prod hatası düzeltmesi):** Dashboard testinde bazı semboller (AKSEN, HEKTS, ISMEN, PATEK) "possibly delisted" hatası veriyordu. Silmeden önce izole sorguyla doğrulandı: hepsi geçerli, aktif BIST hisseleri — hata Dashboard'un 10'arlı eşzamanlı isteklerinin Yahoo Finance'i rate-limit'e sokmasıydı, gerçek bir delisting değildi. `BistProvider`'a otomatik yeniden deneme eklendi (`_fetch_with_retry`, 3 deneme, 2sn ara) — semboller SİLİNMEDİ.
+
+**Önemli bir hata yakalanıp düzeltildi:** 10-13 aşamasında yeni bir "walk-forward" dosyası yazılırken, fark edilmeden AŞAMA 29'dan beri var olan ve `/backtest` API'sine bağlı çalışan `WalkForwardOptimizer` sınıfının (eşik optimizasyonu, `walk_forward.py`) üzerine yazılmıştı. Commit'lemeden önce fark edilip orijinal dosya `git checkout --` ile geri getirildi, yeni ağırlık-grid'i kodu ayrı bir dosyaya (`weight_walk_forward.py`) taşındı — üretimde hiçbir kayıp olmadı.
+
+**Kapsam dışı bırakılanlar (bilinçli):** `relative_strength`/`multi_timeframe` skora/UI'ya bağlanmadı (ikisi de ek bir yfinance isteği gerektirir — Dashboard'un 100 sembolü tek seferde yüklediği göz önüne alınırsa AŞAMA 44'te çözülen N+1 istek sorununu geri getirirdi). `vwap.py`/`session_timing.py` hiçbir yerde kullanılmıyor (intraday veri biriktirme altyapısı var ama hiçbir otomatik zamanlama yok, gerçekte veri birikmiyor). MFE/MAE backtest metrikleri yok. Gelişmiş mum/grafik formasyonları (Morning/Evening Star, Head & Shoulders) yok. `signal_classifier` gap/mum formasyonu bilgisini henüz girdi olarak almıyor.
+
+**Doğrulama:** Her aşamada backend pytest (102 → 258 test, kademeli), `flutter analyze`/`flutter test`, gerçek Cloud Run deploy + emulator'de görsel doğrulama (THYAO/TUPRS üzerinde Teknik sekmesi).
+
+**Tarih / Not:**
+19.08.2026 — TECHNICAL_ANALYSIS_RESEARCH1.md'nin 14 aşamalı yol haritası + skor entegrasyonu + UI bağlama + prod hatası düzeltmesi tamamlandı, 258/258 backend test yeşil, commit'ler `c6da6e7`, `a0e4d23`, `1fbdc43`, `0ed9553`, `32350f0`, `a616750`, `26bae2a`.
+
+---
+
+## 49. Dashboard'a Hisse Arama Butonu (19.08.2026)
+
+Kullanıcı: "piyasalar kısmına arama butonu ekle ve oradan istediğimiz hisseyi arayabilelim."
+
+**Çözüm:** Piyasa Analizi ekranının AppBar'ına bir arama ikonu eklendi. Tıklanınca başlık bir `TextField`'a dönüşüyor; yazıldıkça, zaten yüklenmiş olan BIST100 listesi (ek bir API isteği YAPILMADAN, client-side) sembol adına göre filtreleniyor. Sonuç yoksa bilgilendirici bir mesaj gösteriliyor, X butonuyla arama kapatılıp tam liste (final_score'a göre sıralı) geri geliyor.
+
+**Doğrulama:** Emulator'de uçtan uca test edildi — "PG" araması DAPGM ve PGSUS'u doğru filtreledi, "PGZZ" için doğru boş-sonuç mesajı gösterildi, X ile arama temizlenip orijinal sıralı liste geri geldi. (Test sırasında emulator'ün "stylus" eğitim penceresi birkaç kez araya girdi — `adb shell input keyevent KEYCODE_BACK` ile atlatıldı, uygulamanın kendi davranışıyla ilgisi yok.)
+
+**Tarih / Not:**
+19.08.2026 — Dashboard arama özelliği eklendi, `flutter analyze` temiz, 26/26 flutter test yeşil, commit `19daa27`.
