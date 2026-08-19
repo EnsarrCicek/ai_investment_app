@@ -28,3 +28,5 @@ class TechnicalAnalysis(BaseModel):
     nearest_support: dict | None = None
     nearest_resistance: dict | None = None
     breakout: dict | None = None
+    mtf_aligned: bool | None = None
+    mtf_consensus: str | None = None

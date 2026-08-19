@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app.engines.technical.multi_timeframe import check_alignment, timeframe_direction
+from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
 
 
 def test_timeframe_direction_up_for_rising_series():
@@ -45,3 +45,25 @@ def test_check_alignment_unknown_when_no_timeframe_resolved():
     result = check_alignment({"1d": "UNKNOWN", "1wk": "UNKNOWN"})
     assert result["aligned"] is False
     assert result["consensus"] == "UNKNOWN"
+
+
+def test_resample_to_weekly_close_reduces_to_weekly_last_values():
+    idx = pd.date_range("2024-01-01", periods=14, freq="D")  # Pzt 2024-01-01 .. Paz 2024-01-14 (2 tam hafta)
+    daily_close = pd.Series(range(1, 15), index=idx, dtype=float)  # 1..14
+
+    weekly = resample_to_weekly_close(daily_close)
+
+    assert len(weekly) == 2
+    assert weekly.iloc[0] == 7.0  # ilk haftanın son günü (2024-01-07, Pazar) -> 7
+    assert weekly.iloc[-1] == 14.0  # ikinci haftanın son günü (2024-01-14, Pazar) -> 14
+
+
+def test_weekly_resample_direction_matches_underlying_trend_without_extra_fetch():
+    # AŞAMA 48/18: haftalık yön, ek bir yfinance isteği olmadan günlük
+    # seriden türetilebiliyor mu — asıl doğrulanan budur.
+    idx = pd.date_range("2023-01-02", periods=140, freq="D")
+    daily_close = pd.Series([100.0 + 0.5 * i for i in range(140)], index=idx)
+
+    weekly = resample_to_weekly_close(daily_close)
+
+    assert timeframe_direction(weekly, window=10, slope_lookback=4) == "UP"

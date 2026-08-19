@@ -12,10 +12,9 @@ signal_classifier modülleri artık her analyze_with_id() çağrısında
 hesaplanıp TechnicalAnalysis'e EK, AYRI alanlar (market_structure,
 signal_class, nearest_support/resistance, breakout, vb.) olarak ekleniyor —
 final_score/components hesaplamasını HİÇ ETKİLEMEZ, yalnızca UI'da
-gösterilecek açıklayıcı bağlam sağlar. Bilinçli olarak DAHİL EDİLMEYENLER:
-multi_timeframe (ek bir yfinance isteği gerektirir — sembole özel, XU100
-gibi paylaşılamaz) ve VWAP/session_timing (intraday bar biriktirme altyapısı
-henüz otomatik çalışmıyor, bkz. scripts/fetch_intraday_bars.py).
+gösterilecek açıklayıcı bağlam sağlar. Bilinçli olarak DAHİL EDİLMEYEN:
+VWAP/session_timing (intraday bar biriktirme altyapısı henüz otomatik
+çalışmıyor, bkz. scripts/fetch_intraday_bars.py).
 
 AŞAMA 48/17 — relative_strength eklendi: XU100'e göre göreli güç, ilk
 sürümde "ek yfinance isteği N+1 sorununu geri getirir" gerekçesiyle bilinçli
@@ -27,6 +26,16 @@ kalan 99'u önbellekten okur (yeniden N+1 istek oluşturmaz). Benchmark
 fetch'i başarısız olursa (ValueError) relative_strength_class sessizce
 "UNKNOWN" kalır — bu, tüm sembolün analizini düşürecek kritik bir hata
 DEĞİLDİR (Missing Data Davranışı).
+
+AŞAMA 48/18 — multi_timeframe eklendi: haftalık zaman dilimi, relative_
+strength'in aksine sembole özeldir (paylaşılamaz) ama ek bir yfinance
+isteği de GEREKTİRMEZ — multi_timeframe.resample_to_weekly_close(), zaten
+çekilmiş günlük Close serisini haftalık kapanışlara indirger (pandas
+resample, saf hesaplama). Günlük ve haftalık EMA eğimi yönü uyuşuyorsa
+mtf_aligned=True olur. Bu, signal_classifier.classify_signal()'ın
+STRONG_BULLISH_INITIATION dalını GERÇEKTEN ulaşılabilir hale getiriyor —
+önceden mtf_aligned hep sabit False varsayıldığından bu en üst sınıf hiçbir
+sembol için hiç tetiklenemiyordu.
 
 AŞAMA 48/9 — RSI/MACD/Bollinger ağırlığı düşürüldü: TECHNICAL_ANALYSIS_
 RESEARCH1.md, bu göstergelerin bağımsız birincil sürücü değil "doğrulama"
@@ -65,6 +74,7 @@ from app.engines.technical.candlestick_patterns import detect_patterns as detect
 from app.engines.technical.data_quality import check_data_quality
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
 from app.engines.technical.market_structure import analyze_market_structure
+from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
 from app.engines.technical.regime import (
     atr_percentile,
     classify_trend_regime,
@@ -183,12 +193,19 @@ def _compute_enrichment(
         rs_score = None  # XU100 verisi geçici olarak alınamadı — sembolün asıl analizini düşürmez
     rs_class = classify_relative_strength(rs_score)
 
+    daily_direction = timeframe_direction(close)
+    weekly_close = resample_to_weekly_close(close)
+    weekly_direction = timeframe_direction(weekly_close)
+    alignment = check_alignment({"1d": daily_direction, "1wk": weekly_direction})
+
     signal_inputs = SignalInputs(
         technical_score=final_score,
         market_structure=structure_result["structure"],
         breakout_event=breakout_event,
         relative_volume_class=rv_class,
         relative_strength_class=rs_class,
+        mtf_aligned=alignment["aligned"],
+        mtf_consensus=alignment["consensus"],
     )
     signal_class = classify_signal(signal_inputs)
 
@@ -204,6 +221,8 @@ def _compute_enrichment(
         "nearest_support": _zone_to_dict(support),
         "nearest_resistance": _zone_to_dict(resistance),
         "breakout": _breakout_to_dict(breakout_event),
+        "mtf_aligned": alignment["aligned"],
+        "mtf_consensus": alignment["consensus"],
     }
 
 

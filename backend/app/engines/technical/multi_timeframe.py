@@ -12,6 +12,14 @@ yalnızca zaten çekilmiş Close serileri üzerinde çalışır (tek sorumluluk)
 Kapsam notu: Yalnızca yön (pozitif/negatif/nötr) karşılaştırılır, büyüklük
 değil — farklı zaman dilimlerindeki EMA eğimi büyüklükleri doğrudan
 karşılaştırılabilir değildir (farklı bar sıklığı, farklı volatilite ölçeği).
+
+AŞAMA 48/18 — haftalık zaman dilimi ayrı bir yfinance isteği GEREKTİRMEZ:
+`resample_to_weekly_close()`, TechnicalAnalysisEngine'in zaten çekmiş olduğu
+günlük Close serisini haftalık kapanışlara indirger (pandas `resample`,
+saf hesaplama). Bu, relative_strength.py'de XU100 için çözülen N+1 istek
+sorununun farklı bir çözümü — orada seri semboller arasında PAYLAŞILABİLDİĞİ
+için önbelleklendi, burada ise zaten elde olan veriden TÜRETİLEBİLDİĞİ için
+hiç yeni istek gerekmiyor.
 """
 
 import pandas as pd
@@ -29,6 +37,13 @@ def _direction(slope_value: float, neutral_band: float = 0.5) -> str:
     if slope_value < -neutral_band:
         return "DOWN"
     return "FLAT"
+
+
+def resample_to_weekly_close(daily_close: pd.Series) -> pd.Series:
+    """Günlük kapanış serisini haftalık kapanışlara indirger (her haftanın
+    son işlem günü) — ek bir yfinance isteği olmadan, zaten çekilmiş günlük
+    veriden haftalık zaman dilimini türetir."""
+    return daily_close.resample("W").last().dropna()
 
 
 def timeframe_direction(close: pd.Series, window: int = 20, slope_lookback: int = 5) -> str:

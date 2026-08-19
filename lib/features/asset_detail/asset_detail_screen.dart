@@ -97,6 +97,15 @@ const Map<String, String> _gapClassLabels = {
   'UNKNOWN': 'Belirsiz',
 };
 
+const Map<String, String> _mtfConsensusLabels = {
+  'UP': 'Yukarı (günlük + haftalık uyumlu)',
+  'DOWN': 'Aşağı (günlük + haftalık uyumlu)',
+  'FLAT': 'Yatay',
+  'CONFLICTING': 'Çelişkili (günlük ve haftalık ters yönde)',
+  'MIXED': 'Karışık',
+  'UNKNOWN': 'Belirsiz',
+};
+
 const Map<String, String> _candlestickLabels = {
   'DOJI': 'Doji',
   'HAMMER': 'Çekiç (Hammer)',
@@ -336,6 +345,17 @@ class _SignalSummaryCard extends StatelessWidget {
                 ),
             ],
             if (data.breakout != null) ...[const SizedBox(height: 12), _BreakoutInfoRow(breakout: data.breakout!)],
+            if (data.mtfConsensus != null && data.mtfConsensus != 'UNKNOWN') ...[
+              const SizedBox(height: 12),
+              Text(
+                'Zaman Dilimi Uyumu: ${_mtfConsensusLabels[data.mtfConsensus] ?? data.mtfConsensus!}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: data.mtfAligned == true ? FontWeight.bold : FontWeight.normal,
+                  color: data.mtfConsensus == 'CONFLICTING' ? Colors.orange : null,
+                ),
+              ),
+            ],
           ],
         ),
       ),

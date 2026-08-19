@@ -62,6 +62,8 @@ class TechnicalAnalysisDetail {
   final SrZone? nearestSupport;
   final SrZone? nearestResistance;
   final BreakoutInfo? breakout;
+  final bool? mtfAligned;
+  final String? mtfConsensus;
 
   TechnicalAnalysisDetail({
     required this.asset,
@@ -81,6 +83,8 @@ class TechnicalAnalysisDetail {
     this.nearestSupport,
     this.nearestResistance,
     this.breakout,
+    this.mtfAligned,
+    this.mtfConsensus,
   });
 
   factory TechnicalAnalysisDetail.fromJson(Map<String, dynamic> json) {
@@ -109,6 +113,8 @@ class TechnicalAnalysisDetail {
           ? null
           : SrZone.fromJson(json['nearest_resistance'] as Map<String, dynamic>),
       breakout: json['breakout'] == null ? null : BreakoutInfo.fromJson(json['breakout'] as Map<String, dynamic>),
+      mtfAligned: json['mtf_aligned'] as bool?,
+      mtfConsensus: json['mtf_consensus'] as String?,
     );
   }
 }

@@ -204,3 +204,20 @@ def test_analyze_with_id_includes_relative_strength_class(fake_provider):
     analysis, _ = engine.analyze_with_id("TEST")
 
     assert analysis.relative_strength_class in ("OUTPERFORMING", "UNDERPERFORMING", "IN_LINE", "UNKNOWN")
+
+
+def test_analyze_with_id_includes_multi_timeframe_alignment(fake_provider):
+    # AŞAMA 48/18: haftalık yön, günlük df'ten (ek istek olmadan) türetilir.
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert isinstance(analysis.mtf_aligned, bool)
+    assert analysis.mtf_consensus in ("UP", "DOWN", "FLAT", "CONFLICTING", "MIXED", "UNKNOWN")

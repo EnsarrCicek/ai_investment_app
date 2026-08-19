@@ -48,6 +48,8 @@ void main() {
         'retest_held': null,
         'zone': {'type': 'RESISTANCE', 'low': 100.0, 'high': 101.0, 'touch_count': 3},
       },
+      'mtf_aligned': true,
+      'mtf_consensus': 'DOWN',
     };
 
     final detail = TechnicalAnalysisDetail.fromJson(json);
@@ -62,5 +64,7 @@ void main() {
     expect(detail.breakout!.confirmed, true);
     expect(detail.breakout!.retestHeld, isNull);
     expect(detail.breakout!.zone.type, 'RESISTANCE');
+    expect(detail.mtfAligned, true);
+    expect(detail.mtfConsensus, 'DOWN');
   });
 }
