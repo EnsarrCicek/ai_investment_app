@@ -1815,3 +1815,20 @@ Kullanıcı, daha önce sorulan (ve o zaman cevaplanmamış) "borsaya otomatik b
 
 **Tarih / Not:**
 19.08.2026 — Yarı-otomatik bildirimler eklendi, 274/274 backend test yeşil (11 yeni test), commit `af99ea5`.
+
+---
+
+## 53. Test Bildirimi Butonu + Bildirimler Geçmişi Ekranı (AŞAMA 48/20) (19.08.2026)
+
+Kullanıcı: "gerçek telefonuma apk'sını kuracağız, bildirim gönderme butonunu test edelim; ayarlara bir buton koy, basınca bana bildirim gelsin; AL/SAT bildirimi geldi mi görmek için bir bildirim sayfası da oluştur."
+
+**Bildirim geçmişi:** `NotificationRecord` modeli/repository'si eklendi — kullanıcıya GÖNDERİLMİŞ her bildirimin değiştirilemez kaydı. `notification_log` (yalnızca dedup için "son bildirilen karar" tutan eski kayıt) ile KARIŞTIRILMAMALI; bu gerçek bir gönderim geçmişidir. `notify_if_strong_decision()`/`notify_if_new_opportunity()` artık başarıyla gönderilen her bildirimi buraya da yazıyor.
+
+**Test bildirimi:** `fcm_sender.send_test_notification()` — gerçek bir AL/SAT kararına bağlı olmadan, yalnızca FCM'in cihazda çalışıp çalışmadığını doğrulamak için. Dedup uygulanmaz, kullanıcı istediği kadar test edebilir. Backend: `POST /notifications/test`, `GET /notifications/history` (ikisi de auth zorunlu).
+
+**Flutter:** Ayarlar ekranına iki yeni kart — "Bildirimler" (yeni `NotificationHistoryScreen`'e gider, AL/SAT/Test bildirimlerini renkli rozet+ikonla listeler) ve "Test Bildirimi Gönder" (anında test bildirimi tetikler, sonucu snackbar'da gösterir).
+
+**Doğrulama (gerçek, uçtan uca, emulator sınırları içinde):** Cloud Run'a deploy edildi. Emulator'de "Test Bildirimi Gönder" butonuna basıldı — istek backend'e ulaştı, FCM gönderimi denendi, emulator'de Play Store olmadığından (AŞAMA 32'den beri bilinen kısıtlama) beklenen hata ("Bildirim gönderilemedi — cihaz kayıtlı değil ya da FCM hatası oluştu") snackbar'da doğru göründü — Cloud Run loglarında `POST /notifications/test` → `400 Bad Request` olarak doğrulandı (500/crash YOK). Bildirimler ekranı boş durumunu ("Henüz bildirim gönderilmedi...") doğru gösterdi. Gerçek, Play Store'lu bir cihazda bu aynı zincir gerçek bir bildirim teslim etmelidir — kullanıcı bunu kendi telefonunda deneyecek.
+
+**Tarih / Not:**
+19.08.2026 — Test bildirimi + Bildirimler ekranı eklendi, 279/279 backend test yeşil (9 yeni test), 29/29 flutter test yeşil (2 yeni test), commit `7ad35be`.
