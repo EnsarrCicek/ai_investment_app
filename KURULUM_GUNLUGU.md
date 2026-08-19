@@ -1768,3 +1768,18 @@ Kullanıcı: "piyasalar kısmına arama butonu ekle ve oradan istediğimiz hisse
 
 **Tarih / Not:**
 19.08.2026 — Dashboard arama özelliği eklendi, `flutter analyze` temiz, 26/26 flutter test yeşil, commit `19daa27`.
+
+---
+
+## 50. relative_strength'i N+1 İstek Sorunu Olmadan Sinyal Özeti'ne Bağlama (AŞAMA 48/17) (19.08.2026)
+
+AŞAMA 48'de (madde 48) `relative_strength.py` yazılmıştı ama "her sembol için ek bir XU100 isteği, Dashboard'un 100 sembollük yüklemesinde AŞAMA 44'te çözülen N+1 sorununu geri getirir" gerekçesiyle bilinçli olarak skora/UI'ya bağlanmamıştı. Kullanıcı "senin fikrin ne" diye sorduğunda bu maddeyi önerdim — gerekçe: engel aslında çözülebilir, çünkü XU100'ün kapanış serisi TÜM semboller için AYNIDIR.
+
+**Çözüm — paylaşılan, önbellekli benchmark servisi:** `benchmark_cache_repository.py` (tek Firestore belgesi, `system_cache/benchmark_xu100_close_series`) + `benchmark_service.py` (`get_benchmark_close_series()` — technical_analyses ile aynı 15 dakikalık TTL mantığı). Dashboard'un 100 sembolünün İLKİNDE XU100 bir kez çekilir, geri kalan 99'u önbellekten okur — hiçbir ek N+1 isteği oluşmaz. Seri, `datetime.date` anahtarlı bir pandas Series olarak döner (Timestamp değil) — yfinance'in tz-aware DatetimeIndex'i ile önbellekten geri okunan seri arasındaki uyumsuzluğu (join'in sessizce boş dönmesi riskini) baştan önlemek için.
+
+`TechnicalAnalysisEngine._compute_enrichment()` artık `relative_strength_class`'ı hesaplayıp `TechnicalAnalysis`'e ekliyor; benchmark fetch'i başarısız olursa (`ValueError`) sessizce "UNKNOWN" kalır — bir sembolün XU100 verisi alınamaması, o sembolün asıl analizini düşürmez (Missing Data Davranışı). Flutter tarafında Sinyal Özeti kartına "Göreli Güç" bilgisi eklendi.
+
+**Doğrulama (gerçek, uçtan uca):** Cloud Run'a deploy edildi, `curl` ile THYAO için `relative_strength_class: "UNDERPERFORMING"` doğrulandı; ikinci bir sembolün (TUPRS) isteği yalnızca 0.78 saniyede döndü — benchmark'ın önbellekten okunduğunun, yeniden çekilmediğinin kanıtı. Emulator'de TUPRS'in Teknik sekmesinde "Göreli Güç: Endeksten İyi (BIST100)" doğru göründü.
+
+**Tarih / Not:**
+19.08.2026 — relative_strength Sinyal Özeti'ne bağlandı, 263/263 backend + 27/27 flutter test yeşil, commit `ccff2d2`.
