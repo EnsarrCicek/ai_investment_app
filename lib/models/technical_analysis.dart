@@ -54,6 +54,7 @@ class TechnicalAnalysisDetail {
   final String? marketStructure;
   final String? signalClass;
   final String? relativeVolumeClass;
+  final String? relativeStrengthClass;
   final String? volatilityRegime;
   final String? trendRegime;
   final String? gapClass;
@@ -72,6 +73,7 @@ class TechnicalAnalysisDetail {
     this.marketStructure,
     this.signalClass,
     this.relativeVolumeClass,
+    this.relativeStrengthClass,
     this.volatilityRegime,
     this.trendRegime,
     this.gapClass,
@@ -94,6 +96,7 @@ class TechnicalAnalysisDetail {
       marketStructure: json['market_structure'] as String?,
       signalClass: json['signal_class'] as String?,
       relativeVolumeClass: json['relative_volume_class'] as String?,
+      relativeStrengthClass: json['relative_strength_class'] as String?,
       volatilityRegime: json['volatility_regime'] as String?,
       trendRegime: json['trend_regime'] as String?,
       gapClass: json['gap_class'] as String?,

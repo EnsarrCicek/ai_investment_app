@@ -13,11 +13,20 @@ hesaplanıp TechnicalAnalysis'e EK, AYRI alanlar (market_structure,
 signal_class, nearest_support/resistance, breakout, vb.) olarak ekleniyor —
 final_score/components hesaplamasını HİÇ ETKİLEMEZ, yalnızca UI'da
 gösterilecek açıklayıcı bağlam sağlar. Bilinçli olarak DAHİL EDİLMEYENLER:
-relative_strength ve multi_timeframe (her ikisi de ek bir yfinance isteği
-gerektirir — Dashboard'un 100 sembolü tek seferde yüklediği göz önüne
-alınırsa bu, AŞAMA 44'te çözülen N+1 istek sorununu geri getirirdi) ve
-VWAP/session_timing (intraday bar biriktirme altyapısı henüz otomatik
-çalışmıyor, bkz. scripts/fetch_intraday_bars.py).
+multi_timeframe (ek bir yfinance isteği gerektirir — sembole özel, XU100
+gibi paylaşılamaz) ve VWAP/session_timing (intraday bar biriktirme altyapısı
+henüz otomatik çalışmıyor, bkz. scripts/fetch_intraday_bars.py).
+
+AŞAMA 48/17 — relative_strength eklendi: XU100'e göre göreli güç, ilk
+sürümde "ek yfinance isteği N+1 sorununu geri getirir" gerekçesiyle bilinçli
+olarak dışarıda bırakılmıştı. Çözüm: XU100'ün kapanış serisi TÜM semboller
+için ortak olduğundan, benchmark_service.get_benchmark_close_series() bunu
+technical_analyses ile aynı TTL'li (15 dk), TEK bir Firestore belgesinde
+önbellekliyor — Dashboard'un 100 sembolünün ilkinde bir kez çekilir, geri
+kalan 99'u önbellekten okur (yeniden N+1 istek oluşturmaz). Benchmark
+fetch'i başarısız olursa (ValueError) relative_strength_class sessizce
+"UNKNOWN" kalır — bu, tüm sembolün analizini düşürecek kritik bir hata
+DEĞİLDİR (Missing Data Davranışı).
 
 AŞAMA 48/9 — RSI/MACD/Bollinger ağırlığı düşürüldü: TECHNICAL_ANALYSIS_
 RESEARCH1.md, bu göstergelerin bağımsız birincil sürücü değil "doğrulama"
@@ -62,13 +71,20 @@ from app.engines.technical.regime import (
     classify_volatility_regime,
     efficiency_ratio,
 )
+from app.engines.technical.relative_strength import (
+    classify_relative_strength,
+    relative_strength_ratio,
+    relative_strength_score,
+)
 from app.engines.technical.relative_volume import classify_relative_volume, relative_volume_series
 from app.engines.technical.signal_classifier import SignalInputs, classify_signal
 from app.engines.technical.support_resistance import SRZone, build_zones, nearest_zone
 from app.models.technical_analysis import TechnicalAnalysis
+from app.repositories.benchmark_cache_repository import BenchmarkCacheRepository
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
 from app.services.market_data.base import MarketDataProvider
+from app.services.market_data.benchmark_service import get_benchmark_close_series
 from app.services.market_data.bist_provider import BistProvider
 
 ENGINE_VERSION = "1.0.0"
@@ -114,10 +130,19 @@ def _breakout_to_dict(event: BreakoutEvent | None) -> dict | None:
     }
 
 
-def _compute_enrichment(df: pd.DataFrame, atr_val: float, close_val: float, final_score: float) -> dict:
-    """market_structure/S-R/breakout/hacim/rejim/gap/mum/sinyal sınıfı katmanı
-    — tamamı, `analyze_with_id`'nin zaten çekmiş olduğu AYNI df üzerinden
-    hesaplanır (ek bir yfinance isteği YOK, bkz. modül docstring'i).
+def _compute_enrichment(
+    df: pd.DataFrame,
+    atr_val: float,
+    close_val: float,
+    final_score: float,
+    provider: MarketDataProvider | None = None,
+    benchmark_cache_repo: BenchmarkCacheRepository | None = None,
+) -> dict:
+    """market_structure/S-R/breakout/hacim/rejim/gap/mum/göreli güç/sinyal
+    sınıfı katmanı — relative_strength dışındaki her şey, `analyze_with_id`'nin
+    zaten çekmiş olduğu AYNI df üzerinden hesaplanır (ek bir yfinance isteği
+    YOK). relative_strength ise önbelleklenmiş, paylaşılan bir XU100 serisi
+    kullanır (bkz. modül docstring'i, AŞAMA 48/17).
     """
     close, volume = df["Close"], df["Volume"]
 
@@ -149,11 +174,21 @@ def _compute_enrichment(df: pd.DataFrame, atr_val: float, close_val: float, fina
 
     candlestick = detect_candlestick_patterns(df)
 
+    try:
+        benchmark_close = get_benchmark_close_series(provider=provider, cache_repo=benchmark_cache_repo)
+        asset_close_by_date = close.copy()
+        asset_close_by_date.index = [ts.date() for ts in asset_close_by_date.index]
+        rs_score = relative_strength_score(relative_strength_ratio(asset_close_by_date, benchmark_close))
+    except ValueError:
+        rs_score = None  # XU100 verisi geçici olarak alınamadı — sembolün asıl analizini düşürmez
+    rs_class = classify_relative_strength(rs_score)
+
     signal_inputs = SignalInputs(
         technical_score=final_score,
         market_structure=structure_result["structure"],
         breakout_event=breakout_event,
         relative_volume_class=rv_class,
+        relative_strength_class=rs_class,
     )
     signal_class = classify_signal(signal_inputs)
 
@@ -161,6 +196,7 @@ def _compute_enrichment(df: pd.DataFrame, atr_val: float, close_val: float, fina
         "market_structure": structure_result["structure"],
         "signal_class": signal_class,
         "relative_volume_class": rv_class,
+        "relative_strength_class": rs_class,
         "volatility_regime": vol_regime,
         "trend_regime": trend_regime_val,
         "gap_class": gap_class,
@@ -177,10 +213,12 @@ class TechnicalAnalysisEngine:
         provider: MarketDataProvider | None = None,
         config_repo: SystemConfigRepository | None = None,
         analysis_repo: TechnicalAnalysisRepository | None = None,
+        benchmark_cache_repo: BenchmarkCacheRepository | None = None,
     ):
         self._provider = provider or BistProvider()
         self._config_repo = config_repo or SystemConfigRepository()
         self._analysis_repo = analysis_repo or TechnicalAnalysisRepository()
+        self._benchmark_cache_repo = benchmark_cache_repo or BenchmarkCacheRepository()
 
     def analyze(self, symbol: str, persist: bool = True) -> TechnicalAnalysis:
         analysis, _doc_id = self.analyze_with_id(symbol, persist=persist)
@@ -241,7 +279,9 @@ class TechnicalAnalysisEngine:
 
         trend = "BULLISH" if final_score > 15 else "BEARISH" if final_score < -15 else "NEUTRAL"
 
-        enrichment = _compute_enrichment(df, atr_val, close_val, final_score)
+        enrichment = _compute_enrichment(
+            df, atr_val, close_val, final_score, provider=self._provider, benchmark_cache_repo=self._benchmark_cache_repo
+        )
 
         analysis = TechnicalAnalysis(
             asset=symbol,

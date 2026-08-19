@@ -24,6 +24,18 @@ class _StaleSixKeyConfigRepo:
         return {"rsi": 0.1667, "macd": 0.1667, "trend": 0.1667, "bollinger": 0.1667, "momentum": 0.1667, "roc": 0.1665}
 
 
+class _FakeBenchmarkCacheRepo:
+    """XU100 önbelleğini gerçek Firestore'a hiç dokunmadan simüle eder —
+    her zaman "önbellek yok" döner, bu yüzden get_benchmark_close_series()
+    provider'dan (fake_provider, gerçek ağ isteği yapmaz) okur."""
+
+    def get(self):
+        return None
+
+    def set(self, close_by_date, fetched_at):
+        pass
+
+
 class _FakeTechnicalAnalysisRepo:
     def __init__(self, cached: TechnicalAnalysis | None = None, cached_id: str | None = None):
         self._cached = cached
@@ -75,7 +87,12 @@ def test_analyze_with_id_uses_cache_when_fresh(fake_provider):
     cached = _cached_analysis(age_seconds=60)  # 1 dakika önce — TTL(900s) içinde
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=cached, cached_id="cached-id")
     provider = fake_provider(history_df=None)  # get_history çağrılırsa NotImplementedError patlar
-    engine = TechnicalAnalysisEngine(provider=provider, config_repo=_FakeConfigRepo(), analysis_repo=analysis_repo)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
@@ -88,7 +105,12 @@ def test_analyze_with_id_recomputes_when_stale(fake_provider):
     stale = _cached_analysis(age_seconds=TECHNICAL_CACHE_TTL_SECONDS + 60)
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=stale, cached_id="stale-id")
     provider = fake_provider(history_df=_real_history_df())
-    engine = TechnicalAnalysisEngine(provider=provider, config_repo=_FakeConfigRepo(), analysis_repo=analysis_repo)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
@@ -100,7 +122,12 @@ def test_analyze_with_id_recomputes_when_stale(fake_provider):
 def test_analyze_with_id_recomputes_when_no_cache(fake_provider):
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
     provider = fake_provider(history_df=_real_history_df())
-    engine = TechnicalAnalysisEngine(provider=provider, config_repo=_FakeConfigRepo(), analysis_repo=analysis_repo)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
@@ -112,7 +139,12 @@ def test_analyze_with_id_respects_custom_max_age(fake_provider):
     cached = _cached_analysis(age_seconds=30)
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=cached, cached_id="cached-id")
     provider = fake_provider(history_df=_real_history_df())
-    engine = TechnicalAnalysisEngine(provider=provider, config_repo=_FakeConfigRepo(), analysis_repo=analysis_repo)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
 
     # max_age_seconds=10 iken 30 saniyelik kayıt bayat sayılmalı — yeniden hesaplanır.
     analysis, doc_id = engine.analyze_with_id("TEST", max_age_seconds=10)
@@ -124,7 +156,12 @@ def test_analyze_with_id_respects_custom_max_age(fake_provider):
 def test_analyze_with_id_includes_ema_slope_component(fake_provider):
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
     provider = fake_provider(history_df=_real_history_df())
-    engine = TechnicalAnalysisEngine(provider=provider, config_repo=_FakeConfigRepo(), analysis_repo=analysis_repo)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
 
     analysis, _ = engine.analyze_with_id("TEST")
 
@@ -140,9 +177,30 @@ def test_analyze_with_id_normalizes_score_with_stale_weight_config(fake_provider
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
     provider = fake_provider(history_df=_real_history_df())
     engine = TechnicalAnalysisEngine(
-        provider=provider, config_repo=_StaleSixKeyConfigRepo(), analysis_repo=analysis_repo
+        provider=provider,
+        config_repo=_StaleSixKeyConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
     )
 
     analysis, _ = engine.analyze_with_id("TEST")
 
     assert -100 <= analysis.technical_score <= 100
+
+
+def test_analyze_with_id_includes_relative_strength_class(fake_provider):
+    # AŞAMA 48/17: benchmark (XU100) verisi de aynı fake_provider'dan geliyor
+    # (aynı history_df hem asset hem benchmark için döner) — gerçek Firestore'a
+    # hiç dokunulmadan (_FakeBenchmarkCacheRepo) relative_strength hesaplanmalı.
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert analysis.relative_strength_class in ("OUTPERFORMING", "UNDERPERFORMING", "IN_LINE", "UNKNOWN")

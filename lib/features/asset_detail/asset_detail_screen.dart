@@ -82,6 +82,13 @@ const Map<String, String> _relativeVolumeLabels = {
   'UNKNOWN': 'Belirsiz',
 };
 
+const Map<String, String> _relativeStrengthLabels = {
+  'OUTPERFORMING': 'Endeksten İyi (BIST100)',
+  'UNDERPERFORMING': 'Endeksten Kötü (BIST100)',
+  'IN_LINE': 'Endeksle Paralel (BIST100)',
+  'UNKNOWN': 'Belirsiz',
+};
+
 const Map<String, String> _gapClassLabels = {
   'NO_SIGNIFICANT_GAP': 'Belirgin gap yok',
   'GAP_FILLED': 'Gap dolduruldu',
@@ -290,6 +297,11 @@ class _SignalSummaryCard extends StatelessWidget {
                   _InfoChip(
                     label: 'Göreli Hacim',
                     value: _relativeVolumeLabels[data.relativeVolumeClass] ?? data.relativeVolumeClass!,
+                  ),
+                if (data.relativeStrengthClass != null && data.relativeStrengthClass != 'UNKNOWN')
+                  _InfoChip(
+                    label: 'Göreli Güç',
+                    value: _relativeStrengthLabels[data.relativeStrengthClass] ?? data.relativeStrengthClass!,
                   ),
                 if (data.gapClass != null && data.gapClass != 'NO_SIGNIFICANT_GAP')
                   _InfoChip(label: 'Gap', value: _gapClassLabels[data.gapClass] ?? data.gapClass!),

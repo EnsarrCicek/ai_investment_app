@@ -34,6 +34,7 @@ void main() {
       'market_structure': 'DOWNTREND',
       'signal_class': 'BEARISH_CANDIDATE',
       'relative_volume_class': 'LOW',
+      'relative_strength_class': 'UNDERPERFORMING',
       'volatility_regime': 'LOW',
       'trend_regime': 'TRENDING',
       'gap_class': 'NO_SIGNIFICANT_GAP',
@@ -53,6 +54,7 @@ void main() {
 
     expect(detail.marketStructure, 'DOWNTREND');
     expect(detail.signalClass, 'BEARISH_CANDIDATE');
+    expect(detail.relativeStrengthClass, 'UNDERPERFORMING');
     expect(detail.candlestickPatterns, ['DOJI']);
     expect(detail.nearestSupport!.low, 305.25);
     expect(detail.nearestResistance!.touchCount, 1);

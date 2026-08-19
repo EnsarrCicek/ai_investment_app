@@ -20,6 +20,7 @@ class TechnicalAnalysis(BaseModel):
     market_structure: str | None = None
     signal_class: str | None = None
     relative_volume_class: str | None = None
+    relative_strength_class: str | None = None
     volatility_regime: str | None = None
     trend_regime: str | None = None
     gap_class: str | None = None
