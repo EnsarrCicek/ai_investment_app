@@ -1679,3 +1679,36 @@ Kullanıcı: "AL butonu olacak ve aldığımız hisselerde al veya sat durumu ol
 
 **Tarih / Not:**
 18.08.2026 — AL butonu ve portföy-kapsamlı bildirimler eklendi, 80 backend + 21 Flutter testi geçti, emulator'de uçtan uca doğrulandı (gerçek push hariç, bilinen kısıtlama), commit `3a8bf2f`.
+
+---
+
+## 46. Backend'i Cloud Run'a Deploy Et — APK Artık Gerçek Bir Cihazda Çalışıyor (18.08.2026)
+
+Kullanıcı: "uygulamanın APK'sını çıkart, eksiksiz çalışır değil mi?" Dürüst cevap: hayır — APK o ana kadar yalnızca `10.0.2.2` (emulator'ün host makineye erişim takma adı) kullanıyordu; gerçek bir telefona kurulsaydı hiçbir ekran veri getirmezdi, çünkü backend yalnızca geliştirme bilgisayarında `127.0.0.1`'de çalışıyordu. Kullanıcı "bir sunucuya kuralım, hep çalışsın" dedi.
+
+**Deploy (Google Cloud Run seçildi — zaten aynı GCP projesinde Firebase/Firestore kullanıldığı için doğal seçim, billing zaten aktifti):**
+```text
+backend/Dockerfile, .dockerignore   → python:3.13-slim + uvicorn
+gcloud run deploy ai-investment-backend --source . --region europe-west1
+```
+Servis URL'i: `https://ai-investment-backend-244094132223.europe-west1.run.app`
+
+**Sırlar:** `OPENAI_API_KEY` koda/commit'e hiç yazılmadı — Secret Manager'a (`openai-api-key`) eklendi, yalnızca Cloud Run'ın servis hesabına (`...-compute@developer.gserviceaccount.com`) erişim izni verildi (`roles/secretmanager.secretAccessor`). Firestore erişimi Cloud Run'ın attached servis hesabı üzerinden otomatik (`credentials.ApplicationDefault()`) — ek bir anahtar dosyası taşımaya gerek kalmadı.
+
+**Güvenlik düzeltmesi (deploy öncesi tespit edildi):** Backend artık herkese açık bir adreste olacağından, gerçek OpenAI maliyeti oluşturan `POST /news/{symbol}/analyze`'ın hiç auth kontrolü olmadığı fark edildi — kimliği doğrulanmamış herkes bütçeyi tüketebilirdi. `get_current_user_id` zorunlu hale getirildi (canlıda `curl` ile 401 döndüğü doğrulandı).
+
+**Flutter tarafı:** 10 ayrı `*_api.dart` dosyasındaki tekrarlı `'http://10.0.2.2:8000'` tanımı `lib/services/api/api_config.dart`'taki tek bir `apiBaseUrl` sabitine bağlandı (artık gerçek Cloud Run URL'i). `DecisionApi.fetchDecision`'a da (bu sırada, AŞAMA 45'teki bildirim hatasıyla ilgisiz ama aynı dosyada) auth token eklenmesi zaten yapılmıştı.
+
+**Gerçek, canlı bir prod sorunu tespit edilip düzeltildi:** Dashboard'un 100 sembolü **tamamen eşzamanlı** (`Future.wait` tek seferde) çekmesi, localhost'a karşı sorun değildi ama gerçek Cloud Run adresine karşı `SocketException: connection abort` hatalarına yol açtı (100 eşzamanlı yeni TLS bağlantısı açılmaya çalışılması). `dashboard_screen.dart`'ta istekler artık 10'luk gruplar hâlinde art arda gönderiliyor (`_batchSize = 10`).
+
+Ayrıca ilgisiz bir flaky test bulunup düzeltildi: `test_summarize_splits_today_vs_total`, `datetime.now()`'a göre veri üretip sabit bir `today` parametresiyle karşılaştırıyordu — gerçek saat gece yarısını (UTC) geçince test kırıldı; artık sabit bir referans zaman kullanıyor.
+
+**Doğrulama (gerçek, uçtan uca):** `curl` ile `/health`, `/assets` (100 döndü), `/decisions/THYAO` (gerçek yfinance+Firestore), ve güvenlik düzeltmesi (`401`) canlıda doğrulandı. Yeni APK derlenip emulator'e kuruldu (gerçek internet üzerinden, `10.0.2.2` değil) — Dashboard (100 hisse, sıralı, hatasız), Portföy (auth + gerçek pozisyon), Makro Analiz (gerçek göstergeler) hepsi gerçek bulut backend'inden doğru çalıştı.
+
+**Karşılaşılan hatalar / çözümler:**
+- Secret Manager erişimi ilk deploy'da `Permission denied` verdi — Cloud Run'ın servis hesabına `secretmanager.secretAccessor` rolü verilmeyi unutulmuştu, eklenip düzeltildi.
+- 100 sembollük tam-eşzamanlı istek, buluta karşı bağlantı kopmalarına yol açtı — gruplu istek deseniyle çözüldü (yukarıda detaylandırıldı).
+- Emulator, uzun oturum sırasında kendiliğinden kapanmıştı — yeniden başlatıldı.
+
+**Tarih / Not:**
+18.08.2026 — Backend Cloud Run'a deploy edildi, APK gerçek adrese bağlandı ve gerçek internetten uçtan uca doğrulandı, 80 backend testi geçti, commit `97984c3`.
