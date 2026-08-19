@@ -47,6 +47,7 @@ def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
     _, _, macd_hist_s = ind.macd(close)
     ema_short_s = ind.ema(close, 20)
     ema_long_s = ind.ema(close, 50)
+    ema_slope_s = ind.ema_slope(close, window=20, slope_lookback=5)
     upper_s, middle_s, _lower_s = ind.bollinger_bands(close)
     atr_s = ind.atr(df).replace(0, pd.NA)
     momentum_s = ind.momentum(close)
@@ -58,11 +59,14 @@ def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
         "rsi": _clamp_series((rsi_s - 50) * 2),
         "macd": _clamp_series((macd_hist_s / atr_s) * 25).fillna(0.0),
         "trend": _clamp_series(((ema_short_s - ema_long_s) / ema_long_safe) * 1000).fillna(0.0),
+        "ema_slope": _clamp_series(ema_slope_s * 15).fillna(0.0),
         "bollinger": _clamp_series(((close - middle_s) / band_width_s) * 100).fillna(0.0),
         "momentum": _clamp_series((momentum_s / atr_s) * 20).fillna(0.0),
         "roc": _clamp_series(roc_s * 8),
     }
-    score = sum(components[key] * weights.get(key, 0.0) for key in components)
+    weight_sum = sum(weights.get(key, 0.0) for key in components)
+    raw_score = sum(components[key] * weights.get(key, 0.0) for key in components)
+    score = raw_score / weight_sum if weight_sum else raw_score * 0.0
     return _clamp_series(score).round(2)
 
 

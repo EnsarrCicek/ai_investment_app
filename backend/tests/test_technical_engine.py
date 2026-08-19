@@ -13,6 +13,17 @@ class _FakeConfigRepo:
         return defaults
 
 
+class _StaleSixKeyConfigRepo:
+    """Firestore'da AŞAMA 48/9 öncesinden kalmış, "ema_slope" anahtarı OLMAYAN
+    eski bir "technical_indicator_weights" belgesini simüle eder — toplam
+    ağırlık artık 1.0 değildir. final_score'un yine de [-100, 100] aralığında
+    kalması gerekir (normalize edilmiş ağırlıklı ortalama formülü sayesinde).
+    """
+
+    def get(self, key, defaults):
+        return {"rsi": 0.1667, "macd": 0.1667, "trend": 0.1667, "bollinger": 0.1667, "momentum": 0.1667, "roc": 0.1665}
+
+
 class _FakeTechnicalAnalysisRepo:
     def __init__(self, cached: TechnicalAnalysis | None = None, cached_id: str | None = None):
         self._cached = cached
@@ -108,3 +119,30 @@ def test_analyze_with_id_respects_custom_max_age(fake_provider):
 
     assert analysis is not cached
     assert doc_id == "new-id"
+
+
+def test_analyze_with_id_includes_ema_slope_component(fake_provider):
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(provider=provider, config_repo=_FakeConfigRepo(), analysis_repo=analysis_repo)
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert "ema_slope" in analysis.components
+    assert "ema_slope" in analysis.indicators
+    assert -100 <= analysis.technical_score <= 100
+
+
+def test_analyze_with_id_normalizes_score_with_stale_weight_config(fake_provider):
+    # AŞAMA 48/9: "ema_slope" eklendiğinde, Firestore'da hâlâ eski 6 anahtarlı
+    # bir kayıt varsa (toplam ağırlık != 1.0), final_score yine de sınırlar
+    # içinde kalmalı — ağırlık toplamına bölünerek normalize edilir.
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider, config_repo=_StaleSixKeyConfigRepo(), analysis_repo=analysis_repo
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert -100 <= analysis.technical_score <= 100

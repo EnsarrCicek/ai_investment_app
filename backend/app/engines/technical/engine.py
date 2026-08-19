@@ -1,13 +1,33 @@
 """TechnicalAnalysisEngine — ana doküman bölüm 5.
 
-Kapsam notu: İlk sürümde RSI, MACD, EMA trend (kesişim), Bollinger Bands,
-Momentum ve ROC göstergeleri TechnicalScore'a doğrudan katkı sağlar; ATR
-volatilite normalizasyonu için, Volume/Volume SMA ise yön değil "doğrulama"
-(confidence) amacıyla kullanılır. ADX, Stochastic RSI, Support/Resistance,
-ayrı bir "Trend Strength" metriği ve Relative Strength bu ilk sürümde
-YOKTUR — ana doküman bölüm 5 bunları "ilk etapta desteklenebilecek"
-göstergeler olarak listeliyor (zorunlu değil); bilinçli olarak sonraki bir
-iyileştirmeye bırakılmıştır (bkz. KURULUM_GUNLUGU.md).
+Kapsam notu: RSI, MACD, EMA trend (kesişim), Bollinger Bands, Momentum, ROC
+ve EMA eğimi (AŞAMA 48/9) göstergeleri TechnicalScore'a doğrudan katkı
+sağlar; ATR volatilite normalizasyonu için, Volume/Volume SMA ise yön değil
+"doğrulama" (confidence) amacıyla kullanılır. ADX, Stochastic RSI, Support/
+Resistance, Breakout/Retest, Market Structure, Relative Strength ve rejim
+tabanlı DİNAMİK ağırlıklandırma bu sürümde YOKTUR — bağımsız modüller olarak
+yazıldı (market_structure.py, support_resistance.py, breakout.py, regime.py)
+ama henüz skora bağlanmadı; TECHNICAL_ANALYSIS_RESEARCH1.md analiz raporunun
+9. adımından sonrasıdır, backtest ile kalibre edilerek ayrı aşamalarda
+entegre edilecek (bkz. KURULUM_GUNLUGU.md).
+
+AŞAMA 48/9 — RSI/MACD/Bollinger ağırlığı düşürüldü: TECHNICAL_ANALYSIS_
+RESEARCH1.md, bu göstergelerin bağımsız birincil sürücü değil "doğrulama"
+amaçlı kullanılmasını öneriyor (ör. RSI>70 tek başına SAT değildir — rejime
+göre değişir). Tam rejim-bağımlı dinamik ağırlıklandırma henüz kalibre
+edilmediğinden (regime.py bilinçli olarak henüz buraya bağlanmadı), bunun
+yerine STATİK bir yeniden ağırlıklandırma yapıldı: RSI/MACD/Bollinger payı
+azaltıldı, trend-takip eden bileşenler (trend, ema_slope, momentum, roc)
+payı artırıldı; yeni "ema_slope" bileşeni eklendi (mevcut "trend" bileşeni
+yalnızca anlık EMA20-EMA50 farkını alıyordu, zaman içindeki EĞİMİ değil).
+Eski/yeni ağırlıklandırma BacktestEngine ile karşılaştırılarak doğrulandı
+(bkz. KURULUM_GUNLUGU.md).
+
+Ağırlık toplamı artık 1.0'a EŞİT OLMAK ZORUNDA DEĞİL: final_score, ağırlık
+toplamına bölünerek normalize edilir (DecisionEngine'deki "Missing Data
+Davranışı" ile aynı desen). Bu, Firestore'da önceden kaydedilmiş eski (6
+anahtarlı) bir "technical_indicator_weights" belgesinin, yeni eklenen
+"ema_slope" anahtarını distorse etmeden güvenle birleşebilmesini sağlar.
 
 Performans (AŞAMA 44): analyze_with_id() her çağrıldığında yfinance'e taze
 bir istek atardı — Dashboard tüm BIST100'ü (100 sembol) her açılışta yeniden
@@ -31,12 +51,13 @@ from app.services.market_data.bist_provider import BistProvider
 ENGINE_VERSION = "1.0.0"
 
 DEFAULT_WEIGHTS = {
-    "rsi": 0.1667,
-    "macd": 0.1667,
-    "trend": 0.1667,
-    "bollinger": 0.1667,
-    "momentum": 0.1667,
-    "roc": 0.1665,
+    "rsi": 0.10,
+    "macd": 0.10,
+    "trend": 0.15,
+    "ema_slope": 0.20,
+    "bollinger": 0.10,
+    "momentum": 0.15,
+    "roc": 0.20,
 }
 
 MIN_HISTORY_DAYS = 60
@@ -83,6 +104,7 @@ class TechnicalAnalysisEngine:
         macd_hist_val = float(macd_hist.iloc[-1])
         ema_short_val = float(ind.ema(close, 20).iloc[-1])
         ema_long_val = float(ind.ema(close, 50).iloc[-1])
+        ema_slope_val = float(ind.ema_slope(close, window=20, slope_lookback=5).iloc[-1])
         upper, middle, lower = ind.bollinger_bands(close)
         upper_val, middle_val, lower_val = float(upper.iloc[-1]), float(middle.iloc[-1]), float(lower.iloc[-1])
         atr_val = float(ind.atr(df).iloc[-1])
@@ -98,14 +120,15 @@ class TechnicalAnalysisEngine:
             "rsi": _clamp((rsi_val - 50) * 2),
             "macd": _clamp((macd_hist_val / atr_val) * 25) if atr_val else 0.0,
             "trend": _clamp(((ema_short_val - ema_long_val) / ema_long_val) * 1000) if ema_long_val else 0.0,
+            "ema_slope": _clamp(ema_slope_val * 15),
             "bollinger": _clamp(((close_val - middle_val) / band_width) * 100) if band_width else 0.0,
             "momentum": _clamp((momentum_val / atr_val) * 20) if atr_val else 0.0,
             "roc": _clamp(roc_val * 8),
         }
 
-        final_score = round(
-            _clamp(sum(components[k] * weights.get(k, 0.0) for k in components)), 2
-        )
+        weight_sum = sum(weights.get(k, 0.0) for k in components)
+        raw_score = sum(components[k] * weights.get(k, 0.0) for k in components)
+        final_score = round(_clamp(raw_score / weight_sum) if weight_sum else 0.0, 2)
 
         agreement = sum(
             1 for s in components.values() if (s >= 0) == (final_score >= 0)
@@ -126,6 +149,7 @@ class TechnicalAnalysisEngine:
                 "macd_histogram": round(macd_hist_val, 4),
                 "ema_20": round(ema_short_val, 2),
                 "ema_50": round(ema_long_val, 2),
+                "ema_slope": round(ema_slope_val, 4),
                 "bollinger_upper": round(upper_val, 2),
                 "bollinger_middle": round(middle_val, 2),
                 "bollinger_lower": round(lower_val, 2),
