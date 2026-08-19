@@ -26,14 +26,28 @@ AYNISINI yeniden yaratmamak için (100 sembolün "AL" diyen onlarcası değil)
 yalnızca en yüksek güvenilirlikli sinyal sınıfında (STRONG_BULLISH_
 INITIATION — market structure/breakout/hacim/çoklu-zaman-dilimi hepsi aynı
 anda uyumlu) tetiklenir; eşik bilinçli olarak çok yüksek tutuldu.
+
+AŞAMA 48/20 — bildirim geçmişi + test bildirimi (kullanıcı: "gerçek
+telefonuma kuracağız, test edelim; bildirim sayfası oluştur, AL/SAT
+bildirimi geldi mi görelim"): Her BAŞARIYLA gönderilen bildirim artık
+NotificationRecordRepository ile değiştirilemez bir geçmişe de yazılıyor
+(notification_log'dan FARKLI — o yalnızca dedup için "son karar" tutar, bu
+gerçek bir gönderim kaydıdır). `send_test_notification()`, gerçek bir AL/SAT
+kararına bağlı olmadan, yalnızca FCM kurulumunun gerçek bir cihazda çalışıp
+çalışmadığını doğrulamak için Ayarlar ekranındaki butondan çağrılır — dedup
+UYGULANMAZ, kullanıcı istediği kadar test edebilir.
 """
+
+from datetime import datetime, timezone
 
 from firebase_admin import exceptions as firebase_exceptions
 from firebase_admin import messaging
 
 from app.models.ai_decision import AIDecision
+from app.models.notification_record import NotificationRecord
 from app.repositories.fcm_token_repository import FcmTokenRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
+from app.repositories.notification_record_repository import NotificationRecordRepository
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
 from app.services.market_data.base import MarketDataProvider
@@ -54,6 +68,7 @@ def notify_if_strong_decision(
     quantity_held: float | None = None,
     suggested_buy_quantity: float | None = None,
     budget_tl: float | None = None,
+    record_repo: NotificationRecordRepository | None = None,
 ) -> bool:
     """Koşullar sağlanıp bildirim gönderilirse True döner (testte doğrulamak için).
 
@@ -104,6 +119,17 @@ def notify_if_strong_decision(
         return False
 
     log_repo.set_last_decision(user_id, decision.asset, decision.decision)
+    record_repo = record_repo or NotificationRecordRepository()
+    record_repo.add(
+        NotificationRecord(
+            user_id=user_id,
+            asset=decision.asset,
+            kind=decision.decision,
+            title=f"{decision.asset}: {label} sinyali",
+            body=body,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
     return True
 
 
@@ -115,6 +141,7 @@ def notify_if_new_opportunity(
     config_repo: SystemConfigRepository | None = None,
     token_repo: FcmTokenRepository | None = None,
     log_repo: NotificationLogRepository | None = None,
+    record_repo: NotificationRecordRepository | None = None,
 ) -> bool:
     """Elde TUTULMAYAN bir varlık için "yeni AL fırsatı" bildirimi — yalnızca
     DecisionEngine "BUY" derse VE o varlığın en son TechnicalAnalysis'i
@@ -159,4 +186,45 @@ def notify_if_new_opportunity(
         log_repo=log_repo,
         suggested_buy_quantity=suggested_quantity,
         budget_tl=budget_tl,
+        record_repo=record_repo,
     )
+
+
+def send_test_notification(
+    user_id: str,
+    token_repo: FcmTokenRepository | None = None,
+    record_repo: NotificationRecordRepository | None = None,
+) -> bool:
+    """Ayarlar > Bildirimler ekranındaki "Test Bildirimi Gönder" butonu için
+    — gerçek bir AL/SAT kararına bağlı değildir, yalnızca FCM kurulumunun
+    gerçek bir cihazda çalışıp çalışmadığını doğrulamak içindir. Dedup
+    (notification_log) UYGULANMAZ — kullanıcı istediği kadar test edebilir.
+    """
+    token_repo = token_repo or FcmTokenRepository()
+    token = token_repo.get(user_id)
+    if not token:
+        return False
+
+    title = "Test Bildirimi"
+    body = "Bildirimler çalışıyor! Bu bir test mesajıdır."
+    message = messaging.Message(
+        notification=messaging.Notification(title=title, body=body),
+        fid=token,
+    )
+    try:
+        messaging.send(message)
+    except firebase_exceptions.FirebaseError:
+        return False
+
+    record_repo = record_repo or NotificationRecordRepository()
+    record_repo.add(
+        NotificationRecord(
+            user_id=user_id,
+            asset=None,
+            kind="TEST",
+            title=title,
+            body=body,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    return True

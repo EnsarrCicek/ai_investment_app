@@ -1,11 +1,38 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/api/notification_api.dart';
 import '../guide/guide_screen.dart';
+import '../notifications/notification_history_screen.dart';
 import '../usage/usage_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _sendingTest = false;
+
+  Future<void> _sendTestNotification() async {
+    setState(() => _sendingTest = true);
+    try {
+      await NotificationApi().sendTestNotification();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Test bildirimi gönderildi. Bildirimler ekranından kontrol edebilirsiniz.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gönderilemedi: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingTest = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +73,31 @@ class SettingsScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(builder: (context) => const UsageScreen()),
               ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.notifications_outlined),
+              title: const Text('Bildirimler'),
+              subtitle: const Text('Gönderilen AL/SAT ve test bildirimlerinin geçmişi'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const NotificationHistoryScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Test Bildirimi Gönder'),
+              subtitle: const Text('Bildirimlerin cihazınızda çalışıp çalışmadığını kontrol edin'),
+              trailing: _sendingTest
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.chevron_right),
+              onTap: _sendingTest ? null : _sendTestNotification,
             ),
           ),
           const SizedBox(height: 8),

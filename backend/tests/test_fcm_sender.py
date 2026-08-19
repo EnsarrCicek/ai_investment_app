@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from app.models.ai_decision import AIDecision
 from app.models.market_data import Quote
 from app.models.technical_analysis import TechnicalAnalysis
@@ -25,6 +27,24 @@ class _FakeLogRepo:
     def set_last_decision(self, user_id, asset, decision):
         self.set_calls.append((user_id, asset, decision))
         self._last = decision
+
+
+class _FakeRecordRepo:
+    def __init__(self):
+        self.added = []
+
+    def add(self, record):
+        self.added.append(record)
+        return "fake-record-id"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_firestore_for_notification_records(monkeypatch):
+    # record_repo verilmeyen testler gerçek NotificationRecordRepository()'ye
+    # (Firestore) DÜŞMESİN diye modül içindeki varsayılan sınıf referansı
+    # sahteyle değiştirilir (bkz. AŞAMA 48/17'deki aynı desen, benchmark_
+    # cache_repo için).
+    monkeypatch.setattr(fcm_sender, "NotificationRecordRepository", _FakeRecordRepo)
 
 
 def _decision(decision="BUY", asset="THYAO", final_score=45.0, confidence=70.0):
@@ -273,3 +293,80 @@ def test_new_opportunity_uses_default_budget_when_not_configured(monkeypatch):
 
     body = sent_messages[0].notification.body
     assert "50 adet" in body  # varsayılan 5000 TL / 100 TL = 50 adet
+
+
+def test_notify_if_strong_decision_persists_notification_record(monkeypatch):
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    record_repo = _FakeRecordRepo()
+
+    fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="SELL", asset="GARAN"),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+        quantity_held=10.0,
+        record_repo=record_repo,
+    )
+
+    assert len(record_repo.added) == 1
+    record = record_repo.added[0]
+    assert record.user_id == "u1"
+    assert record.asset == "GARAN"
+    assert record.kind == "SELL"
+    assert "SATMANIZ" in record.body
+
+
+def test_failed_send_does_not_persist_notification_record(monkeypatch):
+    def _raise(message):
+        from firebase_admin import exceptions as firebase_exceptions
+
+        raise firebase_exceptions.UnavailableError("gecici hata")
+
+    monkeypatch.setattr(fcm_sender.messaging, "send", _raise)
+    record_repo = _FakeRecordRepo()
+
+    sent = fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="SELL"),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+        record_repo=record_repo,
+    )
+
+    assert sent is False
+    assert record_repo.added == []
+
+
+def test_send_test_notification_returns_false_without_token():
+    sent = fcm_sender.send_test_notification("u1", token_repo=_FakeTokenRepo(None))
+    assert sent is False
+
+
+def test_send_test_notification_sends_and_persists_record(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+    record_repo = _FakeRecordRepo()
+
+    sent = fcm_sender.send_test_notification("u1", token_repo=_FakeTokenRepo("tok"), record_repo=record_repo)
+
+    assert sent is True
+    assert len(sent_messages) == 1
+    assert sent_messages[0].fid == "tok"
+    assert len(record_repo.added) == 1
+    assert record_repo.added[0].kind == "TEST"
+    assert record_repo.added[0].asset is None
+
+
+def test_send_test_notification_returns_false_on_firebase_error(monkeypatch):
+    def _raise(message):
+        from firebase_admin import exceptions as firebase_exceptions
+
+        raise firebase_exceptions.UnavailableError("gecici hata")
+
+    monkeypatch.setattr(fcm_sender.messaging, "send", _raise)
+    record_repo = _FakeRecordRepo()
+
+    sent = fcm_sender.send_test_notification("u1", token_repo=_FakeTokenRepo("tok"), record_repo=record_repo)
+
+    assert sent is False
+    assert record_repo.added == []
