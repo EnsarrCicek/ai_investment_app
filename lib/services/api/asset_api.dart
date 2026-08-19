@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/asset.dart';
+import 'api_config.dart';
 
 class AssetApi {
-  static const String baseUrl = 'http://10.0.2.2:8000';
+  static const String baseUrl = apiBaseUrl;
 
   Future<List<Asset>> fetchAssets() async {
     final response = await http.get(Uri.parse('$baseUrl/assets'));

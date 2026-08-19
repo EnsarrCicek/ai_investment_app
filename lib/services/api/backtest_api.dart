@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/backtest_result.dart';
+import 'api_config.dart';
 
 class BacktestApi {
-  static const String baseUrl = 'http://10.0.2.2:8000';
+  static const String baseUrl = apiBaseUrl;
 
   Future<BacktestResult> fetchBacktest(String symbol, {String period = '2y'}) async {
     final response = await http.get(Uri.parse('$baseUrl/backtest/$symbol?period=$period'));

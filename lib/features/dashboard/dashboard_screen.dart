@@ -24,21 +24,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _future = _loadAll();
   }
 
+  // Gerçek bulut backend'ine (Cloud Run) karşı 100 sembolü TAMAMEN eşzamanlı
+  // istemek bağlantı katmanında kopmalara yol açıyordu (SocketException:
+  // connection abort — 100 eşzamanlı yeni TLS bağlantısı açılmaya çalışılınca).
+  // Bu yüzden istekler küçük gruplar hâlinde, art arda gönderiliyor.
+  static const int _batchSize = 10;
+
   Future<List<_AssetResult>> _loadAll() async {
     // BIST100'ün tamamı — backend'deki assets koleksiyonundan dinamik çekilir,
     // sabit bir test listesi değil (bkz. KURULUM_GUNLUGU AŞAMA 43).
     final assets = await AssetApi().fetchAssets();
     final symbols = assets.map((a) => a.symbol).toList();
-    final results = await Future.wait(
-      symbols.map((symbol) async {
-        try {
-          final decision = await _api.fetchDecision(symbol);
-          return _AssetResult(symbol: symbol, decision: decision);
-        } catch (e) {
-          return _AssetResult(symbol: symbol, error: e.toString());
-        }
-      }),
-    );
+
+    final results = <_AssetResult>[];
+    for (var i = 0; i < symbols.length; i += _batchSize) {
+      final batch = symbols.skip(i).take(_batchSize);
+      final batchResults = await Future.wait(
+        batch.map((symbol) async {
+          try {
+            final decision = await _api.fetchDecision(symbol);
+            return _AssetResult(symbol: symbol, decision: decision);
+          } catch (e) {
+            return _AssetResult(symbol: symbol, error: e.toString());
+          }
+        }),
+      );
+      results.addAll(batchResults);
+    }
+
     // En güçlü AL sinyali üstte, en güçlü SAT sinyali altta — final_score'a göre
     // azalan sıralama. Veri alınamayan (hata) varlıklar sıralanamaz, en altta kalır.
     results.sort((a, b) {

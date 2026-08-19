@@ -5,11 +5,10 @@ import 'package:http/http.dart' as http;
 
 import '../../models/decision.dart';
 import '../../models/explanation.dart';
+import 'api_config.dart';
 
 class DecisionApi {
-  // Android emulator'de host makinenin localhost'una 10.0.2.2 üzerinden erişilir.
-  // Fiziksel cihaz/prod ortamında bu değer gerçek backend URL'i ile değiştirilmelidir.
-  static const String baseUrl = 'http://10.0.2.2:8000';
+  static const String baseUrl = apiBaseUrl;
 
   Future<Decision> fetchDecision(String symbol) async {
     // Auth token buraya bilerek eklendi: backend GET /decisions/{symbol}

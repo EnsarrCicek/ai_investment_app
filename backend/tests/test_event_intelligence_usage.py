@@ -18,8 +18,14 @@ def test_compute_cost_usd_unknown_model_falls_back_to_luna_pricing():
     assert cost_unknown == cost_luna
 
 
+_ANCHOR = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+
+
 def _log(cost_usd, days_ago=0, total_tokens=150):
-    created = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    # Gerçek "şimdi"ye değil, sabit bir referans ana göre hesaplanır — testler
+    # gece yarısını (UTC) geçtiğinde "days_ago=0" ile sabit `today` parametresi
+    # uyuşmaz hale gelip kırılgan (flaky) olmasın diye.
+    created = _ANCHOR - timedelta(days=days_ago)
     return TokenUsageLog(
         news_id="n",
         asset="THYAO",
