@@ -43,8 +43,11 @@ def _real_history_df(rows: int = 120) -> pd.DataFrame:
     # get_history() bu DataFrame'i asla döndürmemeli (cache hit testlerinde) —
     # provider'ın history_df'i None birakilirsa FakeMarketDataProvider
     # NotImplementedError firlatir, bu da cache'in atlanip atlanmadigini kanitlar.
+    # Son bar bilinçli olarak "bugüne" göre üretilir (dun degil): AŞAMA 48'deki
+    # STALE_DATA veto kontrolü, son bar gerçek "şimdi"den çok uzaksa reddeder.
     rng = np.random.default_rng(42)
     closes = 100 + np.cumsum(rng.normal(0, 1, rows))
+    end = pd.Timestamp.now(tz="UTC").normalize()
     return pd.DataFrame(
         {
             "Open": closes,
@@ -53,7 +56,7 @@ def _real_history_df(rows: int = 120) -> pd.DataFrame:
             "Close": closes,
             "Volume": rng.integers(1000, 5000, rows),
         },
-        index=pd.date_range("2026-01-01", periods=rows, freq="D"),
+        index=pd.date_range(end=end, periods=rows, freq="D"),
     )
 
 

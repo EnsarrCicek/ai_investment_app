@@ -21,6 +21,7 @@ tick değil), birkaç dakikalık bir gecikme kararın doğruluğunu etkilemez.
 from datetime import datetime, timezone
 
 from app.engines.technical import indicators as ind
+from app.engines.technical.data_quality import check_data_quality
 from app.models.technical_analysis import TechnicalAnalysis
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
@@ -71,10 +72,7 @@ class TechnicalAnalysisEngine:
                 return cached, cached_id
 
         df = self._provider.get_history(symbol, period="6mo")
-        if len(df) < MIN_HISTORY_DAYS:
-            raise ValueError(
-                f"'{symbol}' için yeterli geçmiş veri yok ({len(df)} gün, en az {MIN_HISTORY_DAYS} gerekli)"
-            )
+        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_WEIGHTS)
 

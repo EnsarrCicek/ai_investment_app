@@ -65,3 +65,15 @@ def roc(series: pd.Series, window: int = 10) -> pd.Series:
 
 def volume_sma(volume: pd.Series, window: int = 20) -> pd.Series:
     return sma(volume, window)
+
+
+def ema_slope(series: pd.Series, window: int = 20, slope_lookback: int = 5) -> pd.Series:
+    """EMA'nın son `slope_lookback` bar'daki değişim oranı (%) — TECHNICAL_
+    ANALYSIS_RESEARCH1.md, rapor madde 7 adım 7: ham iki-EMA-kesişimi/anlık
+    farkı yerine EMA'nın ZAMAN İÇİNDEKİ yönünü ve gücünü ölçer (engine.py'daki
+    mevcut "trend" bileşeni yalnızca tek bir anın EMA20-EMA50 farkını alır,
+    eğimi değil).
+    """
+    ema_series = ema(series, window)
+    shifted = ema_series.shift(slope_lookback)
+    return ((ema_series - shifted) / shifted.replace(0, pd.NA)) * 100

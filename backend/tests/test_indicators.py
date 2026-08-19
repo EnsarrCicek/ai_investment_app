@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from app.engines.technical import indicators as ind
 
@@ -82,3 +83,21 @@ def test_volume_sma():
     volume = pd.Series([100, 200, 300, 400, 500], dtype=float)
     result = ind.volume_sma(volume, window=3)
     assert result.iloc[-1] == 400.0
+
+
+def test_ema_slope_is_positive_for_rising_series():
+    series = pd.Series([10.0 + i for i in range(40)])
+    result = ind.ema_slope(series, window=10, slope_lookback=5)
+    assert result.iloc[-1] > 0
+
+
+def test_ema_slope_is_zero_for_flat_series():
+    series = pd.Series([10.0] * 40)
+    result = ind.ema_slope(series, window=10, slope_lookback=5)
+    assert result.iloc[-1] == pytest.approx(0.0)
+
+
+def test_ema_slope_is_negative_for_falling_series():
+    series = pd.Series([100.0 - i for i in range(40)])
+    result = ind.ema_slope(series, window=10, slope_lookback=5)
+    assert result.iloc[-1] < 0

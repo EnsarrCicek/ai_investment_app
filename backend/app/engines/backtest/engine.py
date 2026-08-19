@@ -27,6 +27,7 @@ import pandas as pd
 
 from app.engines.decision.engine import DEFAULT_THRESHOLDS, _classify
 from app.engines.technical import indicators as ind
+from app.engines.technical.data_quality import check_data_quality
 from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
@@ -167,10 +168,7 @@ class BacktestEngine:
 
     def run(self, symbol: str, period: str = "2y", initial_capital: float = 100_000.0) -> dict:
         df = self._provider.get_history(symbol, period=period)
-        if len(df) < MIN_HISTORY_DAYS:
-            raise ValueError(
-                f"'{symbol}' için backtest yapmaya yetecek geçmiş veri yok ({len(df)} gün, en az {MIN_HISTORY_DAYS} gerekli)"
-            )
+        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
