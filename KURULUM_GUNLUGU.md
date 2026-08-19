@@ -1783,3 +1783,18 @@ AŞAMA 48'de (madde 48) `relative_strength.py` yazılmıştı ama "her sembol i�
 
 **Tarih / Not:**
 19.08.2026 — relative_strength Sinyal Özeti'ne bağlandı, 263/263 backend + 27/27 flutter test yeşil, commit `ccff2d2`.
+
+---
+
+## 51. multi_timeframe'i Ek İstek Olmadan Sinyal Özeti'ne Bağlama (AŞAMA 48/18) (19.08.2026)
+
+Kullanıcı "sıradaki adıma geç" dedi — kalan madde `multi_timeframe.py`'ydi. Bu, relative_strength'ten (madde 50) FARKLI bir engeldi: haftalık zaman dilimi sembole özeldir, XU100 gibi semboller arasında paylaşılamaz. Ama daha basit bir çözüm vardı: haftalık kapanış, zaten çekilmiş günlük Close serisinden TÜRETİLEBİLİYOR — hiç yeni yfinance isteği gerekmiyor.
+
+**Çözüm:** `multi_timeframe.resample_to_weekly_close()` — pandas `resample("W")` ile günlük Close serisini haftalık kapanışlara indirger (saf hesaplama). `TechnicalAnalysisEngine` artık günlük ve haftalık EMA eğimi yönünü karşılaştırıp `mtf_aligned`/`mtf_consensus`'u `TechnicalAnalysis`'e ekliyor.
+
+**Fark edilen, düzeltilen dormant bug:** `signal_classifier.classify_signal()`'ın `STRONG_BULLISH_INITIATION` dalı `mtf_aligned`'a bakıyordu ama bu alan şimdiye kadar hep sabit `False` varsayılıyordu (hiçbir yerde gerçek veriyle hesaplanmıyordu) — yani bu en üst sinyal sınıfı, tüm diğer koşullar (skor≥40, UPTREND yapı, teyitli breakout, yüksek hacim) sağlansa bile HİÇBİR sembol için hiç tetiklenemiyordu. Bu değişiklik, tasarlanmış ama önceden erişilemez olan bir kod yolunu ilk kez gerçekten çalışır hale getirdi.
+
+**Doğrulama (gerçek, uçtan uca):** Cloud Run'a deploy edildi, `curl` ile THYAO için `mtf_aligned: true, mtf_consensus: "DOWN"` doğrulandı. Emulator'de TUPRS'in Teknik sekmesinde "Zaman Dilimi Uyumu: Yukarı (günlük + haftalık uyumlu)" kalın yazıyla doğru göründü.
+
+**Tarih / Not:**
+19.08.2026 — multi_timeframe Sinyal Özeti'ne bağlandı, 266/266 backend + 27/27 flutter test yeşil, commit `259cf5d`.
