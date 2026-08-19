@@ -1798,3 +1798,20 @@ Kullanıcı "sıradaki adıma geç" dedi — kalan madde `multi_timeframe.py`'yd
 
 **Tarih / Not:**
 19.08.2026 — multi_timeframe Sinyal Özeti'ne bağlandı, 266/266 backend + 27/27 flutter test yeşil, commit `259cf5d`.
+
+---
+
+## 52. Yarı-Otomatik AL/SAT Bildirimleri — Somut Miktar Önerisiyle (AŞAMA 48/19) (19.08.2026)
+
+Kullanıcı, daha önce sorulan (ve o zaman cevaplanmamış) "borsaya otomatik bağlanalım mı" sorusuna şimdi cevap verdi: "al sat kısmında bana bildirim göndersin sat veya şu kadar miktar al gibisinden yeter, daha sonra otomatiğe geçeriz." Bu, yarı-otomatik ("AI önerir, kullanıcı onaylar") yaklaşımın ilk somut adımı — gerçek alım-satım YAPILMIYOR, yalnızca bildirimler artık somut bir eylem öneriyor.
+
+**SAT bildirimi (elde tutulan varlıklar):** Metin "Elinizdeki X adet {sembol} hissesini SATMANIZ öneriliyor" şeklinde netleştirildi (öncesinde yalnızca "X adet var" bilgisi veriyordu, bir eylem önermiyordu).
+
+**AL bildirimi — iki senaryo:**
+1. Elde tutulan bir varlıkta AL sinyali (ek alım) — mevcut davranış korundu.
+2. Elde TUTULMAYAN bir varlıkta yeni fırsat — `notify_if_new_opportunity()` (yeni fonksiyon). AŞAMA 45'te çözülen "100 sembolün onlarcası spam bildirim" sorununu yeniden yaratmamak için yalnızca en yüksek güvenilirlikli sinyal sınıfında (`STRONG_BULLISH_INITIATION` — madde 48/18'de az önce gerçekten ulaşılabilir hale gelen sınıf) tetiklenir. Önerilen miktar = config'ten gelen sabit TL bütçesi (varsayılan 5000 TL, `system_config/notification_settings`) o anki fiyata bölünerek hesaplanır — kullanıcının risk toleransını/portföy büyüklüğünü bilmeden yapılabilecek en basit, en şeffaf tahmin. Gerçek bir pozisyon büyüklüğü stratejisi, kullanıcının kendi ifadesiyle "otomatiğe geçilince" ayrıca ele alınacak.
+
+**Doğrulama:** Cloud Run'a deploy edildi; uygulama üzerinden gerçek, authenticated ~100 sembollük Dashboard yüklemesi sırasında hiçbir hata/500 oluşmadığı doğrulandı (119/119 istek 200 OK). Gerçek push teslimatı emülatörde test edilemiyor (Play Store yok, AŞAMA 32'den beri bilinen kısıtlama) — ama `UnregisteredError` zaten `firebase_exceptions.FirebaseError`'ın alt sınıfı olduğu doğrulandı, yani endpoint'i çökertmiyor.
+
+**Tarih / Not:**
+19.08.2026 — Yarı-otomatik bildirimler eklendi, 274/274 backend test yeşil (11 yeni test), commit `af99ea5`.
