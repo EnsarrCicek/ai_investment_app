@@ -4,9 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import get_current_user_id
 from app.models.portfolio_position import PortfolioPosition
+from app.models.portfolio_transaction import PortfolioTransaction
 from app.repositories.portfolio_repository import PortfolioRepository
-from app.schemas.portfolio import PortfolioPositionCreate, PortfolioPositionUpdate
-from app.services.portfolio.pnl_calculator import calculate_pnl
+from app.repositories.portfolio_transaction_repository import PortfolioTransactionRepository
+from app.schemas.portfolio import PortfolioPositionClose, PortfolioPositionCreate, PortfolioPositionUpdate
+from app.services.portfolio.pnl_calculator import calculate_pnl, calculate_realized_pnl
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -83,3 +85,44 @@ def update_position(asset: str, payload: PortfolioPositionUpdate, user_id: str =
 def delete_position(asset: str, user_id: str = Depends(get_current_user_id)):
     PortfolioRepository().delete_for_asset(user_id, asset)
     return {"deleted_asset": asset}
+
+
+@router.post("/positions/{asset}/close")
+def close_position(asset: str, payload: PortfolioPositionClose, user_id: str = Depends(get_current_user_id)):
+    """AŞAMA 47: "sattım" akışı — eskiden DELETE tüm geçmişi sessizce
+    kaybediyordu. Artık satış fiyatı isteniyor, gerçekleşen kâr/zarar
+    hesaplanıp immutable bir PortfolioTransaction olarak kaydediliyor,
+    sonra pozisyon lotları silinir.
+    """
+    portfolio_repo = PortfolioRepository()
+    position = portfolio_repo.get_position_for_asset(user_id, asset)
+    if position is None:
+        raise HTTPException(status_code=404, detail=f"'{asset}' için açık bir pozisyon bulunamadı")
+
+    pnl = calculate_realized_pnl(position.quantity, position.buy_price, payload.sell_price)
+    now = datetime.now(timezone.utc)
+    transaction = PortfolioTransaction(
+        user_id=user_id,
+        asset=asset,
+        quantity=position.quantity,
+        buy_price=position.buy_price,
+        buy_date=position.buy_date,
+        sell_price=payload.sell_price,
+        sell_date=payload.sell_date or now,
+        realized_pnl=pnl["realized_pnl"],
+        realized_pnl_percent=pnl["realized_pnl_percent"],
+        created_at=now,
+    )
+    PortfolioTransactionRepository().add(transaction)
+    portfolio_repo.delete_for_asset(user_id, asset)
+    return transaction
+
+
+@router.get("/history")
+def get_history(user_id: str = Depends(get_current_user_id)):
+    transactions = PortfolioTransactionRepository().list_for_user(user_id)
+    total_realized_pnl = round(sum(t.realized_pnl for t in transactions), 2)
+    return {
+        "transactions": transactions,
+        "total_realized_pnl": total_realized_pnl,
+    }

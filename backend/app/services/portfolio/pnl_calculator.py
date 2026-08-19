@@ -19,3 +19,17 @@ def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | No
         "profit_loss": profit_loss,
         "return_percent": return_percent,
     }
+
+
+def calculate_realized_pnl(quantity: float, buy_price: float, sell_price: float) -> dict:
+    """Bir pozisyon kapatıldığında (satıldığında) gerçekleşen kâr/zararı hesaplar.
+
+    AŞAMA 47: kullanıcı bir pozisyonu sildiğinde önceden hiçbir kayıt
+    tutulmuyordu (geçmiş tamamen kayboluyordu). Artık "sil" işlemi bir satış
+    fiyatı istiyor ve bu fonksiyonla hesaplanan sonuç PortfolioTransaction
+    olarak kalıcı şekilde saklanıyor.
+    """
+    realized_pnl = round((sell_price - buy_price) * quantity, 2)
+    invested_amount = buy_price * quantity
+    realized_pnl_percent = round((realized_pnl / invested_amount) * 100, 2) if invested_amount else 0.0
+    return {"realized_pnl": realized_pnl, "realized_pnl_percent": realized_pnl_percent}

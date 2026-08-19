@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/portfolio_position.dart';
 import '../../services/api/asset_api.dart';
 import '../../services/api/portfolio_api.dart';
+import 'portfolio_history_screen.dart';
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -125,10 +126,96 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     if (saved == true) _reload();
   }
 
+  Future<void> _showClosePositionDialog(PortfolioPosition position) async {
+    final priceController = TextEditingController(text: position.currentPrice?.toStringAsFixed(2));
+    bool saving = false;
+
+    final closed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: Text('${position.asset} — Sattım'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${position.quantity.toStringAsFixed(0)} adet, ort. alış ${position.buyPrice.toStringAsFixed(2)} TL'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: priceController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Satış Fiyatı (TL)'),
+                    autofocus: true,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(dialogContext, false),
+                  child: const Text('İptal'),
+                ),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final sellPrice = double.tryParse(priceController.text);
+                          if (sellPrice == null) return;
+                          setDialogState(() => saving = true);
+                          try {
+                            await _api.closePosition(asset: position.asset, sellPrice: sellPrice);
+                            if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                          } catch (e) {
+                            setDialogState(() => saving = false);
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                SnackBar(content: Text('Kapatılamadı: $e')),
+                              );
+                            }
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Sattım'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (closed == true) {
+      _reload();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${position.asset} kapatıldı — Geçmiş\'te görebilirsiniz.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Portföy')),
+      appBar: AppBar(
+        title: const Text('Portföy'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Geçmiş',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const PortfolioHistoryScreen()),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showPositionDialog(),
         child: const Icon(Icons.add),
@@ -161,10 +248,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     return _PositionTile(
                       position: p,
                       onEdit: () => _showPositionDialog(existing: p),
-                      onDelete: () async {
-                        await _api.deletePosition(p.asset);
-                        _reload();
-                      },
+                      onClose: () => _showClosePositionDialog(p),
                     );
                   },
                 ),
@@ -222,9 +306,9 @@ class _SummaryCard extends StatelessWidget {
 class _PositionTile extends StatelessWidget {
   final PortfolioPosition position;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback onClose;
 
-  const _PositionTile({required this.position, required this.onEdit, required this.onDelete});
+  const _PositionTile({required this.position, required this.onEdit, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
@@ -255,8 +339,9 @@ class _PositionTile extends StatelessWidget {
               onPressed: onEdit,
             ),
             IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: onDelete,
+              icon: const Icon(Icons.sell_outlined),
+              tooltip: 'Sattım',
+              onPressed: onClose,
             ),
           ],
         ),
