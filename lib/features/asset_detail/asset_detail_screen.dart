@@ -539,8 +539,10 @@ class _NewsCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(item.summary, maxLines: 3, overflow: TextOverflow.ellipsis),
+              if (item.summary.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(item.summary, maxLines: 3, overflow: TextOverflow.ellipsis),
+              ],
               const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

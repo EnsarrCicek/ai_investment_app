@@ -5,38 +5,7 @@ import yfinance as yf
 from app.models.news_raw import NewsRawItem
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.news.base import NewsProvider
-
-# Ana doküman bölüm 7: kaynak güvenilirlik ağırlıkları system_config'ten okunur, hard-code değildir.
-DEFAULT_SOURCE_RELIABILITY = {
-    "OFFICIAL_INSTITUTION": 1.00,
-    "KAP": 1.00,
-    "CENTRAL_BANK": 0.98,
-    "GOVERNMENT": 0.95,
-    "NEWS_AGENCY": 0.90,
-    "FINANCIAL_MEDIA": 0.80,
-    "OTHER_MEDIA": 0.60,
-    "SOCIAL_MEDIA": 0.30,
-}
-
-# Yayıncı adından bölüm 7'deki kategoriye eşleme (ağırlığın kendisi değil, hangi kategoriye
-# girdiğinin sınıflandırması — sayısal değerler her zaman system_config'ten gelir).
-_PUBLISHER_CATEGORY = {
-    "reuters": "NEWS_AGENCY",
-    "associated press": "NEWS_AGENCY",
-    "bloomberg": "FINANCIAL_MEDIA",
-    "mt newswires": "FINANCIAL_MEDIA",
-    "motley fool": "FINANCIAL_MEDIA",
-    "investor's business daily": "FINANCIAL_MEDIA",
-    "barrons": "FINANCIAL_MEDIA",
-}
-
-
-def _classify_publisher(publisher: str) -> str:
-    name = publisher.lower()
-    for key, category in _PUBLISHER_CATEGORY.items():
-        if key in name:
-            return category
-    return "OTHER_MEDIA"
+from app.services.news.source_reliability import DEFAULT_SOURCE_RELIABILITY, classify_publisher
 
 
 class YahooNewsProvider(NewsProvider):
@@ -57,7 +26,7 @@ class YahooNewsProvider(NewsProvider):
         for raw in raw_items[:limit]:
             content = raw.get("content", {})
             publisher = content.get("provider", {}).get("displayName", "Unknown")
-            category = _classify_publisher(publisher)
+            category = classify_publisher(publisher)
             url = (content.get("canonicalUrl") or content.get("clickThroughUrl") or {}).get("url", "")
             pub_date = content.get("pubDate") or content.get("displayTime")
 
