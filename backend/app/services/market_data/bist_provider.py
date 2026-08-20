@@ -69,29 +69,56 @@ class BistProvider(MarketDataProvider):
     def get_quote(self, symbol: str) -> Quote:
         ticker = yf.Ticker(f"{symbol}.IS")
         intraday = _fetch_with_retry(lambda: ticker.history(period="1d", interval="5m"))
-        if intraday.empty:
-            raise ValueError(f"'{symbol}' için güncel fiyat bulunamadı")
+        daily = None
+
+        if not intraday.empty:
+            last_price = float(intraday.iloc[-1]["Close"])
+            timestamp = intraday.index[-1].to_pydatetime()
+            open_price = float(intraday.iloc[0]["Open"])
+            high = float(intraday["High"].max())
+            low = float(intraday["Low"].min())
+            volume = int(intraday["Volume"].sum())
+        else:
+            # Yahoo'nun 5 dakikalık gün-içi verisi ara sıra (özellikle seans
+            # açılışında) boş dönebiliyor — bu GERÇEK bir delisting değil
+            # (bkz. KURULUM_GUNLUGU.md AŞAMA 48/16). Bu durumda günlük bar'a
+            # düşülür; timestamp yine verinin GERÇEK ait olduğu günü gösterir,
+            # sahte bir "şimdi" değeri üretilmez.
+            daily = _fetch_with_retry(lambda: ticker.history(period="5d"))
+            if daily.empty:
+                raise ValueError(f"'{symbol}' için güncel fiyat bulunamadı")
+            row = daily.iloc[-1]
+            last_price = float(row["Close"])
+            timestamp = daily.index[-1].to_pydatetime()
+            open_price = float(row["Open"])
+            high = float(row["High"])
+            low = float(row["Low"])
+            volume = int(row["Volume"])
 
         previous_close = ticker.fast_info.get("previousClose")
+        if previous_close is None:
+            if daily is None:
+                daily = _fetch_with_retry(lambda: ticker.history(period="5d"))
+            if len(daily) >= 2:
+                previous_close = float(daily.iloc[-2]["Close"])
         if previous_close is None:
             raise ValueError(f"'{symbol}' için önceki kapanış bulunamadı")
         previous_close = float(previous_close)
 
-        last_price = float(intraday.iloc[-1]["Close"])
         change = last_price - previous_close
         change_percent = (change / previous_close * 100) if previous_close else None
 
         return Quote(
             asset_id=symbol,
-            timestamp=intraday.index[-1].to_pydatetime(),
+            timestamp=timestamp,
             last_price=last_price,
             previous_close=previous_close,
             change=change,
             change_percent=change_percent,
-            open=float(intraday.iloc[0]["Open"]),
-            high=float(intraday["High"].max()),
-            low=float(intraday["Low"].min()),
-            volume=int(intraday["Volume"].sum()),
+            open=open_price,
+            high=high,
+            low=low,
+            volume=volume,
             source=self.SOURCE,
         )
 
