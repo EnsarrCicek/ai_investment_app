@@ -63,6 +63,23 @@ def update_settings(payload: FundInvestmentSettingsUpdate, user_id: str = Depend
     return settings
 
 
+@router.get("/allocation-preview")
+def allocation_preview(amount_tl: float, user_id: str = Depends(get_current_user_id)):
+    """Ayarlar sekmesinde "aylık X TL girdim, bunu nasıl dağıtırsın" önizlemesi
+    — AŞAMA 58 devamı. /allocate'ten FARKLI olarak bildirim GÖNDERMEZ, dedup'a
+    dokunmaz; kullanıcı tutarı değiştirdikçe istediği kadar sorgulayabilir.
+    Dağıtım mantığı (skora orantılı, en iyi 3 fon) /allocate ile birebir aynı
+    — kullanıcı burada gördüğü önizlemeyle ayın başında gelecek gerçek
+    bildirim arasında fark olmasın diye.
+    """
+    try:
+        ranked = get_ranked_funds()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return {"amount_tl": amount_tl, "allocation": recommend_allocation(ranked, amount_tl)}
+
+
 @router.get("/positions")
 def list_positions(user_id: str = Depends(get_current_user_id)):
     positions = FundPositionRepository().list_for_user(user_id)

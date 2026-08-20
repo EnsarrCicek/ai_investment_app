@@ -428,6 +428,9 @@ class _SettingsTabState extends State<_SettingsTab> {
   final _incomeController = TextEditingController();
   final _budgetController = TextEditingController();
   bool _saving = false;
+  bool _loadingPreview = false;
+  List<FundAllocationItem>? _preview;
+  String? _previewError;
 
   @override
   void initState() {
@@ -435,6 +438,7 @@ class _SettingsTabState extends State<_SettingsTab> {
     _future = FundApi().fetchSettings().then((settings) {
       _incomeController.text = settings.monthlyIncome?.toStringAsFixed(0) ?? '';
       _budgetController.text = settings.monthlyBudget.toStringAsFixed(0);
+      if (settings.monthlyBudget > 0) _loadPreview(settings.monthlyBudget);
       return settings;
     });
   }
@@ -446,6 +450,21 @@ class _SettingsTabState extends State<_SettingsTab> {
     super.dispose();
   }
 
+  Future<void> _loadPreview(double budget) async {
+    setState(() {
+      _loadingPreview = true;
+      _previewError = null;
+    });
+    try {
+      final preview = await FundApi().previewAllocation(budget);
+      if (mounted) setState(() => _preview = preview);
+    } catch (e) {
+      if (mounted) setState(() => _previewError = e.toString());
+    } finally {
+      if (mounted) setState(() => _loadingPreview = false);
+    }
+  }
+
   Future<void> _save() async {
     final income = double.tryParse(_incomeController.text.replaceAll(',', '.'));
     final budget = double.tryParse(_budgetController.text.replaceAll(',', '.')) ?? 0.0;
@@ -454,6 +473,11 @@ class _SettingsTabState extends State<_SettingsTab> {
       await FundApi().updateSettings(monthlyIncome: income, monthlyBudget: budget);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kaydedildi')));
+      }
+      if (budget > 0) {
+        await _loadPreview(budget);
+      } else if (mounted) {
+        setState(() => _preview = null);
       }
     } catch (e) {
       if (mounted) {
@@ -504,6 +528,34 @@ class _SettingsTabState extends State<_SettingsTab> {
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('Kaydet'),
             ),
+            const SizedBox(height: 20),
+            if (_loadingPreview) const Center(child: CircularProgressIndicator())
+            else if (_previewError != null)
+              Text('Önizleme alınamadı: $_previewError', style: const TextStyle(color: Colors.red))
+            else if (_preview != null && _preview!.isNotEmpty) ...[
+              Text('Bu bütçe şöyle dağıtılır', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              const Text(
+                'Dağıtım, her fonun güven/kâr potansiyeli skoruna orantılıdır — skoru '
+                'yüksek olan fon daha büyük pay alır.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              for (final a in _preview!)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  child: ListTile(
+                    dense: true,
+                    title: Text('${a.fundCode} — ${_fmtTl(a.amountTl)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(a.fundName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: Text(
+                      a.compositeScore.toStringAsFixed(1),
+                      style: TextStyle(color: a.compositeScore >= 0 ? Colors.green : Colors.red),
+                    ),
+                  ),
+                ),
+            ],
           ],
         );
       },

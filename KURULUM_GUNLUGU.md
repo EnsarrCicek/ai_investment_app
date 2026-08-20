@@ -1911,7 +1911,24 @@ Kullanıcı: "fonlar için de analiz yaptır ve fonlar için ayrı sayfa oluştu
 
 **Flutter — "Fonlar" sekmesi** (yeni 3. bottom-nav sekmesi, Analiz/Portföy/Fonlar/Makro/Ayarlar): "Öneriler" (sıralı fon listesi + 1a/3a/6a/1y rozetleri + "Ekstra Para Yatır" butonu), "Fonlarım" (pozisyon ekle/sil, kâr-zarar), "Ayarlar" (aylık gelir/bütçe girişi). Bildirimler ekranındaki kind eşlemeleri (`FUND_BUY_MONTHLY`/`FUND_BUY_ADHOC`/`FUND_SWITCH`) güncellendi.
 
-**Doğrulama (gerçek, uçtan uca):** 23 yeni backend testi (`test_fund_analysis_engine.py`, `test_fund_allocation.py`, `test_fund_notifier.py`, `test_fund_analysis_cache_service.py`) + mevcut 317 test yeşil, 33/33 flutter test yeşil (5 yeni). Cloud Run'a deploy edildi; canlıda gerçek TEFAS verisiyle `/funds` doğrulandı (1341 fon geçti, ör. PKU %1285 1 yıllık getiriyle 1. sırada — serbest/hisse yoğun fonlarda böylesi uç değerler normal, ekranda "geçmiş performans garanti değildir + serbest fonlar yüksek volatilite taşır" uyarısı gösteriliyor). Ayarlar/pozisyon/allocate/switch zincirlerinin tamamı kullanıcının GERÇEK hesabıyla uçtan uca test edildi (aylık+ad-hoc+switch bildirimleri gerçekten cihaza gönderildi, doğrulama sonrası test verisi — pozisyon, bütçe, dedup kayıtları — temizlendi). Gerçek cihaz için release APK yeniden derlendi (52,1MB).
+**Doğrulama (gerçek, uçtan uca):** 22 yeni backend testi (`test_fund_analysis_engine.py`, `test_fund_allocation.py`, `test_fund_notifier.py`, `test_fund_analysis_cache_service.py`) eklendi, toplam 317/317 backend test yeşil, 33/33 flutter test yeşil (5 yeni). Cloud Run'a deploy edildi; canlıda gerçek TEFAS verisiyle `/funds` doğrulandı (1341 fon geçti, ör. PKU %1285 1 yıllık getiriyle 1. sırada — serbest/hisse yoğun fonlarda böylesi uç değerler normal, ekranda "geçmiş performans garanti değildir + serbest fonlar yüksek volatilite taşır" uyarısı gösteriliyor). Ayarlar/pozisyon/allocate/switch zincirlerinin tamamı kullanıcının GERÇEK hesabıyla uçtan uca test edildi (aylık+ad-hoc+switch bildirimleri gerçekten cihaza gönderildi, doğrulama sonrası test verisi — pozisyon, bütçe, dedup kayıtları — temizlendi). Gerçek cihaz için release APK yeniden derlendi (52,1MB).
 
 **Tarih / Not:**
-20.08.2026 — Fonlar sayfası + TEFAS analiz motoru + aylık/ad-hoc/switch bildirimleri eklendi, 340/340 backend test yeşil (23 yeni test), 33/33 flutter test yeşil (5 yeni), commit `139636c`.
+20.08.2026 — Fonlar sayfası + TEFAS analiz motoru + aylık/ad-hoc/switch bildirimleri eklendi, 317/317 backend test yeşil (22 yeni test), 33/33 flutter test yeşil (5 yeni), commit `139636c`.
+
+---
+
+## 59. Ayarlar Sekmesinde Anlık Dağıtım Önizlemesi (20.08.2026)
+
+Kullanıcı: "Aylık yatırım yapacağın miktarı seçebilsin kullanıcı ve bizim sistemimizde ona öneri versin, işte aylık 10 bin girdiysem 7 bin buna atalım 3 bin buna gibisinden — bu da güven değeri yüksekliği veya kâr edebileceğimiz hangisi daha yüksek ise ona göre değişir."
+
+Bu mantık AŞAMA 58'de `recommend_allocation()` ile zaten vardı (skora orantılı dağıtım) ama kullanıcıya yalnızca AYDA BİR (bildirimle) ya da ayrı "Ekstra Para Yatır" butonuyla gösteriliyordu — Ayarlar sekmesinde bütçeni girdiğinde ANINDA görünmüyordu.
+
+**Çözüm:** Yeni `GET /funds/allocation-preview?amount_tl=X` uç noktası — `/allocate`'ten FARKLI olarak bildirim GÖNDERMEZ, dedup'a dokunmaz, kullanıcı tutarı değiştirdikçe istediği kadar sorgulanabilir (aynı `recommend_allocation()` fonksiyonunu kullanır, dağıtım mantığı ayın başında gelecek gerçek bildirimle birebir aynı). Flutter: Ayarlar sekmesi artık bütçe her kaydedildiğinde (ve sayfa ilk açıldığında, bütçe zaten ayarlıysa) önizlemeyi otomatik çekip "Bu bütçe şöyle dağıtılır" kartı olarak gösteriyor.
+
+**Doğrulama:** Mevcut 317 backend testi (yeni mantık olmadığından, sadece ince bir route — zaten test edilmiş `recommend_allocation`/`get_ranked_funds`'ı yeniden kullanıyor) + 33 flutter testi yeşil kaldı. `TestClient` ile auth override edilerek canlı doğrulandı: 10.000 TL girildiğinde skora orantılı 3506/3441/3051 TL dağılımı doğru döndü, bildirim tetiklenmedi. Cloud Run'a deploy edildi, gerçek cihaz için release APK yeniden derlendi.
+
+**Not:** Bu kayıt sırasında AŞAMA 58'in doğrulama satırındaki test sayısı hatası da (yanlışlıkla "23 yeni test, 340 toplam" yazılmıştı) 22/317 olarak düzeltildi.
+
+**Tarih / Not:**
+20.08.2026 — Ayarlar'da anlık dağıtım önizlemesi eklendi, 317/317 backend test yeşil, 33/33 flutter test yeşil.

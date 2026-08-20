@@ -89,4 +89,19 @@ class FundApi {
     final allocation = json['allocation'] as List;
     return allocation.map((e) => FundAllocationItem.fromJson(e as Map<String, dynamic>)).toList();
   }
+
+  /// Bildirim GÖNDERMEDEN dağıtım önizlemesi — Ayarlar sekmesinde kullanıcı
+  /// aylık bütçesini girdiğinde/değiştirdiğinde anında göstermek için.
+  Future<List<FundAllocationItem>> previewAllocation(double amountTl) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/funds/allocation-preview?amount_tl=$amountTl'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Dağıtım önizlemesi alınamadı (HTTP ${response.statusCode})');
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final allocation = json['allocation'] as List;
+    return allocation.map((e) => FundAllocationItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
 }
