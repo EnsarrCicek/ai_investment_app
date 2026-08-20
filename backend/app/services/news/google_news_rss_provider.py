@@ -31,9 +31,13 @@ class GoogleNewsRssProvider(NewsProvider):
     def __init__(self, config_repo: SystemConfigRepository | None = None):
         self._config_repo = config_repo or SystemConfigRepository()
 
-    def get_latest_news(self, symbol: str, limit: int = 10) -> list[NewsRawItem]:
+    def get_latest_news(self, symbol: str, limit: int = 10, query_suffix: str = "hisse") -> list[NewsRawItem]:
+        """`query_suffix`: aranan varlık türünü ayırt etmek için ("hisse" hisse
+        senedi haberleri için varsayılan; fon haberleri AŞAMA 60'ta "fon" ile
+        arıyor — bkz. app/api/funds.py get_fund_news).
+        """
         weights = self._config_repo.get("source_reliability", DEFAULT_SOURCE_RELIABILITY)
-        query = quote(f"{symbol} hisse")
+        query = quote(f"{symbol} {query_suffix}")
         url = f"{RSS_URL}?q={query}&hl=tr&gl=TR&ceid=TR:tr"
 
         try:

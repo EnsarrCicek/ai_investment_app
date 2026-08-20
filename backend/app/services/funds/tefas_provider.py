@@ -18,6 +18,32 @@ from pytefas import Crawler
 
 DEFAULT_KIND = "YAT"
 
+# AŞAMA 60: risk sınıflandırması için portföy dağılımından çekilen kolonlar
+# (bkz. app/engines/funds/risk.py) — pytefas'ın "breakdown" görünümü 50+
+# kolon döndürüyor, yalnızca risk hesabında kullanılanlar seçiliyor (Firestore
+# önbellek belgesi boyutunu küçük tutmak için).
+BREAKDOWN_COLUMNS = [
+    "fund_code",
+    "stock_pct",
+    "foreign_stock_pct",
+    "etf_pct",
+    "foreign_etf_pct",
+    "venture_capital_investment_pct",
+    "real_estate_investment_pct",
+    "derivative_pct",
+    "takasbank_money_market_pct",
+    "bist_money_market_pct",
+    "repo_pct",
+    "reverse_repo_pct",
+    "term_deposit_pct",
+    "deposit_tl_pct",
+    "deposit_fx_pct",
+    "deposit_gold_pct",
+    "government_bond_pct",
+    "treasury_bill_pct",
+    "participation_account_pct",
+]
+
 
 class TefasProvider:
     def __init__(self, crawler: Crawler | None = None):
@@ -34,6 +60,17 @@ class TefasProvider:
         return df[["fund_code", "fund_name", "price", "investor_count", "portfolio_size"]].to_dict(
             orient="records"
         )
+
+    def get_breakdown_snapshot(self, date: str, kind: str = DEFAULT_KIND) -> list[dict]:
+        """Tek bir tarih için TÜM fonların portföy varlık dağılımı — risk
+        sınıflandırması için (bkz. risk.py). get_snapshot() ile aynı boş-liste
+        sözleşmesi.
+        """
+        df = self._crawler.fetch(date, columns="breakdown", kind=kind)
+        if df.empty:
+            return []
+        available = [c for c in BREAKDOWN_COLUMNS if c in df.columns]
+        return df[available].to_dict(orient="records")
 
     def get_fund_history(self, fund_code: str, start: str, end: str, kind: str = DEFAULT_KIND) -> pd.DataFrame:
         """Tek bir fonun tarih aralığındaki fiyat geçmişi — fon detay grafiği için."""

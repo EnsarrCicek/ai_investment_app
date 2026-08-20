@@ -14,5 +14,9 @@ class FundAnalysis(BaseModel):
     return_6m_pct: float | None = None
     return_1y_pct: float | None = None
     composite_score: float
+    risk_level: str | None = None
+    equity_exposure_pct: float | None = None
+    safe_exposure_pct: float | None = None
+    explanation: str = ""
     as_of_date: str
     generated_at: datetime

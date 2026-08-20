@@ -1932,3 +1932,26 @@ Bu mantık AŞAMA 58'de `recommend_allocation()` ile zaten vardı (skora orantı
 
 **Tarih / Not:**
 20.08.2026 — Ayarlar'da anlık dağıtım önizlemesi eklendi, 317/317 backend test yeşil, 33/33 flutter test yeşil.
+
+---
+
+## 60. Fon Analizini Detaylandırma: Risk Oranı, "Neden Bu Fon", Haber Kaynakları ve Arama (20.08.2026)
+
+Kullanıcı: "Filtreleme kısmı yok, işte risk oranı ne gibi oranları da detaylıca belirt, neden almamı önerdiğini belirt, ayrıca ünlü borsa bilgileri paylaşan sayfalardan önerilerine bakıp bunu önerdiler ve şu yüzden gibi anlat, arama kısmı ekle her fona ulaşabileyim... Açıkçası fon kısmı daha detaylı olsun."
+
+**Risk oranı — TEFAS'ın GERÇEK portföy dağılım verisinden:** `TefasProvider.get_breakdown_snapshot()` (pytefas `columns="breakdown"`, aynı "tek istekte tüm fonlar" verimliliğiyle, ~50 varlık sınıfı yüzdesi) eklendi; `FundBreakdownRepository` (fund_snapshot_repository.py ile aynı KALICI önbellek deseni, ayrı koleksiyon). Yeni `risk.py`: hisse/ETF/gayrimenkul/girişim sermayesi/türev ağırlığı %50'yi geçerse YÜKSEK, nakit/repo/mevduat/devlet tahvili ağırlığı %60'ı geçerse DÜŞÜK, aksi halde ORTA — bir portföy optimizasyon modeli değil, şeffaf/yorumlanabilir bir sınıflandırma (Sharpe/volatilite TEFAS tarafından yayınlanmıyor, günlük fiyat serisi rate-limit yüzünden pratik değil).
+
+**"Neden bu fon" açıklaması — LLM YOK, tamamen deterministik:** Yeni `explanation.py`, getiri rakamları + risk seviyesi + sıralamadaki konumu şablonla okunabilir bir Türkçe cümleye çeviriyor (ör. "Getiri (1 ay: %+24.6, ... 1 yıl: %+1285.4). Analiz edilen 1341 fon arasında 1. sırada. Risk seviyesi: Yüksek."). LLM çağrısı bilinçli olarak kullanılmadı — haber duygu analizinin aksine burada sayısal veriden üretilen bir metin yeterli, daha ucuz ve halüsinasyon riski sıfır.
+
+**Haber/yorum kaynakları — "ünlü sayfalar ne diyor":** `GoogleNewsRssProvider.get_latest_news()` artık opsiyonel `query_suffix` alıyor (AŞAMA 55'te sabit "hisse" idi, fonlar için "fon" kullanılıyor). Yeni `GET /funds/{code}/news` bu fonla ilgili GERÇEKTEN bulunan haber/yorum makalelerini listeler — belirli bir hesabın/otoritenin önerdiği İDDİA EDİLMEZ (uydurma atıf riski), yalnızca gerçek başlık/kaynak olduğu gibi gösterilip yorum kullanıcıya bırakılıyor.
+
+**Arama — "her fona ulaşabileyim":** `GET /funds?q=...` artık kalite filtresini geçen TÜM (1341) fonda kod/ad araması yapıyor, yalnızca varsayılan öneri listesindeki ilk 30'da değil. **Bulunan ve düzeltilen gerçek bug:** Python'un standart `str.upper()`'ı Türkçe küçük "i"yi ASCII "I"ye çeviriyor, ama TEFAS verisi Türkçe noktalı "İ" kullanıyor — "hisse" araması ilk denemede SIFIR sonuç döndürdü (canlı testte yakalandı). `_tr_upper()` yardımcı fonksiyonu (önce Türkçe küçük harfleri doğru büyük karşılıklarına çevirip sonra upper() çağırıyor) ile düzeltildi, regresyon testiyle kilitlendi.
+
+**Fon detay ekranı (yeni):** Öneriler listesinden/aramadan bir fona dokununca açılıyor — tam getiri skorları, risk kartı (seviye + hisse/güvenli varlık yüzdeleri), "Neden Bu Fon?" açıklaması, haber/yorum kaynakları (otomatik yüklenir). Fonlarım sekmesindeki pozisyonlar da artık aynı detay ekranına gidiyor.
+
+**Not — önbellek/şema uyumu:** `get_ranked_funds()`'ın 6 saatlik TTL'li önbelleği yeni alanlar (risk_level vb.) eklenmeden ÖNCE dolmuştu; yeni alanlar pydantic'te opsiyonel/varsayılanlı olduğundan eski önbellek çökme YARATMADI ama `risk_level: null` gibi eksik veri döndürdü — canlı testte fark edilip önbellek belgesi manuel temizlendi, yeni hesaplama doğru alanlarla doldu.
+
+**Doğrulama (gerçek, uçtan uca):** 15 yeni backend testi (`test_fund_risk.py`, `test_fund_explanation.py`, `test_funds_api_helpers.py`, `test_fund_analysis_engine.py`'ye 3 ek) + mevcut, toplam 332/332 backend test yeşil, 34/34 flutter test yeşil (2 yeni). Cloud Run'a deploy edildi; canlıda gerçek verilerle doğrulandı — PKU için risk_level: YUKSEK (equity %105.6), açıklama metni doğru, "hisse" araması artık 50 sonuç döndürüyor (önceden 0), `/funds/PKU/news` gerçek bir makale (YatırımX kaynaklı) döndürdü. Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+20.08.2026 — Risk oranı + açıklama + haber kaynağı + arama + fon detay ekranı eklendi, 332/332 backend test yeşil (15 yeni test), 34/34 flutter test yeşil (2 yeni).

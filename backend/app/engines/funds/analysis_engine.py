@@ -19,7 +19,10 @@ edilir. Hiçbir ufukta veri yoksa fon sıralamaya hiç girmez.
 import math
 from datetime import datetime, timedelta, timezone
 
+from app.engines.funds.explanation import build_explanation
+from app.engines.funds.risk import classify_risk
 from app.models.fund_analysis import FundAnalysis
+from app.repositories.fund_breakdown_repository import FundBreakdownRepository
 from app.repositories.fund_snapshot_repository import FundSnapshotRepository
 from app.services.funds.tefas_provider import TefasProvider
 
@@ -59,9 +62,15 @@ def _composite_score(returns: dict[str, float | None]) -> float | None:
 
 
 class FundAnalysisEngine:
-    def __init__(self, provider: TefasProvider | None = None, snapshot_repo: FundSnapshotRepository | None = None):
+    def __init__(
+        self,
+        provider: TefasProvider | None = None,
+        snapshot_repo: FundSnapshotRepository | None = None,
+        breakdown_repo: FundBreakdownRepository | None = None,
+    ):
         self._provider = provider or TefasProvider()
         self._snapshot_repo = snapshot_repo or FundSnapshotRepository()
+        self._breakdown_repo = breakdown_repo or FundBreakdownRepository()
 
     def _snapshot_near(self, target_date: datetime, kind: str) -> tuple[str, dict[str, dict]]:
         """target_date'ten geriye doğru en fazla MAX_LOOKBACK_DAYS gün denenip
@@ -82,6 +91,18 @@ class FundAnalysisEngine:
                     return date_str, by_code
         return "", {}
 
+    def _breakdown_near(self, target_date: datetime, kind: str) -> dict[str, dict]:
+        """Risk sınıflandırması için — yalnızca EN GÜNCEL portföy dağılımı
+        gerekir (geçmiş dağılım değil), bu yüzden _snapshot_near ile aynı
+        geriye-bakma mantığı ama tek bir tarih için.
+        """
+        for offset in range(MAX_LOOKBACK_DAYS):
+            date_str = (target_date - timedelta(days=offset)).strftime("%Y-%m-%d")
+            funds = self._breakdown_repo.get_or_fetch(date_str, self._provider, kind=kind)
+            if funds:
+                return {f["fund_code"]: f for f in funds}
+        return {}
+
     def analyze_all(self, kind: str = DEFAULT_KIND) -> list[FundAnalysis]:
         now = datetime.now(timezone.utc)
         latest_date, latest_by_code = self._snapshot_near(now, kind)
@@ -94,6 +115,7 @@ class FundAnalysisEngine:
             "return_6m_pct": self._snapshot_near(now - timedelta(days=182), kind)[1],
             "return_1y_pct": self._snapshot_near(now - timedelta(days=365), kind)[1],
         }
+        breakdown_by_code = self._breakdown_near(now, kind)
 
         generated_at = datetime.now(timezone.utc)
         results: list[FundAnalysis] = []
@@ -113,6 +135,9 @@ class FundAnalysisEngine:
             if score is None:
                 continue
 
+            breakdown = breakdown_by_code.get(code)
+            risk = classify_risk(breakdown) if breakdown is not None else None
+
             results.append(
                 FundAnalysis(
                     fund_code=code,
@@ -121,6 +146,9 @@ class FundAnalysisEngine:
                     portfolio_size=portfolio_size,
                     investor_count=investor_count,
                     composite_score=score,
+                    risk_level=risk["risk_level"] if risk else None,
+                    equity_exposure_pct=risk["equity_exposure_pct"] if risk else None,
+                    safe_exposure_pct=risk["safe_exposure_pct"] if risk else None,
                     as_of_date=latest_date,
                     generated_at=generated_at,
                     **returns,
@@ -128,4 +156,17 @@ class FundAnalysisEngine:
             )
 
         results.sort(key=lambda f: f.composite_score, reverse=True)
+
+        total_count = len(results)
+        for rank, fund in enumerate(results, start=1):
+            fund.explanation = build_explanation(
+                fund.return_1m_pct,
+                fund.return_3m_pct,
+                fund.return_6m_pct,
+                fund.return_1y_pct,
+                fund.risk_level,
+                rank,
+                total_count,
+            )
+
         return results

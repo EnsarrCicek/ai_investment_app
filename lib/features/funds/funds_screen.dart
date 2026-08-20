@@ -1,17 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../models/fund_analysis.dart';
 import '../../models/fund_position.dart';
 import '../../services/api/fund_api.dart';
-
-String _fmtTl(double v) => '${v.toStringAsFixed(0)} TL';
-
-String _fmtPct(double? v) => v == null ? '—' : '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)}%';
-
-Color _pctColor(double? v) {
-  if (v == null) return Colors.grey;
-  return v >= 0 ? Colors.green : Colors.red;
-}
+import 'fund_detail_screen.dart';
+import 'fund_style.dart';
 
 /// AŞAMA 58: "Fonlar" sayfası — TEFAS'tan (Türkiye Elektronik Fon Alım Satım
 /// Platformu) çekilen gerçek fon verisiyle "hangi fon alınabilir, hangisi en
@@ -62,18 +57,44 @@ class _RecommendationsTab extends StatefulWidget {
 }
 
 class _RecommendationsTabState extends State<_RecommendationsTab> {
+  static const int _defaultLimit = 30;
+  static const int _searchLimit = 200;
+
   late Future<List<FundAnalysis>> _future;
   bool _allocating = false;
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+  String _query = '';
 
   @override
   void initState() {
     super.initState();
-    _future = FundApi().fetchFunds(limit: 30);
+    _future = FundApi().fetchFunds(limit: _defaultLimit);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = FundApi().fetchFunds(limit: 30));
+    setState(() => _future = FundApi().fetchFunds(limit: _defaultLimit, q: _query.isEmpty ? null : _query));
     await _future;
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      setState(() {
+        _query = value.trim();
+        _future = FundApi().fetchFunds(
+          limit: _query.isEmpty ? _defaultLimit : _searchLimit,
+          q: _query.isEmpty ? null : _query,
+        );
+      });
+    });
   }
 
   Future<void> _openAllocateDialog() async {
@@ -117,7 +138,7 @@ class _RecommendationsTabState extends State<_RecommendationsTab> {
               for (final a in allocation)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Text('${a.fundCode} — ${_fmtTl(a.amountTl)}\n${a.fundName}',
+                  child: Text('${a.fundCode} — ${fmtTl(a.amountTl)}\n${a.fundName}',
                       style: const TextStyle(fontSize: 13)),
                 ),
               const SizedBox(height: 8),
@@ -161,28 +182,55 @@ class _RecommendationsTabState extends State<_RecommendationsTab> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(12),
             children: [
-              Card(
-                color: Colors.blue.withValues(alpha: 0.08),
-                child: const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    'Veri kaynağı: TEFAS. Sıralama, 1a/3a/6a/1y getirilerin ağırlıklı '
-                    'ortalamasına dayanır. Bu yatırım tavsiyesi değildir — geçmiş '
-                    'performans gelecekteki performansın garantisi değildir; serbest '
-                    'fonlar yüksek volatilite taşıyabilir.',
-                    style: TextStyle(fontSize: 12),
-                  ),
+              TextField(
+                controller: _searchController,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: _onSearchChanged,
+                decoration: InputDecoration(
+                  hintText: 'Fon kodu veya adı ara (ör. hisse, para piyasası, AAK)...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            _onSearchChanged('');
+                          },
+                        ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  isDense: true,
                 ),
               ),
               const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _allocating ? null : _openAllocateDialog,
-                icon: _allocating
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.savings_outlined),
-                label: Text(_allocating ? 'Hesaplanıyor...' : 'Ekstra Para Yatır'),
-              ),
-              const SizedBox(height: 16),
+              if (_query.isEmpty) ...[
+                Card(
+                  color: Colors.blue.withValues(alpha: 0.08),
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text(
+                      'Veri kaynağı: TEFAS. Sıralama, 1a/3a/6a/1y getirilerin ağırlıklı '
+                      'ortalamasına dayanır. Bu yatırım tavsiyesi değildir — geçmiş '
+                      'performans gelecekteki performansın garantisi değildir; serbest '
+                      'fonlar yüksek volatilite taşıyabilir.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _allocating ? null : _openAllocateDialog,
+                  icon: _allocating
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.savings_outlined),
+                  label: Text(_allocating ? 'Hesaplanıyor...' : 'Ekstra Para Yatır'),
+                ),
+                const SizedBox(height: 16),
+              ] else
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('${funds.length} sonuç bulundu', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ),
               if (funds.isEmpty) const Text('Fon bulunamadı.'),
               ...funds.map((f) => _FundCard(fund: f)),
             ],
@@ -201,47 +249,71 @@ class _FundCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${fund.fundCode} — ${fund.fundName}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => FundDetailScreen(fundCode: fund.fundCode)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${fund.fundCode} — ${fund.fundName}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                Text(
-                  fund.compositeScore.toStringAsFixed(1),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: fund.compositeScore >= 0 ? Colors.green : Colors.red,
+                  Text(
+                    fund.compositeScore.toStringAsFixed(1),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: fund.compositeScore >= 0 ? Colors.green : Colors.red,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _ReturnBadge(label: '1A', value: fund.return1mPct),
-                _ReturnBadge(label: '3A', value: fund.return3mPct),
-                _ReturnBadge(label: '6A', value: fund.return6mPct),
-                _ReturnBadge(label: '1Y', value: fund.return1yPct),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Fiyat: ${fund.price.toStringAsFixed(4)} TL',
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
-            ),
-          ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _ReturnBadge(label: '1A', value: fund.return1mPct),
+                  _ReturnBadge(label: '3A', value: fund.return3mPct),
+                  _ReturnBadge(label: '6A', value: fund.return6mPct),
+                  _ReturnBadge(label: '1Y', value: fund.return1yPct),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (fund.riskLevel != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: riskColor(fund.riskLevel).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Risk: ${fundRiskLabelsTr[fund.riskLevel] ?? fund.riskLevel}',
+                        style: TextStyle(
+                          color: riskColor(fund.riskLevel),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  Text('Fiyat: ${fund.price.toStringAsFixed(4)} TL', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -258,7 +330,7 @@ class _ReturnBadge extends StatelessWidget {
     return Column(
       children: [
         Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-        Text(_fmtPct(value), style: TextStyle(fontWeight: FontWeight.bold, color: _pctColor(value), fontSize: 12)),
+        Text(fmtPct(value), style: TextStyle(fontWeight: FontWeight.bold, color: pctColor(value), fontSize: 12)),
       ],
     );
   }
@@ -394,11 +466,15 @@ class _MyFundsTabState extends State<_MyFundsTab> {
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => FundDetailScreen(fundCode: p.fundCode)),
+                    ),
                     title: Text(p.fundCode, style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(
                       '${p.units.toStringAsFixed(2)} pay · Maliyet: ${p.avgCost.toStringAsFixed(2)} TL\n'
-                      '${p.currentValue == null ? 'Güncel fiyat alınamadı' : 'Değer: ${_fmtTl(p.currentValue!)} · '
-                          'Kâr/Zarar: ${_fmtPct(p.profitLossPct)}'}',
+                      '${p.currentValue == null ? 'Güncel fiyat alınamadı' : 'Değer: ${fmtTl(p.currentValue!)} · '
+                          'Kâr/Zarar: ${fmtPct(p.profitLossPct)}'}',
                     ),
                     isThreeLine: true,
                     trailing: IconButton(
@@ -546,7 +622,7 @@ class _SettingsTabState extends State<_SettingsTab> {
                   margin: const EdgeInsets.only(bottom: 6),
                   child: ListTile(
                     dense: true,
-                    title: Text('${a.fundCode} — ${_fmtTl(a.amountTl)}',
+                    title: Text('${a.fundCode} — ${fmtTl(a.amountTl)}',
                         style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(a.fundName, maxLines: 1, overflow: TextOverflow.ellipsis),
                     trailing: Text(

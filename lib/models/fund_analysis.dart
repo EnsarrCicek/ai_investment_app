@@ -9,6 +9,10 @@ class FundAnalysis {
   final double? return6mPct;
   final double? return1yPct;
   final double compositeScore;
+  final String? riskLevel;
+  final double? equityExposurePct;
+  final double? safeExposurePct;
+  final String explanation;
   final String asOfDate;
 
   FundAnalysis({
@@ -22,6 +26,10 @@ class FundAnalysis {
     required this.return6mPct,
     required this.return1yPct,
     required this.compositeScore,
+    required this.riskLevel,
+    required this.equityExposurePct,
+    required this.safeExposurePct,
+    required this.explanation,
     required this.asOfDate,
   });
 
@@ -38,10 +46,16 @@ class FundAnalysis {
       return6mPct: toDoubleOrNull(json['return_6m_pct']),
       return1yPct: toDoubleOrNull(json['return_1y_pct']),
       compositeScore: (json['composite_score'] as num).toDouble(),
+      riskLevel: json['risk_level'] as String?,
+      equityExposurePct: toDoubleOrNull(json['equity_exposure_pct']),
+      safeExposurePct: toDoubleOrNull(json['safe_exposure_pct']),
+      explanation: json['explanation'] as String? ?? '',
       asOfDate: json['as_of_date'] as String,
     );
   }
 }
+
+const Map<String, String> fundRiskLabelsTr = {'YUKSEK': 'Yüksek', 'ORTA': 'Orta', 'DUSUK': 'Düşük'};
 
 class FundAllocationItem {
   final String fundCode;

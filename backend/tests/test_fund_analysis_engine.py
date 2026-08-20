@@ -17,6 +17,14 @@ class _FakeSnapshotRepo:
         return self._snapshots.get(date, [])
 
 
+class _FakeBreakdownRepo:
+    def __init__(self, breakdowns: dict[str, list[dict]] | None = None):
+        self._breakdowns = breakdowns or {}
+
+    def get_or_fetch(self, date, provider, kind="YAT"):
+        return self._breakdowns.get(date, [])
+
+
 def _fund(code, price, name="TEST FONU", portfolio_size=10_000_000.0, investor_count=100):
     return {
         "fund_code": code,
@@ -31,6 +39,14 @@ def _date_str(offset_days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=offset_days)).strftime("%Y-%m-%d")
 
 
+def _engine(snapshots, breakdowns=None):
+    return FundAnalysisEngine(
+        provider=object(),
+        snapshot_repo=_FakeSnapshotRepo(snapshots),
+        breakdown_repo=_FakeBreakdownRepo(breakdowns),
+    )
+
+
 def test_computes_returns_and_composite_score_when_all_horizons_present():
     snapshots = {
         _date_str(0): [_fund("AAA", price=110.0)],
@@ -39,7 +55,7 @@ def test_computes_returns_and_composite_score_when_all_horizons_present():
         _date_str(182): [_fund("AAA", price=80.0)],
         _date_str(365): [_fund("AAA", price=50.0)],
     }
-    engine = FundAnalysisEngine(provider=object(), snapshot_repo=_FakeSnapshotRepo(snapshots))
+    engine = _engine(snapshots)
 
     results = engine.analyze_all()
 
@@ -59,7 +75,7 @@ def test_renormalizes_when_a_horizon_is_missing_new_fund():
         _date_str(30): [_fund("NEW", price=100.0)],
         # 3ay/6ay/1yıl için hiç veri yok — yeni kurulmuş fon
     }
-    engine = FundAnalysisEngine(provider=object(), snapshot_repo=_FakeSnapshotRepo(snapshots))
+    engine = _engine(snapshots)
 
     results = engine.analyze_all()
 
@@ -86,7 +102,7 @@ def test_excludes_funds_below_minimum_size_or_investor_thresholds():
             _fund("OK", price=90.0),
         ],
     }
-    engine = FundAnalysisEngine(provider=object(), snapshot_repo=_FakeSnapshotRepo(snapshots))
+    engine = _engine(snapshots)
 
     results = engine.analyze_all()
 
@@ -99,7 +115,7 @@ def test_falls_back_to_nearby_date_when_exact_date_missing_weekend():
         _date_str(2): [_fund("AAA", price=100.0)],
         _date_str(32): [_fund("AAA", price=95.0)],
     }
-    engine = FundAnalysisEngine(provider=object(), snapshot_repo=_FakeSnapshotRepo(snapshots))
+    engine = _engine(snapshots)
 
     results = engine.analyze_all()
 
@@ -112,7 +128,7 @@ def test_sorts_by_composite_score_descending():
         _date_str(0): [_fund("WINNER", price=150.0), _fund("LOSER", price=90.0)],
         _date_str(30): [_fund("WINNER", price=100.0), _fund("LOSER", price=100.0)],
     }
-    engine = FundAnalysisEngine(provider=object(), snapshot_repo=_FakeSnapshotRepo(snapshots))
+    engine = _engine(snapshots)
 
     results = engine.analyze_all()
 
@@ -120,7 +136,56 @@ def test_sorts_by_composite_score_descending():
 
 
 def test_raises_when_no_recent_data_at_all():
-    engine = FundAnalysisEngine(provider=object(), snapshot_repo=_FakeSnapshotRepo({}))
+    engine = _engine({})
 
     with pytest.raises(ValueError):
         engine.analyze_all()
+
+
+def test_assigns_risk_level_from_breakdown_data():
+    snapshots = {
+        _date_str(0): [_fund("EQUITY", price=110.0), _fund("SAFE", price=105.0)],
+        _date_str(30): [_fund("EQUITY", price=100.0), _fund("SAFE", price=100.0)],
+    }
+    breakdowns = {
+        _date_str(0): [
+            {"fund_code": "EQUITY", "stock_pct": 90.0},
+            {"fund_code": "SAFE", "repo_pct": 70.0, "term_deposit_pct": 20.0},
+        ]
+    }
+    engine = _engine(snapshots, breakdowns)
+
+    results = engine.analyze_all()
+    by_code = {f.fund_code: f for f in results}
+
+    assert by_code["EQUITY"].risk_level == "YUKSEK"
+    assert by_code["EQUITY"].equity_exposure_pct == pytest.approx(90.0)
+    assert by_code["SAFE"].risk_level == "DUSUK"
+    assert by_code["SAFE"].safe_exposure_pct == pytest.approx(90.0)
+
+
+def test_risk_level_is_none_when_breakdown_data_missing():
+    snapshots = {
+        _date_str(0): [_fund("AAA", price=110.0)],
+        _date_str(30): [_fund("AAA", price=100.0)],
+    }
+    engine = _engine(snapshots, breakdowns=None)
+
+    results = engine.analyze_all()
+
+    assert results[0].risk_level is None
+    assert results[0].equity_exposure_pct is None
+
+
+def test_explanation_mentions_rank_and_returns():
+    snapshots = {
+        _date_str(0): [_fund("WINNER", price=150.0), _fund("LOSER", price=90.0)],
+        _date_str(30): [_fund("WINNER", price=100.0), _fund("LOSER", price=100.0)],
+    }
+    engine = _engine(snapshots)
+
+    results = engine.analyze_all()
+
+    assert "1. sırada" in results[0].explanation
+    assert "2. sırada" in results[1].explanation
+    assert "%+50.0" in results[0].explanation

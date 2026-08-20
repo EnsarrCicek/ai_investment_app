@@ -10,6 +10,7 @@ from app.repositories.fund_position_repository import FundPositionRepository
 from app.schemas.funds import FundAllocateRequest, FundInvestmentSettingsUpdate, FundPositionCreate
 from app.services.funds.allocation import recommend_allocation
 from app.services.funds.analysis_cache_service import get_ranked_funds
+from app.services.news.google_news_rss_provider import GoogleNewsRssProvider
 from app.services.notifications.fund_notifier import (
     notify_ad_hoc_allocation,
     notify_monthly_allocation,
@@ -18,14 +19,33 @@ from app.services.notifications.fund_notifier import (
 
 router = APIRouter(prefix="/funds", tags=["funds"])
 
+# Python'un standart str.upper()'ı Türkçe küçük "i"yi ASCII "I"ye çeviriyor,
+# oysa TEFAS'ın verisi Türkçe noktalı "İ" kullanıyor — bu yüzden "hisse" araması
+# "HİSSE" içeren fon adlarıyla EŞLEŞMEZDİ (bulundu, canlı test edilirken fark
+# edildi). Önce Türkçe küçük harfleri doğru büyük karşılıklarına çevirip SONRA
+# standart upper() çağrılır.
+_TR_LOWER_TO_UPPER = str.maketrans({"i": "İ", "ı": "I"})
+
+
+def _tr_upper(text: str) -> str:
+    return text.translate(_TR_LOWER_TO_UPPER).upper()
+
 
 @router.get("")
-def list_funds(limit: int = 50, user_id: str | None = Depends(get_current_user_id_optional)):
-    """Sıralanmış fon listesi (en iyi skordan en kötüye). AŞAMA 58: kullanıcı
-    oturum açmışsa yan etki olarak (a) aylık bütçe önerisi bildirimi (bu ay
-    zaten gönderilmediyse) ve (b) tuttuğu fonlar için değiştirme önerisi
-    bildirimi kontrol edilir — decisions.py'deki "GET her açıldığında bildirim
-    kontrolü" ile aynı mimari desen (bu projede scheduler yok).
+def list_funds(
+    limit: int = 50, q: str | None = None, user_id: str | None = Depends(get_current_user_id_optional)
+):
+    """Sıralanmış fon listesi (en iyi skordan en kötüye). `q` verilirse fon
+    kodunda/adında (büyük-küçük harf duyarsız) arama yapılır — AŞAMA 60:
+    kullanıcı isteği "arama kısmı ekle, her fona ulaşabileyim" — limit yalnızca
+    öneri listesini kısaltmak için, arama TÜM (kalite filtresini geçen) fon
+    evreninde yapılır.
+
+    AŞAMA 58: kullanıcı oturum açmışsa yan etki olarak (a) aylık bütçe önerisi
+    bildirimi (bu ay zaten gönderilmediyse) ve (b) tuttuğu fonlar için
+    değiştirme önerisi bildirimi kontrol edilir — decisions.py'deki "GET her
+    açıldığında bildirim kontrolü" ile aynı mimari desen (bu projede
+    scheduler yok).
     """
     try:
         ranked = get_ranked_funds()
@@ -42,6 +62,10 @@ def list_funds(limit: int = 50, user_id: str | None = Depends(get_current_user_i
             score_by_code = {f.fund_code: f.composite_score for f in ranked}
             held_scores = {p.fund_code: score_by_code[p.fund_code] for p in positions if p.fund_code in score_by_code}
             notify_switch_recommendations(user_id, held_scores, ranked)
+
+    if q:
+        needle = _tr_upper(q.strip())
+        ranked = [f for f in ranked if needle in _tr_upper(f.fund_code) or needle in _tr_upper(f.fund_name)]
 
     return ranked[:limit]
 
@@ -136,3 +160,48 @@ def allocate(payload: FundAllocateRequest, user_id: str = Depends(get_current_us
     allocation = recommend_allocation(ranked, payload.amount_tl)
     notify_ad_hoc_allocation(user_id, ranked, payload.amount_tl)
     return {"amount_tl": payload.amount_tl, "allocation": allocation}
+
+
+# NOT: /funds/{code} ve /funds/{code}/news, dosyadaki tüm sabit-yol
+# uç noktalarından (settings, positions, allocate vb.) SONRA tanımlanmalı —
+# aksi halde FastAPI "settings"i bir fon kodu sanıp bu route'a düşürürdü.
+
+
+@router.get("/{code}")
+def get_fund(code: str):
+    """Tek bir fonun tam analiz kaydı — arama sonucundan/listeden tıklanınca
+    fon detay ekranı için (AŞAMA 60)."""
+    try:
+        ranked = get_ranked_funds()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    code = code.upper()
+    for fund in ranked:
+        if fund.fund_code == code:
+            return fund
+    raise HTTPException(status_code=404, detail=f"'{code}' bulunamadı (veri kalitesi filtresini geçmemiş olabilir)")
+
+
+@router.get("/{code}/news")
+def get_fund_news(code: str):
+    """AŞAMA 60 — kullanıcı isteği: "ünlü borsa bilgileri paylaşan
+    sayfalardan önerilerine bakıp bunu önerdiler ve şu yüzden gibi anlat."
+    Google News RSS'te bu fonla ilgili GERÇEKTEN bulunan haber/yorum
+    kaynaklarını listeler (bkz. GoogleNewsRssProvider, AŞAMA 55) — belirli bir
+    hesabın/otoritenin bu fonu önerdiğini İDDİA ETMEZ, yalnızca gerçek makale
+    başlıklarını/kaynaklarını olduğu gibi gösterir, yorumu kullanıcıya bırakır.
+    """
+    code = code.upper()
+    fund_name = None
+    try:
+        ranked = get_ranked_funds()
+        for fund in ranked:
+            if fund.fund_code == code:
+                fund_name = fund.fund_name
+                break
+    except ValueError:
+        pass
+
+    suffix = f"{fund_name} fon" if fund_name else "fon"
+    return GoogleNewsRssProvider().get_latest_news(code, limit=10, query_suffix=suffix)
