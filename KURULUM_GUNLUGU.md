@@ -1832,3 +1832,31 @@ Kullanıcı: "gerçek telefonuma apk'sını kuracağız, bildirim gönderme buto
 
 **Tarih / Not:**
 19.08.2026 — Test bildirimi + Bildirimler ekranı eklendi, 279/279 backend test yeşil (9 yeni test), 29/29 flutter test yeşil (2 yeni test), commit `7ad35be`.
+
+---
+
+## 54. Güncel Fiyat 422 Hatası: Gün-İçi Veri Boşken Günlük Bar'a Düşme (20.08.2026)
+
+Kullanıcı: "güncel fiyat alınamadı 422 diyor fiyatları göremiyorum." Canlı ortamda izole yfinance çağrılarıyla doğrulandı: seans açılışına yakın saatlerde Yahoo'nun `period="1d", interval="5m"` gün-içi isteği THYAO/GARAN/AKBNK gibi geçerli semboller için bile "possibly delisted" yanılgılı hatasıyla boş DataFrame döndürüyordu (3 denemelik retry bile yetersizdi — bu AŞAMA 48/16'daki eş zamanlı-batch rate-limit sorunundan FARKLI, tekil istekte de görüldü). `BistProvider.get_quote()` bunu direkt `ValueError` → 422 olarak fırlatıyordu.
+
+**Çözüm:** Gün-içi veri boşsa artık günlük bar'a (`period="5d"`) düşülüyor — `last_price`/`open`/`high`/`low`/`volume` son günlük satırdan alınıyor, `timestamp` yine verinin GERÇEK ait olduğu günü gösteriyor (sahte bir "şimdi" üretilmiyor). `previous_close` de `fast_info` başarısız olursa günlük geçmişin bir önceki satırından türetiliyor.
+
+**Doğrulama (gerçek, uçtan uca):** 4 yeni test (`test_bist_provider.py`) + mevcut 283 test yeşil. Cloud Run'a deploy edildi, `curl` ile `/market-data/THYAO/quote` artık `200 OK` ve gerçek fiyat (`302.75`) döndürüyor — öncesinde 422 veriyordu.
+
+**Tarih / Not:**
+20.08.2026 — Güncel fiyat 422 fallback'i eklendi, 283/283 backend test yeşil (4 yeni test), commit `ab94849`.
+
+---
+
+## 55. Haber Kapsamını Genişletme: Google News RSS Kaynağı (20.08.2026)
+
+Kullanıcı: "haberler kısmında çok az haber var neden." Araştırıldı: Yahoo Finance'in (`Ticker.news`) BIST sembolleri için haber kapsamı çok kısıtlı — yalnızca uluslararası ajansların İngilizce haberlerini kapsıyor, birçok sembolde 0-1 haber dönüyor (canlı test: ASELS 0, SASA 1, KCHOL 1; THYAO/GARAN gibi büyük semboller 6-10).
+
+**Araştırılan seçenekler:** (1) Google News RSS arama — canlı test edildi, çok daha zengin Türkçe kapsam (ASELS için 14, SASA için 15+ haber: KAP bildirimlerini yansıtan haberler, analist hedef fiyatları, Bloomberght/Mynet Finans/Foreks/Investing.com Türkiye kaynaklı içerik); feed'in telif metni kullanımı "kişisel, ticari olmayan, kişisel feed reader" ile sınırlıyor — kullanıcıya bu gri alan açıkça anlatıldı, tek kullanıcılı kişisel bu uygulama için kabul edildi. (2) KAP'ın resmi API/RSS'i — hızlı denemede dokümante edilmiş bir uç nokta bulunamadı (404/boş yanıt), reverse-engineering gerektirir, ertelendi.
+
+**Çözüm:** `GoogleNewsRssProvider` eklendi — `{sembol} hisse` sorgusuyla `news.google.com/rss/search` araması yapıp `<source>` etiketinden yayıncıyı, `pubDate`'ten yayın tarihini alıyor; ağ hatası/bozuk XML'de sessizce boş liste döner (endpoint'i çökertmez). `/news/{symbol}` artık Yahoo + Google News'i birleştirip `published_at`'e göre sıralıyor; Yahoo geçici hata verirse (bilinen bir durum, bkz. AŞAMA 48/16) sessizce Google News ile devam ediyor. Kaynak güvenilirlik sınıflandırması (`_classify_publisher`) iki sağlayıcı arasında tekrar edilmesin diye ortak `source_reliability.py`'ye taşındı ve Türkçe finans medyası (Bloomberght, Mynet, Foreks, Investing.com Türkiye, Bigpara, vb.) kategorilerine eklendi.
+
+**Doğrulama (gerçek, uçtan uca):** 13 yeni test (`test_google_news_rss_provider.py`, `test_source_reliability.py`) + mevcut 293 test yeşil. Cloud Run'a deploy edildi, `curl` ile `/news/ASELS` artık `200 OK` ve 0 yerine 10 gerçek Türkçe haber döndürüyor (`Mynet`, `Paratic Haber`, `Ekonomim` vb. yayıncılarla).
+
+**Tarih / Not:**
+20.08.2026 — Google News RSS haber kaynağı eklendi, 293/293 backend test yeşil (13 yeni test), commit `8636630`.
