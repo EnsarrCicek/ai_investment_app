@@ -1875,3 +1875,20 @@ Kullanıcı gerçek telefonuna kurduğu APK'da Ayarlar'daki "Test Bildirimi Gön
 
 **Tarih / Not:**
 20.08.2026 — FCM `fid`→`token` düzeltmesi, 293/293 backend test yeşil, commit `5d5b46e`.
+
+---
+
+## 57. Strateji Laboratuvarı — Çok Sembollü Teknik Strateji Karşılaştırma (20.08.2026)
+
+Kullanıcı: "eski bir tarihe gidip verileri alıp o tarihte yapay zekamız nasıl işliyor diye test edicez... yapay zeka grafiklere haberlere vs bakarak ne kadar doğru tut al sat diyor bunu test etmemiz lazım ve her yolu deneyip hangisi daha iyi sonuç veriyor diye eğitim yapıcaz."
+
+**Netleştirilen kısıt (kullanıcıya anlatıldı, onaylandı):** Haber (Yahoo + Google News, bkz. AŞAMA 55) ve makro (`macro_snapshots`) için gerçek bir geçmiş tarihli arşiv YOK — ikisi de yalnızca "o an geçerli olan"ı tutuyor/döndürüyor. Yani "2024'te bu hisse için hangi haberler vardı, AI o gün ne derdi" sorgulanamaz. Kullanıcıya 3 seçenek sunuldu (teknik tarafı derinleştir / ücretli haber arşivi araştır / haberleri şimdiden biriktirmeye başla); "şimdilik teknik sinyali derinlemesine test/eğit" seçildi.
+
+**Çözüm — kapsam bilinçli olarak TEKNİK sinyale sınırlandı:** `strategy_presets.py` — 5 adlandırılmış `technical_indicator_weights` ön ayarı (Dengeli/varsayılan, Trend Takibi, Momentum Odaklı, Ortalamaya Dönüş, MACD Odaklı). Yeni `compare_strategies()` fonksiyonu, AŞAMA 28'deki `technical_score_series()`/`simulate()`'i DEĞİŞTİRMEDEN yeniden kullanıp her ön ayarı aynı fiyat serisi üzerinde çalıştırıp getiriye göre sıralanmış bir liste döner. Yeni endpoint: `GET /backtest/{symbol}/compare-strategies`.
+
+**Flutter — "Strateji Laboratuvarı" (Ayarlar'dan erişilir):** Dönem (6ay-5yıl) ve sembol evreni (Portföyüm / BIST100 tümü) seçilir; "Testi Başlat" ile Dashboard'daki 10'arlı batch deseniyle (AŞAMA 43'te Cloud Run'a karşı tüm bağlantıları aynı anda açmanın bağlantı kopmalarına yol açtığı için benimsenmişti) toplu istek atılır. Sonuç: her ön ayarın TÜM test edilen sembollerdeki ortalama getirisi, ortalama kazanma oranı ve kaç sembolde #1 sırada (en iyi) çıktığı — kazanan altın renkle vurgulanır. Veri hatası veren semboller (delisted, yetersiz geçmiş vb.) sessizce atlanıp sayılır, tüm taramayı durdurmaz.
+
+**Doğrulama (gerçek, uçtan uca):** 8 yeni backend testi (`test_backtest_engine.py`) + mevcut 295 test yeşil, 28/28 flutter test yeşil. Cloud Run'a deploy edildi, `curl` ile GARAN/THYAO için gerçek verilerle doğrulandı (ör. THYAO 2y'de MOMENTUM ön ayarı %17,28 getiriyle diğerlerini geride bıraktı, TREND_FOLLOWING %-14,03 ile en kötüsüydü — beklenen davranış: farklı rejimlerde farklı stratejiler kazanıyor). Gerçek cihaz için release APK yeniden derlendi (51,9MB).
+
+**Tarih / Not:**
+20.08.2026 — Strateji Laboratuvarı eklendi, 295/295 backend test yeşil (8 yeni test), 28/28 flutter test yeşil, commit `b8a387c`.
