@@ -1955,3 +1955,20 @@ Kullanıcı: "Filtreleme kısmı yok, işte risk oranı ne gibi oranları da det
 
 **Tarih / Not:**
 20.08.2026 — Risk oranı + açıklama + haber kaynağı + arama + fon detay ekranı eklendi, 332/332 backend test yeşil (15 yeni test), 34/34 flutter test yeşil (2 yeni).
+
+---
+
+## 61. Hisseler İçin Analist Görüşleri: Hedef Fiyat/Tavsiye Haberleri + AI Kararı Karşılaştırması (20.08.2026)
+
+Kullanıcı: "Analistlerin değerlendirmeleri de bulunsun, al mı diyorlar yoksa sat mı diyorlar, güvenilir analistleri araştır ve bizim al dediklerimizi de yanında belirt, işte AI de bunu öneriyor gibisinden." (Bu, önceki 2 mesajın fon odaklı akışından farklı olarak HİSSELER — Varlık Detayı ekranı — için.)
+
+**Araştırma:** Google News RSS'e (AŞAMA 55) `"{sembol} hedef fiyat OR tavsiye OR analist"` sorgusuyla gidildiğinde, mevcut genel `"{sembol} hisse"` sorgusundan ÇOK daha yüksek kaliteli, gerçek banka/aracı kurum içeriği geldiği canlı testte doğrulandı (ör. THYAO için "HSBC: ... favori THYAO, hedef fiyat yükseldi", "THYAO için hedef fiyat 474 TL'ye indirilirken 'al' korundu", "15 kurumdan yeni hedef fiyat geldi"). Google'ın RSS'i `OR` boolean operatörünü destekliyor.
+
+**Bilinçli tasarım kararı — keyword sınıflandırıcı YERİNE mevcut LLM pipeline'ı:** İlk planda başlıktan "AL_EGILIMLI"/"SAT_EGILIMLI" çıkaran bir anahtar kelime sınıflandırıcısı düşünüldü, ama gerçek başlıklar incelenince (ör. "hedef fiyat düşürüldü" bile "al" tavsiyesi KORUNMUŞ olabiliyor — başlık tek başına yönü güvenilir belirlemiyor) bunun YANLIŞ bir "AL" etiketi üretip kullanıcıyı gerçek bir finansal kararda yanıltabileceği görüldü. Bunun yerine: (1) bu haberler mevcut, zaten test edilmiş/maliyet takipli OpenAI tabanlı haber duygu analizi pipeline'ına (EventIntelligenceEngine, "Analiz Et" butonu) dahil edildi — kullanıcı isterse gerçek bir AI okuması alır; (2) mevcut DecisionEngine kararımız ("AI Kararımız: AL/SAT/TUT") Haberler sekmesinin en üstünde ayrıca gösterilerek karşılaştırma kullanıcıya bırakıldı.
+
+**Çözüm:** `NewsRawItem`e `is_analyst_mention: bool` eklendi. `GET /news/{symbol}` artık Yahoo + genel Google + analist-odaklı Google sorgusunu birleştiriyor; yeni `merge_prioritizing_analyst_mentions()` (services/news/merge.py) analist etiketli haberlerin sıradan haberler tarafından listeden itilmesini önlüyor (önce analist içerik garanti edilir, kalan yer en yeni diğer haberlerle doldurulur). Flutter: Haberler sekmesinin en üstünde "AI Kararımız: AL (skor +45.2, güven %70)" kartı (mevcut `/decisions/{symbol}`'dan); analist etiketli haber kartlarında mor "Analist / Hedef Fiyat" rozeti.
+
+**Doğrulama (gerçek, uçtan uca):** 4 yeni backend testi (`test_news_merge.py`) + mevcut, toplam 336/336 backend test yeşil, 36/36 flutter test yeşil (2 yeni). Cloud Run'a deploy edildi; GARAN için canlı doğrulandı ("Aracı kurumlardan dört büyük banka için hedef fiyat revizyonu - Forbes Türkiye" doğru döndü). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+20.08.2026 — Hisseler için analist görüşü entegrasyonu eklendi, 336/336 backend test yeşil (4 yeni test), 36/36 flutter test yeşil (2 yeni).

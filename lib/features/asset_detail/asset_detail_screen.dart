@@ -424,6 +424,7 @@ class _NewsTab extends StatefulWidget {
 class _NewsTabState extends State<_NewsTab> {
   late Future<List<NewsItem>> _newsFuture;
   late Future<List<NewsAnalysis>> _analysisFuture;
+  late Future<Decision> _decisionFuture;
   bool _analyzing = false;
 
   @override
@@ -431,14 +432,16 @@ class _NewsTabState extends State<_NewsTab> {
     super.initState();
     _newsFuture = NewsApi().fetchNews(widget.symbol);
     _analysisFuture = NewsAnalysisApi().fetchAnalysis(widget.symbol);
+    _decisionFuture = DecisionApi().fetchDecision(widget.symbol);
   }
 
   Future<void> _refresh() async {
     setState(() {
       _newsFuture = NewsApi().fetchNews(widget.symbol);
       _analysisFuture = NewsAnalysisApi().fetchAnalysis(widget.symbol);
+      _decisionFuture = DecisionApi().fetchDecision(widget.symbol);
     });
-    await Future.wait([_newsFuture, _analysisFuture]);
+    await Future.wait([_newsFuture, _analysisFuture, _decisionFuture]);
   }
 
   Future<void> _analyzeNow(int newsCount) async {
@@ -487,6 +490,44 @@ class _NewsTabState extends State<_NewsTab> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(12),
                 children: [
+                  FutureBuilder<Decision>(
+                    future: _decisionFuture,
+                    builder: (context, decisionSnapshot) {
+                      if (decisionSnapshot.connectionState != ConnectionState.done ||
+                          !decisionSnapshot.hasData) {
+                        return const SizedBox.shrink();
+                      }
+                      final d = decisionSnapshot.data!;
+                      final color = decisionColor(d.decision);
+                      return Card(
+                        color: color.withValues(alpha: 0.1),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Icon(Icons.smart_toy_outlined, color: color),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'AI Kararımız: ${decisionLabel(d.decision)} (skor ${d.finalScore >= 0 ? '+' : ''}'
+                                  '${d.finalScore.toStringAsFixed(1)}, güven %${d.confidence.toStringAsFixed(0)})',
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const Text(
+                    'Aşağıdaki "Analist" etiketli haberler banka/aracı kurum hedef fiyat ve '
+                    'tavsiyelerini yansıtan gerçek kaynaklardır — belirli bir analistin görüşü '
+                    'olarak sunulur, AI kararımızla karşılaştırıp kendi değerlendirmenizi yapın.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
@@ -538,6 +579,20 @@ class _NewsCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (item.isAnalystMention) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'Analist / Hedef Fiyat',
+                    style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
               Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold)),
               if (item.summary.isNotEmpty) ...[
                 const SizedBox(height: 4),

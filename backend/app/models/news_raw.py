@@ -14,3 +14,4 @@ class NewsRawItem(BaseModel):
     related_assets: list[str]
     published_at: datetime
     received_at: datetime
+    is_analyst_mention: bool = False

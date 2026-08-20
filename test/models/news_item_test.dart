@@ -19,5 +19,23 @@ void main() {
     expect(item.title, 'Şirket rekor kâr açıkladı');
     expect(item.publisher, 'Test Publisher');
     expect(item.sourceReliability, 0.8);
+    expect(item.isAnalystMention, isFalse);
+  });
+
+  test('is_analyst_mention alanı doğru ayrıştırılır', () {
+    final json = {
+      'external_id': 'google_news:xyz',
+      'title': 'HSBC hedef fiyatı yükseltti',
+      'summary': '',
+      'url': 'https://example.com',
+      'publisher': 'Paratic Haber',
+      'source_reliability': 0.8,
+      'published_at': '2026-08-18T12:00:00+00:00',
+      'is_analyst_mention': true,
+    };
+
+    final item = NewsItem.fromJson(json);
+
+    expect(item.isAnalystMention, isTrue);
   });
 }
