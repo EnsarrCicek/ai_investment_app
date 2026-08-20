@@ -1860,3 +1860,18 @@ Kullanıcı: "haberler kısmında çok az haber var neden." Araştırıldı: Yah
 
 **Tarih / Not:**
 20.08.2026 — Google News RSS haber kaynağı eklendi, 293/293 backend test yeşil (13 yeni test), commit `8636630`.
+
+---
+
+## 56. Gerçek Cihazda Bildirim Gönderilemiyordu: `fid` FCM Token Değilmiş (20.08.2026)
+
+Kullanıcı gerçek telefonuna kurduğu APK'da Ayarlar'daki "Test Bildirimi Gönder" butonunu denedi: "bildirim de hata aldık olmadı, cihaz kayıtlı değil ya da fcm hatası oluştu diyor." Bu hata emülatörde de görülmüştü (AŞAMA 48/20) ama o zaman "emülatörde Play Store yok, beklenen bir durum" diye açıklanmıştı — gerçek cihazda da AYNI hatanın çıkması bunun aslında GERÇEK bir bug olduğunu gösterdi.
+
+**Kök neden:** `fcm_sender.py`, `messaging.Message`'a `fid=token` geçiriyordu — önceki bir oturumda "`Message.token` deprecated, `Message.fid` kullan" uyarısı görülünce ikisinin aynı şey olduğu varsayılmıştı (yalnızca `inspect.signature` ile kontrol edilmişti, gerçek bir gönderimle DOĞRULANMAMIŞTI). Ama `firebase_admin/_messaging_encoder.py` kaynağına bakıldığında `fid`'in FCM registration token'la aynı şey olmadığı görüldü: `fid` = "Firebase Installation ID" (FCM'den TAMAMEN FARKLI bir kimlik türü). Flutter'daki `FirebaseMessaging.instance.getToken()` ise gerçek bir FCM registration token döndürüyor. Bu iki farklı kimlik türünü `fid` alanına karıştırınca Firebase "NotRegistered" (404/`UnregisteredError`) döndürüyor — kullanıcının HEM emülatörde HEM gerçek cihazda gördüğü hatanın asıl kaynağı buydu; emülatördeki hata "Play Store yok" diye yanlış teşhis edilmişti.
+
+**Doğrulama:** Kullanıcının Firestore'daki gerçek `fcm_tokens` kaydı okunup doğrudan `messaging.send(fid=token)` ile denendi → gerçekten `UnregisteredError('NotRegistered')`, 404. Aynı token'la `messaging.send(token=token)` → başarılı. `fcm_sender.py`'deki iki `fid=token` kullanımı (`notify_if_strong_decision`, `send_test_notification`) `token=token`'a geri döndürüldü (deprecation uyarısı zararsız — SDK'nın kendi dokümantasyonu yanıltıcıydı, davranış olarak `token` doğru olan). 293/293 backend test yeşil (2 test `fid` yerine `token` assertion'ına güncellendi). Deploy sonrası kullanıcının GERÇEK kayıtlı cihaz token'ına doğrudan gönderim denendi → başarılı.
+
+**Ders:** Bir SDK'nın deprecation uyarısı, iki parametrenin aynı VERİ TÜRÜNÜ beklediği anlamına gelmez — davranış, imza kontrolüyle değil gerçek bir uçtan uca çağrıyla doğrulanmalı.
+
+**Tarih / Not:**
+20.08.2026 — FCM `fid`→`token` düzeltmesi, 293/293 backend test yeşil, commit `5d5b46e`.
