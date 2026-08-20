@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/decision.dart';
+import '../../models/decision_journal_entry.dart';
 import '../../models/explanation.dart';
 import 'api_config.dart';
 
@@ -36,6 +37,17 @@ class DecisionApi {
     }
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as List;
     return json.map((e) => Decision.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// AŞAMA 62: "Karar Günlüğü" — geçmiş kararların gerçek sonraki fiyat
+  /// hareketiyle karşılaştırılmış hali (bkz. outcome_evaluator.py).
+  Future<List<DecisionJournalEntry>> fetchJournal(String symbol, {int limit = 20}) async {
+    final response = await http.get(Uri.parse('$baseUrl/decisions/$symbol/journal?limit=$limit'));
+    if (response.statusCode != 200) {
+      throw Exception("'$symbol' için karar günlüğü alınamadı (HTTP ${response.statusCode})");
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return json.map((e) => DecisionJournalEntry.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<Explanation> fetchExplanation(String symbol) async {

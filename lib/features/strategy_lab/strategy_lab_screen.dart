@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/strategy_comparison.dart';
+import '../../models/strategy_lab_run.dart';
 import '../../services/api/asset_api.dart';
 import '../../services/api/backtest_api.dart';
 import '../../services/api/portfolio_api.dart';
@@ -43,14 +44,42 @@ const Map<String, String> _periodLabels = {
 /// çalıştırılır; Dashboard'daki 10'arlı batch deseniyle aynı yöntemle toplu
 /// istek atılır (bkz. dashboard_screen.dart) — tüm bağlantıları aynı anda
 /// açmak Cloud Run'a karşı bağlantı kopmalarına yol açıyordu.
-class StrategyLabScreen extends StatefulWidget {
+class StrategyLabScreen extends StatelessWidget {
   const StrategyLabScreen({super.key});
 
   @override
-  State<StrategyLabScreen> createState() => _StrategyLabScreenState();
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Strateji Laboratuvarı'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Yeni Test'),
+              Tab(text: 'Geçmiş Testler'),
+            ],
+          ),
+        ),
+        body: const TabBarView(
+          children: [
+            _NewTestTab(),
+            _TestHistoryTab(),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _StrategyLabScreenState extends State<StrategyLabScreen> {
+class _NewTestTab extends StatefulWidget {
+  const _NewTestTab();
+
+  @override
+  State<_NewTestTab> createState() => _NewTestTabState();
+}
+
+class _NewTestTabState extends State<_NewTestTab> {
   static const int _batchSize = 10;
 
   String _period = '2y';
@@ -137,6 +166,30 @@ class _StrategyLabScreenState extends State<StrategyLabScreen> {
 
       if (!mounted) return;
       setState(() => _aggregateResults = aggregate);
+
+      // AŞAMA 62: "her test yaptığımızda veri tutsun" — sonuç kalıcı olarak
+      // kaydedilir. Kaydetme başarısız olsa bile ekrandaki sonucu etkilemesin
+      // diye sessizce yutulur (kullanıcının testi tekrar görmesini engellemez).
+      try {
+        await BacktestApi().saveLabRun(
+          period: _period,
+          universe: _universe == _Universe.portfolio ? 'PORTFOLIO' : 'BIST100',
+          testedCount: _tested,
+          failedCount: _failed,
+          results: aggregate
+              .map((a) => StrategyPresetAggregate(
+                    preset: a.preset,
+                    avgReturnPct: a.avgReturnPct,
+                    avgWinRatePct: a.avgWinRatePct,
+                    avgMaxDrawdownPct: a.avgMaxDrawdownPct,
+                    bestCount: a.bestCount,
+                    symbolCount: a.symbolCount,
+                  ))
+              .toList(),
+        );
+      } catch (_) {
+        // Test geçmişine kaydedilemedi — sessizce yut, ekrandaki sonucu bozmasın.
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -146,12 +199,10 @@ class _StrategyLabScreenState extends State<StrategyLabScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Strateji Laboratuvarı')),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Card(
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Card(
             color: Colors.blue.withValues(alpha: 0.08),
             child: const Padding(
               padding: EdgeInsets.all(12),
@@ -236,9 +287,8 @@ class _StrategyLabScreenState extends State<StrategyLabScreen> {
             ..._aggregateResults!.asMap().entries.map(
                   (e) => _StrategyResultCard(rank: e.key + 1, result: e.value),
                 ),
-          ],
         ],
-      ),
+      ],
     );
   }
 }
@@ -291,6 +341,121 @@ class _StrategyResultCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TestHistoryTab extends StatefulWidget {
+  const _TestHistoryTab();
+
+  @override
+  State<_TestHistoryTab> createState() => _TestHistoryTabState();
+}
+
+class _TestHistoryTabState extends State<_TestHistoryTab> {
+  late Future<List<StrategyLabRun>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = BacktestApi().fetchLabRuns();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _future = BacktestApi().fetchLabRuns());
+    await _future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: FutureBuilder<List<StrategyLabRun>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [Padding(padding: const EdgeInsets.all(16), child: Text('Hata: ${snapshot.error}'))],
+            );
+          }
+          final runs = snapshot.data!;
+          if (runs.isEmpty) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                Padding(
+                  padding: EdgeInsets.only(top: 80),
+                  child: Center(
+                    child: Text(
+                      'Henüz kaydedilmiş test yok.\n"Yeni Test" sekmesinden bir tarama çalıştırın.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+          return ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            itemCount: runs.length,
+            itemBuilder: (context, index) => _LabRunCard(run: runs[index]),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LabRunCard extends StatelessWidget {
+  final StrategyLabRun run;
+  const _LabRunCard({required this.run});
+
+  String _fmtDate(DateTime d) {
+    final local = d.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$day.$month.${local.year} $hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final universeLabel = run.universe == 'PORTFOLIO' ? 'Portföyüm' : 'BIST100 (Tümü)';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ExpansionTile(
+        title: Text(
+          '${_periodLabels[run.period] ?? run.period} · $universeLabel',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          '${_fmtDate(run.createdAt)} · Kazanan: ${strategyPresetLabelsTr[run.winnerPreset] ?? run.winnerPreset ?? '—'}\n'
+          '${run.testedCount} sembol test edildi'
+          '${run.failedCount > 0 ? ' (${run.failedCount} veri hatası)' : ''}',
+        ),
+        children: run.results
+            .map(
+              (r) => ListTile(
+                dense: true,
+                title: Text(strategyPresetLabelsTr[r.preset] ?? r.preset),
+                subtitle: Text('Kazanma oranı: %${r.avgWinRatePct.toStringAsFixed(1)}'),
+                trailing: Text(
+                  '${r.avgReturnPct >= 0 ? '+' : ''}${r.avgReturnPct.toStringAsFixed(2)}%',
+                  style: TextStyle(
+                    color: r.avgReturnPct >= 0 ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }

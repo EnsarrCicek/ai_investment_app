@@ -1972,3 +1972,20 @@ Kullanıcı: "Analistlerin değerlendirmeleri de bulunsun, al mı diyorlar yoksa
 
 **Tarih / Not:**
 20.08.2026 — Hisseler için analist görüşü entegrasyonu eklendi, 336/336 backend test yeşil (4 yeni test), 36/36 flutter test yeşil (2 yeni).
+
+---
+
+## 62. Karar Günlüğü + Strateji Lab Test Geçmişi: "Hatalarımızdan Ders Çıkaralım" (20.08.2026)
+
+Kullanıcı: "test laboratuvarda haberleri almamış, makro değerleri filan almamış, sanki o zamandaymış gibi karar vermesini istiyorum... savaş mı çıktı, tonlarca sebep olabilir, bunları takip etmeni istiyorum... labaratuvarı ona göre geliştir ve her test yaptığımızda veri tutsun, yaptığı hataları ona göre eğitim yapıcaz, daha sonra nerede düştü hangi sebepten gibisinden hatalarımızdan ders çıkartıp devam edicez."
+
+**Aynı temel duvar, tekrar netleştirildi:** Geçmiş tarihli haber/makro arşivi (AŞAMA 57/60'ta konuşulan) hâlâ yok — "savaş çıktı mı" gibi jeopolitik olayları geriye dönük tespit edecek bir veri kaynağımız da yok. Bunu sahte bir şekilde üretmek (uydurma "o zamanki haber ortamı") kullanıcıyı doğrudan yanıltır. Kullanıcıya bu netleştirilip iki GERÇEKTEN uygulanabilir alternatif sunuldu ve onaylandı:
+
+**1) Karar Günlüğü — ileriye dönük, GERÇEK teknik+haber+makro birleşik takip:** `ai_decisions` koleksiyonu zaten HER kararın teknik/haber/makro skorlarını ve ağırlıklarını immutable olarak saklıyordu (bkz. AIDecision modeli, Immutable Decision kuralı) — eksik olan, bu kararların GERÇEKTEN doğru çıkıp çıkmadığının değerlendirilmesiydi. Yeni `outcome_evaluator.py`: her kararı GERÇEK sonraki fiyat hareketiyle (7 ve 30 gün ufku, kullanıcı seçimiyle "hem 7 hem 30 gün") karşılaştırıp DOĞRU/YANLIŞ/BEKLEMEDE/NÖTR (TUT için) olarak etiketler; `dominant_factor()` kararı en çok etkileyen skor bileşenini (teknik/haber/makro, ağırlık×skor büyüklüğü kıyasıyla) döner — "hangi sebepten" sorusuna dürüst, sayısal bir cevap (LLM yok). Canlı testte GERÇEK bir geçmiş karar (13.08.2026, THYAO, WEAK_SELL) doğru şekilde "DOĞRU" (fiyat gerçekten %2,11 düştü) olarak değerlendirildi. Yeni `GET /decisions/{symbol}/journal`; Varlık Detayı'ndaki "Geçmiş" sekmesi "Karar Günlüğü"ne dönüştürüldü, her karar kartında 7g/30g sonuç rozetleri + ağırlıklı sebep gösteriliyor.
+
+**2) Strateji Lab test geçmişi:** Kullanıcı isteği "her test yaptığımızda veri tutsun" — AŞAMA 57'deki Strateji Laboratuvarı taramaları artık `POST /backtest/lab-runs` ile kalıcı olarak kaydediliyor (yeni `StrategyLabRun` modeli/koleksiyonu); yeni "Geçmiş Testler" sekmesi (`GET /backtest/lab-runs`) zaman içindeki test sonuçlarını karşılaştırmalı listeliyor.
+
+**Doğrulama (gerçek, uçtan uca):** 7 yeni backend testi (`test_outcome_evaluator.py`) + mevcut, toplam 343/343 backend test yeşil. Cloud Run'a deploy edildi; `/decisions/THYAO/journal` ve `/backtest/lab-runs` canlıda doğrulandı (routing çakışması AŞAMA 60'taki gibi `/lab-runs`'ı `/{symbol}`'den ÖNCE tanımlayarak önlendi). Test amaçlı oluşturulan sahte lab-run kaydı doğrulama sonrası temizlendi. 40/40 flutter test yeşil (4 yeni). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+20.08.2026 — Karar Günlüğü + Strateji Lab test geçmişi eklendi, 343/343 backend test yeşil (7 yeni test), 40/40 flutter test yeşil (4 yeni).

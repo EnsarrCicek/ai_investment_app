@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/backtest_result.dart';
 import '../../models/decision.dart';
+import '../../models/decision_journal_entry.dart';
 import '../../models/news_analysis.dart';
 import '../../models/news_item.dart';
 import '../../models/price_quote.dart';
@@ -147,7 +148,7 @@ class AssetDetailScreen extends StatelessWidget {
               Tab(text: 'Fiyat'),
               Tab(text: 'Teknik'),
               Tab(text: 'Haberler'),
-              Tab(text: 'Geçmiş'),
+              Tab(text: 'Karar Günlüğü'),
               Tab(text: 'Performans'),
             ],
           ),
@@ -682,6 +683,13 @@ class _AnalysisBadge extends StatelessWidget {
   }
 }
 
+/// AŞAMA 62: "Karar Günlüğü" — kullanıcı isteği: "her test yaptığımızda veri
+/// tutsun, hatalarımızdan ders çıkaralım, nerede düştü hangi sebepten."
+/// Geçmiş tarihli haber/makro arşivi olmadığından (bkz. AŞAMA 57/60) GEÇMİŞE
+/// dönük sahte bir "o zamanki ortam" gösterilmez — bunun yerine BUGÜNDEN
+/// İTİBAREN biriken GERÇEK kararlar, gerçek sonraki fiyat hareketiyle (7/30
+/// gün ufku) karşılaştırılıp gösterilir; "hangi sebepten" sorusuna da o an
+/// hangi skor bileşeninin (teknik/haber/makro) baskın olduğu ile cevap verilir.
 class _HistoryTab extends StatefulWidget {
   final String symbol;
   const _HistoryTab({required this.symbol});
@@ -691,17 +699,17 @@ class _HistoryTab extends StatefulWidget {
 }
 
 class _HistoryTabState extends State<_HistoryTab> {
-  late Future<List<Decision>> _future;
+  late Future<List<DecisionJournalEntry>> _future;
 
   @override
   void initState() {
     super.initState();
-    _future = DecisionApi().fetchHistory(widget.symbol);
+    _future = DecisionApi().fetchJournal(widget.symbol);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Decision>>(
+    return FutureBuilder<List<DecisionJournalEntry>>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
@@ -710,32 +718,26 @@ class _HistoryTabState extends State<_HistoryTab> {
         if (snapshot.hasError) {
           return Center(child: Text('Hata: ${snapshot.error}'));
         }
-        final decisions = snapshot.data!;
-        if (decisions.isEmpty) {
+        final entries = snapshot.data!;
+        if (entries.isEmpty) {
           return const Center(child: Text('Henüz bir karar kaydı yok.'));
         }
         return ListView.separated(
           padding: const EdgeInsets.all(12),
-          itemCount: decisions.length,
+          itemCount: entries.length,
           separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final d = decisions[index];
-            final label = decisionLabel(d.decision);
-            final color = decisionColor(d.decision);
-            return Card(
-              child: ListTile(
-                title: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-                subtitle: Text('Skor: ${d.finalScore.toStringAsFixed(1)}   Güven: %${d.confidence.toStringAsFixed(0)}'),
-                trailing: Text(_fmtDate(d.createdAt)),
-              ),
-            );
-          },
+          itemBuilder: (context, index) => _JournalEntryCard(entry: entries[index]),
         );
       },
     );
   }
+}
 
-  String _fmtDate(DateTime? date) {
+class _JournalEntryCard extends StatelessWidget {
+  final DecisionJournalEntry entry;
+  const _JournalEntryCard({required this.entry});
+
+  static String _fmtDate(DateTime? date) {
     if (date == null) return '-';
     final local = date.toLocal();
     final day = local.day.toString().padLeft(2, '0');
@@ -743,6 +745,74 @@ class _HistoryTabState extends State<_HistoryTab> {
     final hour = local.hour.toString().padLeft(2, '0');
     final minute = local.minute.toString().padLeft(2, '0');
     return '$day.$month $hour:$minute';
+  }
+
+  static Color _outcomeColor(String status) {
+    switch (status) {
+      case 'DOGRU':
+        return Colors.green;
+      case 'YANLIS':
+        return Colors.red;
+      case 'BEKLEMEDE':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _outcomeChip(String horizonLabel, DecisionOutcome? outcome) {
+    if (outcome == null) return const SizedBox.shrink();
+    final color = _outcomeColor(outcome.status);
+    final returnText = outcome.realizedReturnPct != null
+        ? ' (${outcome.realizedReturnPct! >= 0 ? '+' : ''}${outcome.realizedReturnPct!.toStringAsFixed(1)}%)'
+        : '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      margin: const EdgeInsets.only(right: 6, top: 4),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
+      child: Text(
+        '$horizonLabel: ${outcomeStatusLabelsTr[outcome.status] ?? outcome.status}$returnText',
+        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = entry.decision;
+    final label = decisionLabel(d.decision);
+    final color = decisionColor(d.decision);
+    final factor = entry.dominantFactor;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+                Text(_fmtDate(d.createdAt), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Skor: ${d.finalScore.toStringAsFixed(1)}   Güven: %${d.confidence.toStringAsFixed(0)}'
+              '${factor != null ? '   Ağırlıklı sebep: ${dominantFactorLabelsTr[factor] ?? factor}' : ''}',
+              style: const TextStyle(fontSize: 12),
+            ),
+            Wrap(
+              children: [
+                _outcomeChip('7 gün', entry.outcomes['7']),
+                _outcomeChip('30 gün', entry.outcomes['30']),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

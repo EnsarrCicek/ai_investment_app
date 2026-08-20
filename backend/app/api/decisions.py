@@ -3,8 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import get_current_user_id_optional
 from app.engines.decision.engine import DecisionEngine
 from app.engines.explanation.engine import ExplanationEngine
+from app.engines.journal.outcome_evaluator import dominant_factor, evaluate_decision
 from app.repositories.ai_decision_repository import AIDecisionRepository
 from app.repositories.portfolio_repository import PortfolioRepository
+from app.services.market_data.bist_provider import BistProvider
 from app.services.notifications.fcm_sender import notify_if_new_opportunity, notify_if_strong_decision
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
@@ -45,3 +47,39 @@ def get_decision_explanation(symbol: str):
         return ExplanationEngine().explain(symbol.upper())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/{symbol}/journal")
+def get_decision_journal(symbol: str, limit: int = 20):
+    """AŞAMA 62 — "Karar Günlüğü": kullanıcı isteği "her test yaptığımızda
+    veri tutsun, hatalarımızdan ders çıkaralım, nerede düştü hangi sebepten."
+    Geçmiş tarihli haber/makro arşivi olmadığından (bkz. AŞAMA 57/60) GEÇMİŞE
+    dönük sahte bir "o zamanki ortam" üretilmez — bunun yerine zaten teknik+
+    haber+makronun TAMAMINI kullanan GERÇEK AIDecision kayıtları, gerçek
+    sonraki fiyat hareketiyle (7 ve 30 gün ufku) karşılaştırılıp
+    değerlendirilir. `dominant_factor`, kararı en çok etkileyen skor
+    bileşenini (technical/news/macro) gösterir — "hangi sebepten" sorusuna
+    dürüst, sayısal bir cevap.
+    """
+    symbol = symbol.upper()
+    decisions = AIDecisionRepository().list_for_asset(symbol, limit=limit)
+    if not decisions:
+        return []
+
+    try:
+        history = BistProvider().get_history(symbol, period="2y")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    close_series = history["Close"]
+    close_series.index = [ts.date() for ts in close_series.index]
+
+    entries = []
+    for decision in decisions:
+        entries.append(
+            {
+                **decision.model_dump(),
+                "outcomes": evaluate_decision(decision, close_series),
+                "dominant_factor": dominant_factor(decision),
+            }
+        )
+    return entries
