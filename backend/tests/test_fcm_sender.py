@@ -98,7 +98,7 @@ def test_new_strong_decision_sends_and_logs(monkeypatch):
 
     assert sent is True
     assert len(sent_messages) == 1
-    assert sent_messages[0].fid == "tok"
+    assert sent_messages[0].token == "tok"
     assert log_repo.set_calls == [("u1", "GARAN", "SELL")]
 
 
@@ -351,7 +351,7 @@ def test_send_test_notification_sends_and_persists_record(monkeypatch):
 
     assert sent is True
     assert len(sent_messages) == 1
-    assert sent_messages[0].fid == "tok"
+    assert sent_messages[0].token == "tok"
     assert len(record_repo.added) == 1
     assert record_repo.added[0].kind == "TEST"
     assert record_repo.added[0].asset is None

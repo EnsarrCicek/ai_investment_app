@@ -111,7 +111,14 @@ def notify_if_strong_decision(
             title=f"{decision.asset}: {label} sinyali",
             body=body,
         ),
-        fid=token,
+        # NOT: messaging.Message'ın `fid` alanı FCM registration token'ı DEĞİL,
+        # farklı bir kimlik türü olan Firebase Installation ID'yi bekliyor
+        # (bkz. firebase_admin/_messaging_encoder.py docstring'i). Flutter'daki
+        # FirebaseMessaging.instance.getToken() bir FCM registration token
+        # döndürüyor — bu yüzden `fid` yerine `token` kullanılmalı, aksi halde
+        # gerçek cihazda "NotRegistered" (404) hatası alınır (bkz.
+        # KURULUM_GUNLUGU.md AŞAMA 56).
+        token=token,
     )
     try:
         messaging.send(message)
@@ -209,7 +216,14 @@ def send_test_notification(
     body = "Bildirimler çalışıyor! Bu bir test mesajıdır."
     message = messaging.Message(
         notification=messaging.Notification(title=title, body=body),
-        fid=token,
+        # NOT: messaging.Message'ın `fid` alanı FCM registration token'ı DEĞİL,
+        # farklı bir kimlik türü olan Firebase Installation ID'yi bekliyor
+        # (bkz. firebase_admin/_messaging_encoder.py docstring'i). Flutter'daki
+        # FirebaseMessaging.instance.getToken() bir FCM registration token
+        # döndürüyor — bu yüzden `fid` yerine `token` kullanılmalı, aksi halde
+        # gerçek cihazda "NotRegistered" (404) hatası alınır (bkz.
+        # KURULUM_GUNLUGU.md AŞAMA 56).
+        token=token,
     )
     try:
         messaging.send(message)
