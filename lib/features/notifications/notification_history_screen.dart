@@ -3,13 +3,23 @@ import 'package:flutter/material.dart';
 import '../../models/notification_record.dart';
 import '../../services/api/notification_api.dart';
 
-const Map<String, String> _kindLabels = {'TEST': 'Test', 'BUY': 'AL', 'SELL': 'SAT'};
+const Map<String, String> _kindLabels = {
+  'TEST': 'Test',
+  'BUY': 'AL',
+  'SELL': 'SAT',
+  'FUND_BUY_MONTHLY': 'Aylık Fon Önerisi',
+  'FUND_BUY_ADHOC': 'Fon Alım Önerisi',
+  'FUND_SWITCH': 'Fon Değiştirme Önerisi',
+};
 
 Color _kindColor(String kind) {
   switch (kind) {
     case 'BUY':
+    case 'FUND_BUY_MONTHLY':
+    case 'FUND_BUY_ADHOC':
       return Colors.green;
     case 'SELL':
+    case 'FUND_SWITCH':
       return Colors.red;
     default:
       return Colors.grey;
@@ -19,9 +29,13 @@ Color _kindColor(String kind) {
 IconData _kindIcon(String kind) {
   switch (kind) {
     case 'BUY':
+    case 'FUND_BUY_MONTHLY':
+    case 'FUND_BUY_ADHOC':
       return Icons.trending_up;
     case 'SELL':
       return Icons.trending_down;
+    case 'FUND_SWITCH':
+      return Icons.swap_horiz;
     default:
       return Icons.notifications_outlined;
   }

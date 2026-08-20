@@ -5,6 +5,7 @@ from app.api import (
     assets,
     backtest,
     decisions,
+    funds,
     market_data,
     news,
     news_analysis,
@@ -27,6 +28,7 @@ app.include_router(news_analysis.router)
 app.include_router(notifications.router)
 app.include_router(usage.router)
 app.include_router(market_data.router)
+app.include_router(funds.router)
 
 
 @app.get("/health")

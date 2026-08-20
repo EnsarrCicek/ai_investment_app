@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
+import 'features/funds/funds_screen.dart';
 import 'features/macro/macro_screen.dart';
 import 'features/portfolio/portfolio_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -59,6 +60,7 @@ class _RootScreenState extends State<RootScreen> {
   static const _screens = [
     DashboardScreen(),
     PortfolioScreen(),
+    FundsScreen(),
     MacroScreen(),
     SettingsScreen(),
   ];
@@ -81,6 +83,7 @@ class _RootScreenState extends State<RootScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.show_chart), label: 'Analiz'),
           NavigationDestination(icon: Icon(Icons.pie_chart), label: 'Portföy'),
+          NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Fonlar'),
           NavigationDestination(icon: Icon(Icons.public), label: 'Makro'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Ayarlar'),
         ],
