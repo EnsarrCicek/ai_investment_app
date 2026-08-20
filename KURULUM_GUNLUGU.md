@@ -1892,3 +1892,26 @@ Kullanıcı: "eski bir tarihe gidip verileri alıp o tarihte yapay zekamız nas�
 
 **Tarih / Not:**
 20.08.2026 — Strateji Laboratuvarı eklendi, 295/295 backend test yeşil (8 yeni test), 28/28 flutter test yeşil, commit `b8a387c`.
+
+---
+
+## 58. Fonlar — TEFAS Tabanlı Fon Analizi, Aylık Bütçe Önerisi ve Bildirimler (20.08.2026)
+
+Kullanıcı: "fonlar için de analiz yaptır ve fonlar için ayrı sayfa oluştur, hangisi alınabilir hangisi en mantıklı gibisinden. Aylık ne kadar para kazanıyorum onu giricem ve her ay başı bana alınacak fonları ne kadar parayla gireceğimi söyleyecek. Ayrıca maaştan ayrı para olan bir buton olacak, o butona basınca o an hangi fonlar alınacak ise o fonları aldıracak; ekstra fonların düşeceği zaman var ise ya da daha da kar ettirecek bir fon var ise onun bildirimini yollayacak."
+
+**Araştırma — iki gerçek engel netleştirildi (kullanıcıya anlatıldı, karar alındı):**
+1. **TEFAS erişimi:** `tefas.gov.tr` ana sitesi F5 bot korumasıyla (TSPD, JS-challenge) korunuyor — düz `curl`/`requests` ile erişilemiyor, denendi ve doğrulandı. Ama TEFAS 2026'da Next.js tabanlı yeni bir altyapıya geçmiş ve kimlik doğrulama GEREKTİRMEYEN resmi bir JSON API sunuyor (`/api/funds/...`) — eski `/api/DB/BindHistoryInfo` gibi uç noktalar artık "Method not found or disabled" veriyor. `pytefas` (MIT lisanslı, aktif CI'lı açık kaynak kütüphane) bu yeni API'yi kullanıyor; canlı test edildi, çalışıyor.
+2. **Gerçek alım-satım imkânsızlığı:** TEFAS'a genel kullanıcılar için açık bir işlem-emri (buy/sell) API'si YOK — bir bankaya/aracı kuruma üye olmadan ya da o kurumun SANA özel bir API anahtarı vermeden bu platformdan otomatik alım yapılamaz. Kullanıcıya bu netleştirildi; "Ekstra Para" butonunun somut bir bildirim (hisseler için AŞAMA 48/19'da kurulan yarı-otomatik desenin aynısı) göndermesi kabul edildi. Tema bazlı ("Nvidia/robot gündemde → ilgili hisseleri öner") hisse önerisi kısmı da ayrı bir oturuma ertelendi.
+
+**TEFAS veri stratejisi — N+1 sorununun ÖNCEDEN çözülmesi:** TEFAS dakikada 6 istek sınırı uyguluyor; ~2000 fonun her biri için ayrı geçmiş çekmek saatler sürerdi. Bunun yerine TEK istekte TÜM fonların bir anlık görüntüsünü döndüren özellik kullanıldı — yalnızca 5 REFERANS TARİHİ (son işlem günü, -1ay, -3ay, -6ay, -1yıl) çekilip fund_code'a göre birleştiriliyor. Her tarih Firestore'da KALICI önbelleğe alınıyor (`FundSnapshotRepository` — geçmiş bir tarihin fon fiyatı asla değişmez, TTL yok); hesaplanmış SIRALAMA ayrıca 6 saatlik TTL'li ayrı bir önbellekte tutuluyor (`FundAnalysisCacheRepository`, benchmark_service.py ile aynı desen).
+
+**FundAnalysisEngine:** 1a/3a/6a/1y getirilerin ağırlıklı ortalaması (`composite_score`, ağırlıklar 0.15/0.25/0.30/0.30). Missing Data Davranışı (DecisionEngine ile AYNI ilke): bir fonun bir ufukta verisi yoksa (yeni kurulmuş fon) o ufuk skora dahil edilmez, kalanların ağırlığı otomatik normalize edilir. Küçük/az yatırımcılı fonlar (< 5M TL portföy ya da < 20 yatırımcı) veri kalitesi hard-veto'suyla tamamen elenir (data_quality.py ile aynı prensip).
+
+**Bütçe dağıtımı ve bildirimler:** `recommend_allocation()` bütçeyi en iyi 3 fona skora orantılı dağıtır (negatif skorlar pozitif ölçeğe kaydırılır, negatif TL tutarı üretilmez). `fund_notifier.py` üç bildirim türü: (1) aylık öneri — `GET /funds` her çağrıldığında "bu ay zaten bildirildi mi" kontrolü yapılır (decisions.py ile AYNI mimari desen — scheduler yok, kullanıcı eylemiyle tetiklenir); (2) ad-hoc "Ekstra Para Yatır" — dedup YOK, her basışta yeniden hesaplanıp gönderilir; (3) fon değiştirme önerisi — tutulan bir fonun skoru en iyi fondan 15 puandan fazla geride kalıyorsa "bunu satıp şuna geç" bildirimi, aynı öneri aynı gün tekrar gönderilmez.
+
+**Flutter — "Fonlar" sekmesi** (yeni 3. bottom-nav sekmesi, Analiz/Portföy/Fonlar/Makro/Ayarlar): "Öneriler" (sıralı fon listesi + 1a/3a/6a/1y rozetleri + "Ekstra Para Yatır" butonu), "Fonlarım" (pozisyon ekle/sil, kâr-zarar), "Ayarlar" (aylık gelir/bütçe girişi). Bildirimler ekranındaki kind eşlemeleri (`FUND_BUY_MONTHLY`/`FUND_BUY_ADHOC`/`FUND_SWITCH`) güncellendi.
+
+**Doğrulama (gerçek, uçtan uca):** 23 yeni backend testi (`test_fund_analysis_engine.py`, `test_fund_allocation.py`, `test_fund_notifier.py`, `test_fund_analysis_cache_service.py`) + mevcut 317 test yeşil, 33/33 flutter test yeşil (5 yeni). Cloud Run'a deploy edildi; canlıda gerçek TEFAS verisiyle `/funds` doğrulandı (1341 fon geçti, ör. PKU %1285 1 yıllık getiriyle 1. sırada — serbest/hisse yoğun fonlarda böylesi uç değerler normal, ekranda "geçmiş performans garanti değildir + serbest fonlar yüksek volatilite taşır" uyarısı gösteriliyor). Ayarlar/pozisyon/allocate/switch zincirlerinin tamamı kullanıcının GERÇEK hesabıyla uçtan uca test edildi (aylık+ad-hoc+switch bildirimleri gerçekten cihaza gönderildi, doğrulama sonrası test verisi — pozisyon, bütçe, dedup kayıtları — temizlendi). Gerçek cihaz için release APK yeniden derlendi (52,1MB).
+
+**Tarih / Not:**
+20.08.2026 — Fonlar sayfası + TEFAS analiz motoru + aylık/ad-hoc/switch bildirimleri eklendi, 340/340 backend test yeşil (23 yeni test), 33/33 flutter test yeşil (5 yeni), commit `139636c`.
