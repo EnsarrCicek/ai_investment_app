@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/backtest_result.dart';
+import '../../models/strategy_comparison.dart';
 import 'api_config.dart';
 
 class BacktestApi {
@@ -15,5 +16,14 @@ class BacktestApi {
     }
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     return BacktestResult.fromJson(json);
+  }
+
+  Future<StrategyComparisonResult> fetchStrategyComparison(String symbol, {String period = '2y'}) async {
+    final response = await http.get(Uri.parse('$baseUrl/backtest/$symbol/compare-strategies?period=$period'));
+    if (response.statusCode != 200) {
+      throw Exception("'$symbol' için strateji karşılaştırması alınamadı (HTTP ${response.statusCode})");
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    return StrategyComparisonResult.fromJson(json);
   }
 }

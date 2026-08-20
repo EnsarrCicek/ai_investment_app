@@ -1,7 +1,9 @@
+import numpy as np
 import pandas as pd
 import pytest
 
-from app.engines.backtest.engine import simulate, technical_score_series
+from app.engines.backtest.engine import compare_strategies, simulate, technical_score_series
+from app.engines.backtest.strategy_presets import STRATEGY_PRESETS
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.engine import DEFAULT_WEIGHTS
 
@@ -12,6 +14,22 @@ def _uptrend_df(n=80):
     close.index = idx
     return pd.DataFrame(
         {"Open": close, "High": close + 1, "Low": close - 1, "Close": close, "Volume": [1000.0] * n},
+        index=idx,
+    )
+
+
+def _noisy_trending_df(n=150, seed=7):
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2024-01-01", periods=n, freq="D")
+    closes = 100 + np.cumsum(rng.normal(0.2, 1.2, n))
+    return pd.DataFrame(
+        {
+            "Open": closes,
+            "High": closes + 1,
+            "Low": closes - 1,
+            "Close": closes,
+            "Volume": rng.integers(1000, 5000, n),
+        },
         index=idx,
     )
 
@@ -60,3 +78,30 @@ def test_simulate_force_closes_open_position_at_end():
     assert result["trade_count"] == 1
     assert result["trades"][0]["note"].startswith("Backtest sonunda")
     assert result["final_equity"] == pytest.approx(1200.0)
+
+
+def test_compare_strategies_returns_one_result_per_preset_sorted_by_return():
+    df = _noisy_trending_df()
+
+    results = compare_strategies(df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+
+    assert len(results) == len(STRATEGY_PRESETS)
+    assert {r["preset"] for r in results} == set(STRATEGY_PRESETS.keys())
+    returns = [r["total_return_pct"] for r in results]
+    assert returns == sorted(returns, reverse=True)
+
+
+def test_compare_strategies_each_result_has_expected_metrics():
+    df = _noisy_trending_df()
+
+    results = compare_strategies(df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+
+    for r in results:
+        assert set(r.keys()) == {
+            "preset",
+            "total_return_pct",
+            "buy_and_hold_return_pct",
+            "max_drawdown_pct",
+            "trade_count",
+            "win_rate_pct",
+        }

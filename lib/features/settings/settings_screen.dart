@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../services/api/notification_api.dart';
 import '../guide/guide_screen.dart';
 import '../notifications/notification_history_screen.dart';
+import '../strategy_lab/strategy_lab_screen.dart';
 import '../usage/usage_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -72,6 +73,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const UsageScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.science_outlined),
+              title: const Text('Strateji Laboratuvarı'),
+              subtitle: const Text('Farklı AL/SAT stratejilerini geçmiş verilerle karşılaştırın'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const StrategyLabScreen()),
               ),
             ),
           ),

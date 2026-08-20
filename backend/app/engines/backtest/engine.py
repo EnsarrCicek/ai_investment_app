@@ -161,6 +161,40 @@ def simulate(
     }
 
 
+def compare_strategies(
+    df: pd.DataFrame,
+    presets: dict[str, dict],
+    thresholds: dict,
+    initial_capital: float = 100_000.0,
+) -> list[dict]:
+    """Aynı fiyat serisi üzerinde birden çok adlandırılmış ağırlık ön ayarını
+    (bkz. strategy_presets.py) çalıştırıp getiriye göre sıralanmış bir
+    karşılaştırma listesi döner — "hangi strateji daha iyi sonuç veriyor"
+    sorusuna tek bir sembol için doğrudan cevap. Not: bu, walk_forward_
+    optimize_weights'ten FARKLI bir amaca hizmet eder — o train/test
+    ayrımıyla overfit'i önlemeye çalışır, bu ise tüm dönem üzerinde basit,
+    yorumlanabilir bir karşılaştırma sunar (çok sembollü toplu tarama için
+    tasarlandı, bkz. Flutter Strateji Laboratuvarı ekranı).
+    """
+    warm_df = df.iloc[MIN_HISTORY_DAYS:]
+    results = []
+    for name, weights in presets.items():
+        score_series = technical_score_series(df, weights).iloc[MIN_HISTORY_DAYS:]
+        result = simulate(warm_df, score_series, thresholds, initial_capital)
+        results.append(
+            {
+                "preset": name,
+                "total_return_pct": result["total_return_pct"],
+                "buy_and_hold_return_pct": result["buy_and_hold_return_pct"],
+                "max_drawdown_pct": result["max_drawdown_pct"],
+                "trade_count": result["trade_count"],
+                "win_rate_pct": result["win_rate_pct"],
+            }
+        )
+    results.sort(key=lambda r: r["total_return_pct"], reverse=True)
+    return results
+
+
 class BacktestEngine:
     def __init__(
         self,
@@ -189,4 +223,22 @@ class BacktestEngine:
             "thresholds": thresholds,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             **result,
+        }
+
+    def compare_strategies(
+        self, symbol: str, presets: dict[str, dict], period: str = "2y", initial_capital: float = 100_000.0
+    ) -> dict:
+        df = self._provider.get_history(symbol, period=period)
+        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS)
+
+        thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
+        warm_df = df.iloc[MIN_HISTORY_DAYS:]
+        results = compare_strategies(df, presets, thresholds, initial_capital)
+        return {
+            "asset": symbol,
+            "period": period,
+            "from_date": str(warm_df.index[0].date()),
+            "to_date": str(warm_df.index[-1].date()),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "results": results,
         }
