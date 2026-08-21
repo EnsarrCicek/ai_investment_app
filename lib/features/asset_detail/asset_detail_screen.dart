@@ -132,15 +132,22 @@ Color _signalClassColor(String? signalClass) {
   }
 }
 
+// Sekme sırası: Fiyat(0), Teknik(1), Haberler(2), Analistler(3), Karar
+// Günlüğü(4), Performans(5) — analistler hub'ından (AŞAMA 64) doğrudan bu
+// sekmeye atlamak için kullanılır.
+const int assetDetailAnalystsTabIndex = 3;
+
 class AssetDetailScreen extends StatelessWidget {
   final String symbol;
+  final int initialTabIndex;
 
-  const AssetDetailScreen({super.key, required this.symbol});
+  const AssetDetailScreen({super.key, required this.symbol, this.initialTabIndex = 0});
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 6,
+      initialIndex: initialTabIndex,
       child: Scaffold(
         appBar: AppBar(
           title: Text(symbol),
@@ -591,9 +598,9 @@ class _NewsCard extends StatelessWidget {
                     color: Colors.indigo.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text(
-                    'Analist / Hedef Fiyat',
-                    style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 11),
+                  child: Text(
+                    item.analystFirm != null ? 'Analist / Hedef Fiyat — ${item.analystFirm}' : 'Analist / Hedef Fiyat',
+                    style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 11),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -726,20 +733,23 @@ class _AnalystsTab extends StatefulWidget {
 class _AnalystsTabState extends State<_AnalystsTab> {
   late Future<AnalystConsensus> _consensusFuture;
   late Future<Decision> _decisionFuture;
+  late Future<List<NewsItem>> _newsFuture;
 
   @override
   void initState() {
     super.initState();
     _consensusFuture = AnalystApi().fetchConsensus(widget.symbol);
     _decisionFuture = DecisionApi().fetchDecision(widget.symbol);
+    _newsFuture = NewsApi().fetchNews(widget.symbol);
   }
 
   Future<void> _refresh() async {
     setState(() {
       _consensusFuture = AnalystApi().fetchConsensus(widget.symbol);
       _decisionFuture = DecisionApi().fetchDecision(widget.symbol);
+      _newsFuture = NewsApi().fetchNews(widget.symbol);
     });
-    await Future.wait([_consensusFuture, _decisionFuture]);
+    await Future.wait([_consensusFuture, _decisionFuture, _newsFuture]);
   }
 
   @override
@@ -847,6 +857,40 @@ class _AnalystsTabState extends State<_AnalystsTab> {
                 ...consensus.trend.map((t) => _TrendRow(period: t)),
               ],
               const SizedBox(height: 16),
+              const Text('Kim Ne Dedi?', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text(
+                'Gerçek haber kaynaklarında bulunan, banka/aracı kurum adı geçen hedef fiyat '
+                've tavsiye haberleri — isim uydurulmaz, yalnızca başlık/özette geçen gerçek '
+                'kurum adı gösterilir.',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              FutureBuilder<List<NewsItem>>(
+                future: _newsFuture,
+                builder: (context, newsSnapshot) {
+                  if (newsSnapshot.connectionState != ConnectionState.done) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (newsSnapshot.hasError) {
+                    return Text('Hata: ${newsSnapshot.error}');
+                  }
+                  final mentions = (newsSnapshot.data ?? const <NewsItem>[])
+                      .where((n) => n.isAnalystMention)
+                      .toList();
+                  if (mentions.isEmpty) {
+                    return const Text(
+                      'Bu hisseyle ilgili analist/hedef fiyat haberi bulunamadı.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    );
+                  }
+                  return Column(children: mentions.map((n) => _AnalystMentionCard(item: n)).toList());
+                },
+              ),
+              const SizedBox(height: 16),
               Text(
                 'Kaynak: Yahoo Finance — banka/aracı kurum analistlerinin gerçek AL/TUT/SAT '
                 'oy dağılımı ve hedef fiyat verileri (${consensus.asOf.toLocal().day.toString().padLeft(2, '0')}.'
@@ -856,6 +900,64 @@ class _AnalystsTabState extends State<_AnalystsTab> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _AnalystMentionCard extends StatelessWidget {
+  final NewsItem item;
+  const _AnalystMentionCard({required this.item});
+
+  static String _fmtDate(DateTime date) {
+    final local = date.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    return '$day.$month.${local.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(item.url))),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (item.analystFirm != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    item.analystFirm!,
+                    style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              if (item.analystFirm != null) const SizedBox(height: 6),
+              Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              if (item.summary.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(item.summary, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+              ],
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('${item.publisher} · ${_fmtDate(item.publishedAt)}',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('Güvenilirlik: %${(item.sourceReliability * 100).toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

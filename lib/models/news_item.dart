@@ -7,6 +7,7 @@ class NewsItem {
   final double sourceReliability;
   final DateTime publishedAt;
   final bool isAnalystMention;
+  final String? analystFirm;
 
   NewsItem({
     required this.externalId,
@@ -17,6 +18,7 @@ class NewsItem {
     required this.sourceReliability,
     required this.publishedAt,
     this.isAnalystMention = false,
+    this.analystFirm,
   });
 
   factory NewsItem.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class NewsItem {
       sourceReliability: (json['source_reliability'] as num).toDouble(),
       publishedAt: DateTime.parse(json['published_at'] as String),
       isAnalystMention: json['is_analyst_mention'] as bool? ?? false,
+      analystFirm: json['analyst_firm'] as String?,
     );
   }
 }

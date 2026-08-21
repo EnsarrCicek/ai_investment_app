@@ -2006,3 +2006,22 @@ Kullanıcı: "Analistlerin değerlendirmeleri de bulunsun, al mı diyorlar yoksa
 
 **Tarih / Not:**
 21.08.2026 — Gerçek analist konsensüsü (Yahoo Finance) + yeni "Analistler" sekmesi eklendi, 354/354 backend test yeşil (11 yeni test), 42/42 flutter test yeşil (2 yeni).
+
+---
+
+## 64. Analistler Hub'ı + "Kim Ne Demiş" Detayı (21.08.2026)
+
+Kullanıcı: "Hangi analist ne demek diye detaylı istiyorum, bunun hakkında ayrı bir sayfa oluştur, ayarlar sayfasında butonu olsun, basınca analistler kısmını açsın, fon ve hisselere dair neler demişler; hisselerde bulunanlarda kalsın ancak neler demiş kim demiş biraz daha detaylı olsun."
+
+**"Kim demiş" — isim uydurmadan, gerçek başlıktan tespit:** yfinance'in analist konsensüsü (AŞAMA 63) sadece SAYI veriyor, isim vermiyor; `upgrades_downgrades` BIST için veri döndürmüyor. Ama gerçek haber başlıkları sık sık banka/aracı kurum adını doğrudan içeriyor (ör. "HSBC: favori THYAO..."). Yeni `services/news/firm_extraction.py`: bilinen ~35 banka/aracı kurum adının (İş Yatırım, Ak Yatırım, HSBC, JPMorgan, Goldman Sachs, vb.) başlık/özet metninde GERÇEKTEN geçip geçmediğini deterministik olarak tespit eder — geçmiyorsa `None` döner, hiçbir isim icat edilmez. `NewsRawItem`e `analyst_firm` alanı eklendi, `/news/{symbol}` ve `/funds/{code}/news` uç noktalarında uygulanıyor. Canlı testte THYAO haberlerinin 15'inden 2'sinde "HSBC" doğru tespit edildi, kalan 13'ünde (ör. "15 kurumdan yeni hedef fiyat geldi" gibi belirsiz ifadeler) doğru şekilde isim atanmadı — uydurma risk sıfır.
+
+**Not (ufak refactor):** Türkçe büyük harfe çevirme yardımcı fonksiyonu (`_tr_upper`, AŞAMA 60) `app/utils/turkish_text.py`'ye taşındı (`tr_upper`) — hem `funds.py` hem yeni `firm_extraction.py` aynı fonksiyonu kullanıyor, kod tekrarı yok.
+
+**Hisse detayındaki "Analistler" sekmesi zenginleştirildi:** Mevcut konsensüs/hedef fiyat kartlarının altına yeni "Kim Ne Dedi?" bölümü eklendi — o hisseyle ilgili GERÇEK analist/hedef fiyat haberlerini (başlık, tespit edilen kurum adı varsa rozet, yayıncı, tarih, güvenilirlik) listeler. Haberler sekmesindeki "Analist / Hedef Fiyat" rozeti de artık tespit edilen kurum adını gösteriyor (ör. "Analist / Hedef Fiyat — HSBC"). Fon detayındaki haber kartlarında da aynı şekilde kurum adı gösteriliyor.
+
+**Yeni "Analistler" hub'ı (Ayarlar → Analistler):** Yeni `analysts_hub_screen.dart` — "Hisseler" ve "Fonlar" sekmeli, aranabilir bir giriş noktası. Yeni bir analiz motoru YAZILMADI — hisse seçildiğinde mevcut `AssetDetailScreen`e (yeni eklenen `initialTabIndex` parametresiyle) doğrudan "Analistler" sekmesi açık şekilde gidiliyor; fon seçildiğinde mevcut `FundDetailScreen`e gidiliyor. Ayarlar ekranına yeni bir "Analistler" butonu eklendi.
+
+**Doğrulama (gerçek, uçtan uca, emülatörde):** 5 yeni backend testi (`test_firm_extraction.py`) + mevcut, toplam 359/359 backend test yeşil. Cloud Run'a deploy edildi; canlıda THYAO haberlerinde HSBC tespiti doğrulandı. Android emülatöründe (Pixel 7 API 36) uçtan uca test edildi: Ayarlar → Analistler butonu çalışıyor, Hisseler sekmesinde arama ("THY" → THYAO) ve tıklayınca doğrudan Analistler sekmesine gitme doğrulandı, Fonlar sekmesinde gerçek sıralı fon listesi göründü, hisse detayındaki "Kim Ne Dedi?" bölümü gerçek makale listesini gösterdi. 43/43 flutter test yeşil (1 yeni). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+21.08.2026 — Analistler hub'ı (Ayarlar'dan erişilen, hisse+fon arama) + "kim ne demiş" (gerçek kurum adı tespiti) eklendi, 359/359 backend test yeşil (5 yeni test), 43/43 flutter test yeşil (1 yeni).

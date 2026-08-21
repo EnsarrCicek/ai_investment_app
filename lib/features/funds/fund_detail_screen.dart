@@ -212,7 +212,10 @@ class _FundNewsCard extends StatelessWidget {
       child: ListTile(
         dense: true,
         title: Text(item.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-        subtitle: Text(item.publisher, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        subtitle: Text(
+          item.analystFirm != null ? '${item.analystFirm} · ${item.publisher}' : item.publisher,
+          style: const TextStyle(fontSize: 11, color: Colors.grey),
+        ),
         onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(item.url))),
       ),
     );

@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/api/notification_api.dart';
+import '../analysts/analysts_hub_screen.dart';
 import '../guide/guide_screen.dart';
 import '../notifications/notification_history_screen.dart';
 import '../strategy_lab/strategy_lab_screen.dart';
@@ -86,6 +87,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const StrategyLabScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.groups_outlined),
+              title: const Text('Analistler'),
+              subtitle: const Text('Hisse ve fonlar için gerçek analist AL/SAT görüşleri — kim ne demiş'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AnalystsHubScreen()),
               ),
             ),
           ),

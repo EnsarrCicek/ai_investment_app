@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.repositories.news_raw_repository import NewsRawRepository
+from app.services.news.firm_extraction import extract_analyst_firm
 from app.services.news.google_news_rss_provider import GoogleNewsRssProvider
 from app.services.news.merge import merge_prioritizing_analyst_mentions
 from app.services.news.yahoo_news_provider import YahooNewsProvider
@@ -32,6 +33,12 @@ def get_news(symbol: str, limit: int = 10):
     items += analyst_items
 
     items = merge_prioritizing_analyst_mentions(items, limit)
+
+    # AŞAMA 64: "kim demiş, ne demiş" — gerçek başlık/özet metninde bilinen
+    # bir banka/aracı kurum adı geçiyorsa (uydurulmaz, yalnızca tespit edilir)
+    # kullanıcıya gösterilir.
+    for item in items:
+        item.analyst_firm = extract_analyst_firm(f"{item.title} {item.summary}")
 
     repo = NewsRawRepository()
     for item in items:

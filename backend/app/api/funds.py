@@ -10,25 +10,16 @@ from app.repositories.fund_position_repository import FundPositionRepository
 from app.schemas.funds import FundAllocateRequest, FundInvestmentSettingsUpdate, FundPositionCreate
 from app.services.funds.allocation import recommend_allocation
 from app.services.funds.analysis_cache_service import get_ranked_funds
+from app.services.news.firm_extraction import extract_analyst_firm
 from app.services.news.google_news_rss_provider import GoogleNewsRssProvider
 from app.services.notifications.fund_notifier import (
     notify_ad_hoc_allocation,
     notify_monthly_allocation,
     notify_switch_recommendations,
 )
+from app.utils.turkish_text import tr_upper as _tr_upper
 
 router = APIRouter(prefix="/funds", tags=["funds"])
-
-# Python'un standart str.upper()'ı Türkçe küçük "i"yi ASCII "I"ye çeviriyor,
-# oysa TEFAS'ın verisi Türkçe noktalı "İ" kullanıyor — bu yüzden "hisse" araması
-# "HİSSE" içeren fon adlarıyla EŞLEŞMEZDİ (bulundu, canlı test edilirken fark
-# edildi). Önce Türkçe küçük harfleri doğru büyük karşılıklarına çevirip SONRA
-# standart upper() çağrılır.
-_TR_LOWER_TO_UPPER = str.maketrans({"i": "İ", "ı": "I"})
-
-
-def _tr_upper(text: str) -> str:
-    return text.translate(_TR_LOWER_TO_UPPER).upper()
 
 
 @router.get("")
@@ -204,4 +195,7 @@ def get_fund_news(code: str):
         pass
 
     suffix = f"{fund_name} fon" if fund_name else "fon"
-    return GoogleNewsRssProvider().get_latest_news(code, limit=10, query_suffix=suffix)
+    items = GoogleNewsRssProvider().get_latest_news(code, limit=10, query_suffix=suffix)
+    for item in items:
+        item.analyst_firm = extract_analyst_firm(f"{item.title} {item.summary}")
+    return items

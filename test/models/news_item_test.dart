@@ -37,5 +37,24 @@ void main() {
     final item = NewsItem.fromJson(json);
 
     expect(item.isAnalystMention, isTrue);
+    expect(item.analystFirm, isNull);
+  });
+
+  test('analyst_firm alanı doğru ayrıştırılır', () {
+    final json = {
+      'external_id': 'google_news:abc',
+      'title': 'HSBC hedef fiyatı yükseltti',
+      'summary': '',
+      'url': 'https://example.com',
+      'publisher': 'Paratic Haber',
+      'source_reliability': 0.8,
+      'published_at': '2026-08-18T12:00:00+00:00',
+      'is_analyst_mention': true,
+      'analyst_firm': 'HSBC',
+    };
+
+    final item = NewsItem.fromJson(json);
+
+    expect(item.analystFirm, 'HSBC');
   });
 }
