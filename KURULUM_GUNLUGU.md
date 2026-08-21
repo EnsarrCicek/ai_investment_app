@@ -2065,3 +2065,24 @@ Kullanıcı: "Grafiklerde nasıl dirençler var, nasıl çizgiler çizip bana AL
 
 **Tarih / Not:**
 21.08.2026 — Teknik sekmede destek/direnç grafiği + kural tabanlı "neden bu sinyal" anlatısı eklendi, 377/377 backend test yeşil (7 yeni test), 42/42 flutter test yeşil.
+
+---
+
+## 67. Halka Arzlar Sayfası: Gerçek Takvim, Fiyat/Talep Bilgisi ve Kendi Notların (21.08.2026)
+
+Kullanıcı: "Halka arz sayfası oluştur, hangisine girmeliyim ne kadar bütçe ile girmeliyim, internette araştırma yapıp bana girmem gereken fiyatı gir... şu an da bu kadar alış var bu kadar satış var bence satmalısın gibi verileri girersem tutmasını istiyorum."
+
+**Netleştirme (3 soru soruldu, kullanıcı onayladı):** (1) Kesin bir "AL/GİRME" tavsiyesi ÜRETİLMEZ — gerçek veri gösterilir, karar kullanıcıya bırakılır (mevcut hisse/fon sayfalarındaki felsefeyle aynı). (2) "Alış/satış" verisi GERÇEK bir kademe/order-book beslemesi DEĞİL — kullanıcının kendi gözlemini yazdığı, kalıcı saklanan bir not/günlük. (3) Veri kaynağını ben araştırıp bulacaktım.
+
+**Veri kaynağı araştırması:** Fintables gibi siteler daha önce 403 ile engellenmişti; bu kez `halkarz.com` denendi — statik HTML (JS render gerektirmiyor), `robots.txt` `/ai/`, `/areurobot/` gibi belirli path'leri yasaklıyor ama anasayfa/detay sayfaları SERBEST. Canlı testte hem anasayfadaki halka arz listesi hem de tek tek şirket detay sayfaları (fiyat, tarih, dağıtım yöntemi, aracı kurum, pazar, İLK İŞLEM TARİHİ, hatta gerçekleşmiş halka arzlar için "Talep Sonuçları" — bireysel/kurumsal dağılım oranları) başarıyla çekildi.
+
+**Backend — yeni `services/ipo/halkarz_provider.py`:** BeautifulSoup ile anasayfa listesini (`ul.halka-arz-list`) ve detay tablosunu (`table.sp-table`, `table.as-table`) ayrıştırır — hiçbir alan yorumlanmaz, sitede yazan Türkçe etiketler (ör. "Halka Arz Fiyatı/Aralığı") aynen döner. Savunma amaçlı: metinler geçersiz tekil surrogate karakterlere karşı temizlenir (canlı testte terminal görüntüleme sorunu sanılan bir durum araştırılırken bulundu — gerçek API yanıtı incelendiğinde veri sağlam çıktı, ama yine de bu temizlik korundu). `services/ipo/cache_service.py` ile 6 saatlik TTL önbellek (fund_analysis ile aynı desen). Yeni `GET /ipo` (liste), `GET /ipo/detail?url=...` (detay), `GET /ipo/news?company=...` (mevcut GoogleNewsRssProvider'ı "halka arz" sorgu ekiyle yeniden kullanır — şirketin henüz borsa kodu olmasa bile isimle arama yapar).
+
+**Notlar — kalıcı, kullanıcı üretimi:** Yeni `IpoNoteRepository`/`GET,POST /ipo/notes`, `DELETE /ipo/notes/{id}` — kullanıcının kendi gözlemi ("şu an çok satış var, satmalıyım" gibi) serbest metin olarak, tarihiyle birlikte kalıcı saklanır; hiçbir AI yorumu/üretimi YOK.
+
+**Flutter — yeni "Halka Arzlar" sayfası (Ayarlar → Halka Arzlar):** Liste ekranı (rozet renkleri: Yeni!=indigo, Gong!=yeşil, Ertelendi=kırmızı) → detay ekranı: Halka Arz Bilgileri tablosu, Talep Sonuçları tablosu (varsa), gerçek haberler (dokununca tarayıcıda açılır), ve "Notlarım" bölümü (yaz → gönder → kalıcı liste, silinebilir).
+
+**Doğrulama (gerçek, uçtan uca):** 12 yeni backend testi (`test_halkarz_provider.py` — 6, `test_ipo_cache_service.py` — 6) + mevcut, toplam 389/389 backend test yeşil. Cloud Run'a deploy edildi; canlıda gerçek bir halka arzın (Türker Vangölü Enerji, VEYAS) tüm detayları, 5 satırlık gerçek talep sonuçları ve gerçek haberleri doğrulandı. Android emülatöründe TAM uçtan uca test edildi: liste → detay → haberler (dokununca Chrome açıldı) → not yazma → kaydetme → kalıcı listede görünme, hepsi ekran görüntüsüyle teyit edildi. 46/46 flutter test yeşil (4 yeni). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+21.08.2026 — Halka Arzlar sayfası (gerçek takvim/fiyat/talep verisi + kendi notların) eklendi, 389/389 backend test yeşil (12 yeni test), 46/46 flutter test yeşil (4 yeni).
