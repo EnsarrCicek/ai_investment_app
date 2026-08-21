@@ -2046,3 +2046,22 @@ Kullanıcı: "Haberlerin detayı verilmediği için analiz ettiğinde yapay zeka
 
 **Tarih / Not:**
 21.08.2026 — Haber analizi prompt düzeltmesi ("detay verilmedi" sorunu) + habere dokununca tarayıcıda açılma eklendi, 370/370 backend test yeşil (11 yeni test), 42/42 flutter test yeşil.
+
+---
+
+## 66. Teknik Sekmede Destek/Direnç Grafiği + "Neden Bu Sinyal?" Anlatısı (21.08.2026)
+
+Kullanıcı: "Grafiklerde nasıl dirençler var, nasıl çizgiler çizip bana AL diyorsun, bunun detaylı açıklamasını istiyorum — 'işte bu direnç var, onu kırdı, o yüzden alman lazım, yükselecek' gibisinden açıkla istiyorum, teknik kısımda."
+
+**Veri zaten hesaplanıyordu, gösterilmiyordu:** `engines/technical/support_resistance.py` ve `breakout.py` (AŞAMA 48/15'ten beri) swing point'lerden ATR-normalize edilmiş destek/direnç bölgelerini VE kırılım/teyit/retest durumunu zaten hesaplıyordu — API yalnızca EN YAKIN destek/direnç ile ham `breakout` sözlüğünü metin olarak dönüyordu, ne grafikte çizim ne de bütünsel bir anlatı vardı.
+
+**Yeni: `engines/technical/narrative.py` (kural tabanlı, LLM YOK):** Nearest support/resistance + breakout verisini (yön, ATR büyüklüğü, teyit durumu, retest) okunabilir bir Türkçe paragrafa çeviriyor — ör. "Fiyat, 301.75–301.75 TL bandındaki (1 kez test edilmiş) direnci ATR'nin 0.14 katı büyüklüğünde yukarı yönlü kırdı. Bu kırılımın gerçek mi yoksa yanlış (false breakout) mi olduğu henüz teyit edilmedi." Confirmed/false/pending/retest-held/retest-failed durumlarının HER BİRİ için ayrı, dürüst bir cümle var — hiçbiri "kesin yükselecek" gibi kesin bir vaat İÇERMİYOR, yalnızca "genel kural şudur" diye teknik analiz mantığını açıklıyor.
+
+**API — `all_zones` eklendi:** Motor zaten TÜM destek/direnç bölgelerini (`zones`) hesaplıyordu ama yalnızca en yakın ikisini dışa veriyordu; artık fiyata en yakın 8 bölge de `all_zones` olarak dönüyor (`TechnicalAnalysis.all_zones`, `TechnicalAnalysis.narrative`).
+
+**Flutter — Teknik sekmesine iki yeni bölüm:** (1) "Grafik Neden Bunu Söylüyor?" kartı — yukarıdaki anlatıyı gösterir, trend yönüne göre renklendirilir. (2) "Destek / Direnç Grafiği" — backend'in AYNI 6 aylık penceresinden (`period="6mo"`, teknik motorla birebir aynı) çekilen kapanış fiyatı çizgisinin üzerine, her destek/direnç bölgesi için kesikli yatay çizgi + etiket (ör. "D 296.75 (2x)", "R 301.75 (1x)") çizen yeni bir `CustomPainter` (`_SrChartCard`/`_SrChartPainter`) — kullanıcının "nasıl çizgiler çiziyorsun" sorusuna doğrudan görsel cevap.
+
+**Doğrulama (gerçek, uçtan uca):** 7 yeni backend testi (`test_technical_narrative.py`) + mevcut, toplam 377/377 backend test yeşil. Cloud Run'a deploy edildi (ilk deneme geçici bir altyapı hatasıyla başarısız oldu — Cloud Run konteyner başlatma zaman aşımı, kodla ilgisizdi — ikinci denemede sorunsuz deploy edildi). Canlıda THYAO için gerçek anlatı ve 8 bölgelik `all_zones` doğrulandı. Android emülatöründe uçtan uca doğrulandı — hem anlatı kartı hem de destek/direnç çizgileri ekran görüntüsüyle teyit edildi. 42/42 flutter test yeşil (mevcut model testleri yeni alanları da kapsayacak şekilde genişletildi). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+21.08.2026 — Teknik sekmede destek/direnç grafiği + kural tabanlı "neden bu sinyal" anlatısı eklendi, 377/377 backend test yeşil (7 yeni test), 42/42 flutter test yeşil.

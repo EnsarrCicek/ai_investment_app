@@ -6,6 +6,8 @@ class SrZone {
 
   SrZone({required this.type, required this.low, required this.high, required this.touchCount});
 
+  double get mid => (low + high) / 2;
+
   factory SrZone.fromJson(Map<String, dynamic> json) {
     return SrZone(
       type: json['type'] as String,
@@ -65,6 +67,12 @@ class TechnicalAnalysisDetail {
   final bool? mtfAligned;
   final String? mtfConsensus;
 
+  // AŞAMA 66: kullanıcı isteği "grafikte dirençler nasıl çiziliyor, neden AL
+  // diyorsun detaylı açıkla" — grafikte çizilecek tüm destek/direnç bölgeleri
+  // + kural tabanlı (LLM'siz) Türkçe anlatı.
+  final List<SrZone> allZones;
+  final String narrative;
+
   TechnicalAnalysisDetail({
     required this.asset,
     required this.technicalScore,
@@ -85,6 +93,8 @@ class TechnicalAnalysisDetail {
     this.breakout,
     this.mtfAligned,
     this.mtfConsensus,
+    this.allZones = const [],
+    this.narrative = '',
   });
 
   factory TechnicalAnalysisDetail.fromJson(Map<String, dynamic> json) {
@@ -115,6 +125,10 @@ class TechnicalAnalysisDetail {
       breakout: json['breakout'] == null ? null : BreakoutInfo.fromJson(json['breakout'] as Map<String, dynamic>),
       mtfAligned: json['mtf_aligned'] as bool?,
       mtfConsensus: json['mtf_consensus'] as String?,
+      allZones:
+          (json['all_zones'] as List<dynamic>?)?.map((e) => SrZone.fromJson(e as Map<String, dynamic>)).toList() ??
+          const [],
+      narrative: json['narrative'] as String? ?? '',
     );
   }
 }

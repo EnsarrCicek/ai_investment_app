@@ -189,11 +189,16 @@ class _TechnicalTab extends StatefulWidget {
 
 class _TechnicalTabState extends State<_TechnicalTab> {
   late Future<TechnicalAnalysisDetail> _future;
+  late Future<List<PriceBar>> _historyFuture;
 
   @override
   void initState() {
     super.initState();
     _future = AnalysisApi().fetchTechnical(widget.symbol);
+    // 6 aylık geçmiş — backend'in destek/direnç bölgelerini hesapladığı
+    // AYNI pencere (bkz. engines/technical/engine.py, period="6mo") — grafik
+    // ile anlatının aynı veriye dayandığından emin olmak için.
+    _historyFuture = MarketDataApi().fetchHistory(widget.symbol, period: '6mo', interval: '1d');
   }
 
   @override
@@ -208,6 +213,11 @@ class _TechnicalTabState extends State<_TechnicalTab> {
           return Center(child: Text('Hata: ${snapshot.error}'));
         }
         final data = snapshot.data!;
+        final trendColor = data.trend == 'BULLISH'
+            ? Colors.green
+            : data.trend == 'BEARISH'
+            ? Colors.red
+            : Colors.grey;
         return ListView(
           padding: const EdgeInsets.all(12),
           children: [
@@ -236,6 +246,44 @@ class _TechnicalTabState extends State<_TechnicalTab> {
               const SizedBox(height: 12),
               _SignalSummaryCard(data: data),
             ],
+            if (data.narrative.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                color: trendColor.withValues(alpha: 0.08),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.insights, color: trendColor, size: 18),
+                          const SizedBox(width: 6),
+                          const Text('Grafik Neden Bunu Söylüyor?', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(data.narrative, style: const TextStyle(fontSize: 13, height: 1.4)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text('Destek / Direnç Grafiği', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            FutureBuilder<List<PriceBar>>(
+              future: _historyFuture,
+              builder: (context, histSnapshot) {
+                if (histSnapshot.connectionState != ConnectionState.done) {
+                  return const SizedBox(height: 260, child: Center(child: CircularProgressIndicator()));
+                }
+                if (histSnapshot.hasError || (histSnapshot.data?.length ?? 0) < 2) {
+                  return const SizedBox(height: 40, child: Center(child: Text('Grafik için yeterli veri yok')));
+                }
+                return _SrChartCard(bars: histSnapshot.data!, zones: data.allZones, lineColor: trendColor);
+              },
+            ),
             const SizedBox(height: 16),
             const Text('Gösterge Katkıları', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -415,6 +463,156 @@ class _BreakoutInfoRow extends StatelessWidget {
       style: const TextStyle(fontSize: 13),
     );
   }
+}
+
+/// AŞAMA 66: kullanıcı isteği — "grafiklerde nasıl dirençler var, nasıl
+/// çizgiler çizip AL diyorsun, bu direnç var onu kırdı o yüzden alman lazım
+/// yükselecek gibisinden açıkla." Fiyat çizgisinin üzerine backend'in ZATEN
+/// hesapladığı destek/direnç bölgelerini (SrZone) yatay bant olarak çizer —
+/// yeni bir sinyal ÜRETMEZ, mevcut hesaplamayı görselleştirir.
+class _SrChartCard extends StatelessWidget {
+  final List<PriceBar> bars;
+  final List<SrZone> zones;
+  final Color lineColor;
+  const _SrChartCard({required this.bars, required this.zones, required this.lineColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 260,
+              width: double.infinity,
+              child: CustomPaint(painter: _SrChartPainter(bars: bars, zones: zones, lineColor: lineColor)),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 14,
+              runSpacing: 6,
+              children: [
+                _LegendDot(color: Colors.green, label: 'Destek bölgesi'),
+                _LegendDot(color: Colors.red, label: 'Direnç bölgesi'),
+                _LegendDot(color: lineColor, label: 'Kapanış fiyatı'),
+              ],
+            ),
+            if (zones.isEmpty) ...[
+              const SizedBox(height: 6),
+              const Text(
+                'Son 6 ayda belirgin bir destek/direnç bölgesi tespit edilemedi.',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendDot({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
+  }
+}
+
+class _SrChartPainter extends CustomPainter {
+  final List<PriceBar> bars;
+  final List<SrZone> zones;
+  final Color lineColor;
+  _SrChartPainter({required this.bars, required this.zones, required this.lineColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (bars.length < 2) return;
+    final closes = bars.map((b) => b.close).toList();
+    final zoneValues = zones.expand((z) => [z.low, z.high]);
+    final allValues = [...closes, ...zoneValues];
+    final minP = allValues.reduce((a, b) => a < b ? a : b);
+    final maxP = allValues.reduce((a, b) => a > b ? a : b);
+    final range = (maxP - minP) == 0 ? 1.0 : (maxP - minP);
+    // Etiketlerin sığması için sağda boşluk bırakılır.
+    const labelWidth = 78.0;
+    final chartWidth = (size.width - labelWidth).clamp(0.0, size.width);
+
+    double yFor(double price) => size.height - ((price - minP) / range) * size.height;
+
+    for (final zone in zones) {
+      final top = yFor(zone.high).clamp(0.0, size.height);
+      final bottom = yFor(zone.low).clamp(0.0, size.height);
+      final color = zone.type == 'SUPPORT' ? Colors.green : Colors.red;
+
+      canvas.drawRect(
+        Rect.fromLTRB(0, top, chartWidth, bottom < top ? top : bottom),
+        Paint()..color = color.withValues(alpha: 0.10),
+      );
+
+      final midY = (top + bottom) / 2;
+      _drawDashedLine(canvas, Offset(0, midY), Offset(chartWidth, midY), color.withValues(alpha: 0.6));
+
+      final label = '${zone.type == 'SUPPORT' ? 'D' : 'R'} ${zone.mid.toStringAsFixed(2)} (${zone.touchCount}x)';
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.bold)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      painter.paint(canvas, Offset(chartWidth + 4, (midY - painter.height / 2).clamp(0.0, size.height - painter.height)));
+    }
+
+    final path = Path();
+    for (var i = 0; i < closes.length; i++) {
+      final x = chartWidth * i / (closes.length - 1);
+      final y = yFor(closes[i]);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = lineColor
+        ..strokeWidth = 2.2
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Color color) {
+    const dashWidth = 6.0;
+    const dashSpace = 4.0;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    final totalDist = end.dx - start.dx;
+    if (totalDist <= 0) return;
+    double drawn = 0;
+    while (drawn < totalDist) {
+      final segEnd = (drawn + dashWidth) < totalDist ? drawn + dashWidth : totalDist;
+      canvas.drawLine(Offset(start.dx + drawn, start.dy), Offset(start.dx + segEnd, start.dy), paint);
+      drawn += dashWidth + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SrChartPainter oldDelegate) =>
+      oldDelegate.bars != bars || oldDelegate.zones != zones || oldDelegate.lineColor != lineColor;
 }
 
 const Map<String, String> _eventTypeLabels = {

@@ -70,6 +70,7 @@ import pandas as pd
 
 from app.engines.technical import indicators as ind
 from app.engines.technical.breakout import BreakoutEvent, check_retest, confirm_breakout, detect_breakout
+from app.engines.technical.narrative import build_narrative
 from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
 from app.engines.technical.data_quality import check_data_quality
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
@@ -115,6 +116,12 @@ TECHNICAL_CACHE_TTL_SECONDS = 900  # 15 dakika
 
 def _clamp(value: float, low: float = -100.0, high: float = 100.0) -> float:
     return max(low, min(high, value))
+
+
+# Grafikte çizilecek destek/direnç bölgesi sayısı — kullanıcı isteği: "grafikte
+# nasıl dirençler var, nasıl çizgiler çiziyorsun" — tüm zone'ları değil,
+# güncel fiyata en yakın olanları göstermek grafiği okunaklı tutar.
+MAX_CHART_ZONES = 8
 
 
 def _zone_to_dict(zone: SRZone | None) -> dict | None:
@@ -209,6 +216,12 @@ def _compute_enrichment(
     )
     signal_class = classify_signal(signal_inputs)
 
+    nearest_support_dict = _zone_to_dict(support)
+    nearest_resistance_dict = _zone_to_dict(resistance)
+    breakout_dict = _breakout_to_dict(breakout_event)
+
+    chart_zones = sorted(zones, key=lambda z: abs(z.mid - close_val))[:MAX_CHART_ZONES]
+
     return {
         "market_structure": structure_result["structure"],
         "signal_class": signal_class,
@@ -218,9 +231,11 @@ def _compute_enrichment(
         "trend_regime": trend_regime_val,
         "gap_class": gap_class,
         "candlestick_patterns": candlestick,
-        "nearest_support": _zone_to_dict(support),
-        "nearest_resistance": _zone_to_dict(resistance),
-        "breakout": _breakout_to_dict(breakout_event),
+        "nearest_support": nearest_support_dict,
+        "nearest_resistance": nearest_resistance_dict,
+        "breakout": breakout_dict,
+        "all_zones": [_zone_to_dict(z) for z in chart_zones],
+        "narrative": build_narrative(nearest_support_dict, nearest_resistance_dict, breakout_dict),
         "mtf_aligned": alignment["aligned"],
         "mtf_consensus": alignment["consensus"],
     }

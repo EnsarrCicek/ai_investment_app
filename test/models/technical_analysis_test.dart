@@ -21,6 +21,8 @@ void main() {
     expect(detail.candlestickPatterns, isEmpty);
     expect(detail.nearestSupport, isNull);
     expect(detail.breakout, isNull);
+    expect(detail.allZones, isEmpty);
+    expect(detail.narrative, '');
   });
 
   test('AŞAMA 48/15 zenginleştirme alanlarını doğru ayrıştırır', () {
@@ -50,6 +52,11 @@ void main() {
       },
       'mtf_aligned': true,
       'mtf_consensus': 'DOWN',
+      'all_zones': [
+        {'type': 'SUPPORT', 'low': 305.25, 'high': 305.25, 'touch_count': 1},
+        {'type': 'RESISTANCE', 'low': 301.75, 'high': 301.75, 'touch_count': 1},
+      ],
+      'narrative': 'Fiyat, direnci yukarı yönlü kırdı.',
     };
 
     final detail = TechnicalAnalysisDetail.fromJson(json);
@@ -66,5 +73,8 @@ void main() {
     expect(detail.breakout!.zone.type, 'RESISTANCE');
     expect(detail.mtfAligned, true);
     expect(detail.mtfConsensus, 'DOWN');
+    expect(detail.allZones.length, 2);
+    expect(detail.allZones.first.type, 'SUPPORT');
+    expect(detail.narrative, 'Fiyat, direnci yukarı yönlü kırdı.');
   });
 }

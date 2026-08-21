@@ -30,3 +30,10 @@ class TechnicalAnalysis(BaseModel):
     breakout: dict | None = None
     mtf_aligned: bool | None = None
     mtf_consensus: str | None = None
+
+    # AŞAMA 66: kullanıcı isteği "grafikte dirençler nasıl çiziliyor, neden
+    # AL diyorsun detaylı açıkla" — grafikte çizilecek tüm destek/direnç
+    # bölgeleri (fiyata en yakın MAX_CHART_ZONES tanesi) ve kural tabanlı
+    # (LLM'siz) Türkçe anlatı (bkz. engines/technical/narrative.py).
+    all_zones: list[dict] = Field(default_factory=list)
+    narrative: str = ""
