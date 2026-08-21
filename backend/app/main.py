@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api import (
     analysis,
+    analysts,
     assets,
     backtest,
     decisions,
@@ -29,6 +30,7 @@ app.include_router(notifications.router)
 app.include_router(usage.router)
 app.include_router(market_data.router)
 app.include_router(funds.router)
+app.include_router(analysts.router)
 
 
 @app.get("/health")

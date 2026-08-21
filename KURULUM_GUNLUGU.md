@@ -1989,3 +1989,20 @@ Kullanıcı: "test laboratuvarda haberleri almamış, makro değerleri filan alm
 
 **Tarih / Not:**
 20.08.2026 — Karar Günlüğü + Strateji Lab test geçmişi eklendi, 343/343 backend test yeşil (7 yeni test), 40/40 flutter test yeşil (4 yeni).
+
+---
+
+## 63. Gerçek Analist Konsensüsü Sayfası: "Al mı Diyorlar Sat mı Diyorlar" (21.08.2026)
+
+Kullanıcı: "Analistlerin değerlendirmeleri de bulunsun, al mı diyorlar yoksa sat mı diyorlar, istediğin yerden çekebilirsin bu verileri, başka borsa sitelerine bakabilirsin, neresi olursa öyle bir sayfa oluşturmanı istiyorum senden." AŞAMA 61'de eklenen "Analist / Hedef Fiyat" haber rozetleri yeterli bulunmadı — kullanıcı GERÇEK, yapılandırılmış AL/TUT/SAT oy sayıları ve hedef fiyat konsensüsü içeren AYRI bir sayfa istiyor.
+
+**Kaynak araştırması:** Fintables.com (403 Forbidden, bot koruması) ve Yahoo Finance web sayfası (503) doğrudan scrape edilemedi. Bunun yerine projede zaten bağımlılık olan `yfinance` kütüphanesinin `Ticker.recommendations` (strongBuy/buy/hold/sell/strongSell dağılımı, 0/-1/-2/-3 aylık trend) ve `Ticker.analyst_price_targets` (current/high/low/mean/median) özellikleri canlı test edildi — THYAO/GARAN/ASELS/BIMAS gibi BIST30 hisselerinde GERÇEK, çok analistli veri döndüğü doğrulandı; SASA gibi küçük ölçekli hisselerde (analist takibi az/yok) sadece `current` fiyat dönüp `recommendations` boş kaldığı da görüldü — bu durum hata değil, gerçek bir veri eksikliği olarak ele alındı. `upgrades_downgrades` BIST için 404 döndürdüğünden kullanılmadı.
+
+**Deterministik sınıflandırma (yine LLM yok):** Yeni `engines/analysts/consensus.py`, gerçek oy sayılarını ağırlıklı ortalamaya çevirip (strongBuy=+2 ... strongSell=-2) GÜÇLÜ AL/AL/TUT/SAT/GÜÇLÜ SAT etiketine eşliyor — bu da AŞAMA 60'taki risk.py ile aynı felsefe: sayısal veri zaten net bir sinyal veriyorsa yorumlamak için modele gerek yok. Yeni `services/analysts/yahoo_analyst_provider.py` (ham veri çekimi, hataları yutup boş yapı döner) + `services/analysts/consensus_cache_service.py` (fund_analysis ile aynı 6 saatlik TTL önbellek deseni, `system_cache` koleksiyonunda sembol başına belge) + yeni `GET /analysts/{symbol}` endpoint'i.
+
+**Flutter — yeni "Analistler" sekmesi:** Varlık Detayı ekranına Haberler ile Karar Günlüğü arasına eklendi: konsensüs etiketi rozeti + analist sayısı, AL/TUT/SAT dağılımı (çubuk grafik), hedef fiyat kartı (güncel/ortalama/medyan/aralık + yükseliş potansiyeli %), zaman içindeki trend (bu ay/1/2/3 ay önce kaç analist ne diyordu), ve karşılaştırma için AI Kararımız kartı (mevcut Decision API'den, aynı yerde). Analist takibi olmayan hisselerde ("veri yok") kullanıcıya bunun küçük/orta ölçekli şirketlerde normal olduğu açıkça belirtiliyor — sessizce boş bırakılmıyor.
+
+**Doğrulama (gerçek, uçtan uca):** 11 yeni backend testi (`test_analyst_consensus_engine.py`, `test_yahoo_analyst_provider.py`) + mevcut, toplam 354/354 backend test yeşil. Cloud Run'a deploy edildi; `/analysts/THYAO` canlıda gerçek veriyle doğrulandı (13 analist, AL, ortalama hedef 463,54 TL, %53,5 yükseliş potansiyeli), `/analysts/SASA` veri eksikliğini doğru şekilde VERİ_YOK olarak döndü, ikinci istekte aynı `as_of` ile TTL önbellek doğrulandı. 42/42 flutter test yeşil (2 yeni). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+21.08.2026 — Gerçek analist konsensüsü (Yahoo Finance) + yeni "Analistler" sekmesi eklendi, 354/354 backend test yeşil (11 yeni test), 42/42 flutter test yeşil (2 yeni).

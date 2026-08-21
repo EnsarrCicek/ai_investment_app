@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/analyst_consensus.dart';
 import '../../models/backtest_result.dart';
 import '../../models/decision.dart';
 import '../../models/decision_journal_entry.dart';
@@ -8,6 +9,7 @@ import '../../models/news_item.dart';
 import '../../models/price_quote.dart';
 import '../../models/technical_analysis.dart';
 import '../../services/api/analysis_api.dart';
+import '../../services/api/analyst_api.dart';
 import '../../services/api/backtest_api.dart';
 import '../../services/api/decision_api.dart';
 import '../../services/api/market_data_api.dart';
@@ -138,7 +140,7 @@ class AssetDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Scaffold(
         appBar: AppBar(
           title: Text(symbol),
@@ -148,6 +150,7 @@ class AssetDetailScreen extends StatelessWidget {
               Tab(text: 'Fiyat'),
               Tab(text: 'Teknik'),
               Tab(text: 'Haberler'),
+              Tab(text: 'Analistler'),
               Tab(text: 'Karar Günlüğü'),
               Tab(text: 'Performans'),
             ],
@@ -158,6 +161,7 @@ class AssetDetailScreen extends StatelessWidget {
             _PriceTab(symbol: symbol),
             _TechnicalTab(symbol: symbol),
             _NewsTab(symbol: symbol),
+            _AnalystsTab(symbol: symbol),
             _HistoryTab(symbol: symbol),
             _PerformanceTab(symbol: symbol),
           ],
@@ -678,6 +682,296 @@ class _AnalysisBadge extends StatelessWidget {
           const SizedBox(height: 6),
           Text(analysis.reasoning, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
         ],
+      ),
+    );
+  }
+}
+
+const Map<String, String> _recommendationPeriodLabelsTr = {
+  '0m': 'Bu ay',
+  '-1m': '1 ay önce',
+  '-2m': '2 ay önce',
+  '-3m': '3 ay önce',
+};
+
+Color _consensusColor(String label) {
+  switch (label) {
+    case 'GUCLU_AL':
+    case 'AL':
+      return Colors.green;
+    case 'GUCLU_SAT':
+    case 'SAT':
+      return Colors.red;
+    case 'TUT':
+      return Colors.orange;
+    default:
+      return Colors.grey;
+  }
+}
+
+/// AŞAMA 63: kullanıcı isteği "analistlerin değerlendirmeleri bulunsun, al mı
+/// diyorlar sat mı diyorlar, istediğin yerden çekebilirsin" — burada GERÇEK
+/// banka/aracı kurum analist verisi (Yahoo Finance üzerinden, engines/analysts/
+/// consensus.py) gösterilir; keyword tabanlı bir tahmin DEĞİL, gerçek AL/TUT/SAT
+/// sayıları ve hedef fiyat konsensüsüdür. AI kararımızla yan yana karşılaştırma
+/// için aynı ekranda Decision de gösterilir.
+class _AnalystsTab extends StatefulWidget {
+  final String symbol;
+  const _AnalystsTab({required this.symbol});
+
+  @override
+  State<_AnalystsTab> createState() => _AnalystsTabState();
+}
+
+class _AnalystsTabState extends State<_AnalystsTab> {
+  late Future<AnalystConsensus> _consensusFuture;
+  late Future<Decision> _decisionFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _consensusFuture = AnalystApi().fetchConsensus(widget.symbol);
+    _decisionFuture = DecisionApi().fetchDecision(widget.symbol);
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _consensusFuture = AnalystApi().fetchConsensus(widget.symbol);
+      _decisionFuture = DecisionApi().fetchDecision(widget.symbol);
+    });
+    await Future.wait([_consensusFuture, _decisionFuture]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: FutureBuilder<AnalystConsensus>(
+        future: _consensusFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [Center(child: Text('Hata: ${snapshot.error}'))],
+            );
+          }
+          final consensus = snapshot.data!;
+          final color = _consensusColor(consensus.consensusLabel);
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            children: [
+              Card(
+                color: color.withValues(alpha: 0.1),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
+                            child: Text(
+                              analystConsensusLabelsTr[consensus.consensusLabel] ?? consensus.consensusLabel,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          Text(
+                            '${consensus.totalAnalysts} analist',
+                            style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      if (consensus.totalAnalysts == 0) ...[
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Bu hisse için Yahoo Finance üzerinde aktif analist takibi bulunmuyor. '
+                          'Küçük/orta ölçekli şirketlerde bu normaldir — büyük bankalar genelde '
+                          'BIST30/BIST100 ağırlıklı hisseleri takip eder.',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              if (consensus.totalAnalysts > 0) ...[
+                const SizedBox(height: 12),
+                _RecommendationBreakdownCard(consensus: consensus),
+              ],
+              if (consensus.priceTargetMean != null) ...[
+                const SizedBox(height: 12),
+                _PriceTargetCard(consensus: consensus),
+              ],
+              const SizedBox(height: 12),
+              FutureBuilder<Decision>(
+                future: _decisionFuture,
+                builder: (context, decisionSnapshot) {
+                  if (decisionSnapshot.connectionState != ConnectionState.done || !decisionSnapshot.hasData) {
+                    return const SizedBox.shrink();
+                  }
+                  final d = decisionSnapshot.data!;
+                  final dColor = decisionColor(d.decision);
+                  return Card(
+                    color: dColor.withValues(alpha: 0.1),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Icon(Icons.smart_toy_outlined, color: dColor),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'AI Kararımız: ${decisionLabel(d.decision)} (skor ${d.finalScore >= 0 ? '+' : ''}'
+                              '${d.finalScore.toStringAsFixed(1)}, güven %${d.confidence.toStringAsFixed(0)}) — '
+                              'yukarıdaki analist konsensüsüyle karşılaştırıp kendi değerlendirmenizi yapın.',
+                              style: TextStyle(fontWeight: FontWeight.bold, color: dColor, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              if (consensus.trend.length > 1) ...[
+                const SizedBox(height: 16),
+                const Text('Zaman İçinde Değişim', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ...consensus.trend.map((t) => _TrendRow(period: t)),
+              ],
+              const SizedBox(height: 16),
+              Text(
+                'Kaynak: Yahoo Finance — banka/aracı kurum analistlerinin gerçek AL/TUT/SAT '
+                'oy dağılımı ve hedef fiyat verileri (${consensus.asOf.toLocal().day.toString().padLeft(2, '0')}.'
+                '${consensus.asOf.toLocal().month.toString().padLeft(2, '0')}.${consensus.asOf.toLocal().year} itibarıyla).',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _RecommendationBreakdownCard extends StatelessWidget {
+  final AnalystConsensus consensus;
+  const _RecommendationBreakdownCard({required this.consensus});
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <(String, int, Color)>[
+      ('Güçlü Al', consensus.strongBuy, Colors.green.shade700),
+      ('Al', consensus.buy, Colors.green),
+      ('Tut', consensus.hold, Colors.orange),
+      ('Sat', consensus.sell, Colors.red),
+      ('Güçlü Sat', consensus.strongSell, Colors.red.shade700),
+    ];
+    final maxCount = rows.map((r) => r.$2).fold(0, (a, b) => a > b ? a : b);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Analist Dağılımı', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            ...rows.map((r) {
+              final (label, count, color) = r;
+              final fraction = maxCount == 0 ? 0.0 : count / maxCount;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    SizedBox(width: 72, child: Text(label, style: const TextStyle(fontSize: 12))),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: fraction,
+                          minHeight: 10,
+                          backgroundColor: color.withValues(alpha: 0.1),
+                          valueColor: AlwaysStoppedAnimation(color),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 20, child: Text('$count', style: const TextStyle(fontSize: 12))),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PriceTargetCard extends StatelessWidget {
+  final AnalystConsensus consensus;
+  const _PriceTargetCard({required this.consensus});
+
+  @override
+  Widget build(BuildContext context) {
+    final upside = consensus.upsidePct;
+    final upsideColor = upside == null ? Colors.grey : (upside >= 0 ? Colors.green : Colors.red);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Hedef Fiyat Konsensüsü', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 24,
+              runSpacing: 10,
+              children: [
+                _InfoChip(label: 'Güncel Fiyat', value: '${consensus.priceTargetCurrent?.toStringAsFixed(2) ?? '—'} TL'),
+                _InfoChip(label: 'Ortalama Hedef', value: '${consensus.priceTargetMean?.toStringAsFixed(2) ?? '—'} TL'),
+                _InfoChip(label: 'Medyan Hedef', value: '${consensus.priceTargetMedian?.toStringAsFixed(2) ?? '—'} TL'),
+                _InfoChip(label: 'En Düşük', value: '${consensus.priceTargetLow?.toStringAsFixed(2) ?? '—'} TL'),
+                _InfoChip(label: 'En Yüksek', value: '${consensus.priceTargetHigh?.toStringAsFixed(2) ?? '—'} TL'),
+              ],
+            ),
+            if (upside != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Ortalama hedefe göre potansiyel: ${upside >= 0 ? '+' : ''}${upside.toStringAsFixed(1)}%',
+                style: TextStyle(color: upsideColor, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrendRow extends StatelessWidget {
+  final AnalystRecommendationPeriod period;
+  const _TrendRow({required this.period});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _recommendationPeriodLabelsTr[period.period] ?? (period.period ?? '-');
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      child: ListTile(
+        dense: true,
+        title: Text(label),
+        trailing: Text(
+          'Al: ${period.strongBuy + period.buy}   Tut: ${period.hold}   Sat: ${period.sell + period.strongSell}',
+          style: const TextStyle(fontSize: 12),
+        ),
       ),
     );
   }
