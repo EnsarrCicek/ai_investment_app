@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.engines.event_intelligence import engine as engine_module
 from app.engines.event_intelligence.engine import (
     HIGH_IMPORTANCE_THRESHOLD,
     LOW_CONFIDENCE_THRESHOLD,
@@ -12,6 +13,14 @@ from app.engines.event_intelligence.engine import (
 )
 from app.models.news_analysis import NewsAnalysis
 from app.models.news_raw import NewsRawItem
+
+
+@pytest.fixture(autouse=True)
+def _no_real_article_fetch(monkeypatch):
+    # Testler gerçek ağ çağrısı yapmasın — makale metni çekimi ayrı testlerde
+    # (test_article_fetcher.py) ve aşağıdaki prompt testlerinde ayrıca kontrol
+    # ediliyor.
+    monkeypatch.setattr(engine_module, "fetch_article_text", lambda url, **kwargs: "")
 
 
 class _FakeCompletions:
@@ -122,6 +131,81 @@ def test_analyze_item_returns_validated_news_analysis():
     assert result.sentiment_score == 62.5
     assert result.model_used == "gpt-5.6-luna"
     assert repo.added == [result]
+
+
+def test_analyze_item_omits_empty_summary_line():
+    # Kullanıcı isteği: "haberin detayı verilmediği için kesin bir yargıya
+    # varılamıyor" — kök nedenlerden biri, boş bir "Özet:" satırının modele
+    # "bilgi eksik" sinyali vermesiydi. Özet boşsa hiç gönderilmemeli.
+    client = _FakeOpenAIClient(_VALID_RESPONSE)
+    engine = EventIntelligenceEngine(
+        client=client,
+        analysis_repo=_FakeAnalysisRepo(),
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
+        primary_model="m",
+    )
+    news = _news_item()
+    news.summary = ""
+
+    engine.analyze_item(news, "THYAO")
+
+    user_content = client.completions.calls[0]["messages"][1]["content"]
+    assert "Özet:" not in user_content
+    assert "Başlık:" in user_content
+
+
+def test_analyze_item_includes_summary_when_present():
+    client = _FakeOpenAIClient(_VALID_RESPONSE)
+    engine = EventIntelligenceEngine(
+        client=client,
+        analysis_repo=_FakeAnalysisRepo(),
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
+        primary_model="m",
+    )
+
+    engine.analyze_item(_news_item(), "THYAO")
+
+    user_content = client.completions.calls[0]["messages"][1]["content"]
+    assert "Özet: Detaylı özet burada." in user_content
+
+
+def test_analyze_item_includes_fetched_article_text_when_available(monkeypatch):
+    monkeypatch.setattr(
+        engine_module,
+        "fetch_article_text",
+        lambda url, **kwargs: "THYAO hisseleri icin analistler hedef fiyati yukseltti.",
+    )
+    client = _FakeOpenAIClient(_VALID_RESPONSE)
+    engine = EventIntelligenceEngine(
+        client=client,
+        analysis_repo=_FakeAnalysisRepo(),
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
+        primary_model="m",
+    )
+
+    engine.analyze_item(_news_item(), "THYAO")
+
+    user_content = client.completions.calls[0]["messages"][1]["content"]
+    assert "Makale Metni: THYAO hisseleri icin analistler hedef fiyati yukseltti." in user_content
+
+
+def test_analyze_item_omits_article_text_line_when_fetch_returns_empty():
+    client = _FakeOpenAIClient(_VALID_RESPONSE)
+    engine = EventIntelligenceEngine(
+        client=client,
+        analysis_repo=_FakeAnalysisRepo(),
+        news_repo=_FakeNewsRepo([]),
+        usage_repo=_FakeUsageRepo(),
+        primary_model="m",
+    )
+
+    engine.analyze_item(_news_item(), "THYAO")
+
+    user_content = client.completions.calls[0]["messages"][1]["content"]
+    assert "Makale Metni:" not in user_content
 
 
 def test_analyze_item_requests_structured_json_schema():

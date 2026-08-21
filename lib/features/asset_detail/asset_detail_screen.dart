@@ -17,6 +17,7 @@ import '../../services/api/news_analysis_api.dart';
 import '../../services/api/news_api.dart';
 import '../../services/api/portfolio_api.dart';
 import '../../utils/decision_style.dart';
+import '../../utils/url_launch.dart';
 
 const Map<String, ({String period, String interval})> _chartPeriods = {
   '1G': (period: '1d', interval: '5m'),
@@ -585,7 +586,7 @@ class _NewsCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        onTap: () => _openUrl(context, item.url),
+        onTap: () => openExternalUrl(context, item.url),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -631,10 +632,6 @@ class _NewsCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  void _openUrl(BuildContext context, String url) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(url)));
   }
 }
 
@@ -921,7 +918,7 @@ class _AnalystMentionCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(item.url))),
+        onTap: () => openExternalUrl(context, item.url),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(

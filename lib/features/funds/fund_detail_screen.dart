@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/fund_analysis.dart';
 import '../../models/news_item.dart';
 import '../../services/api/fund_api.dart';
+import '../../utils/url_launch.dart';
 import 'fund_style.dart';
 
 /// AŞAMA 60: Fon detay ekranı — kullanıcı isteği: "arama kısmı ekle her fona
@@ -216,7 +217,7 @@ class _FundNewsCard extends StatelessWidget {
           item.analystFirm != null ? '${item.analystFirm} · ${item.publisher}' : item.publisher,
           style: const TextStyle(fontSize: 11, color: Colors.grey),
         ),
-        onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(item.url))),
+        onTap: () => openExternalUrl(context, item.url),
       ),
     );
   }

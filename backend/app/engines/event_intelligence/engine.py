@@ -45,6 +45,7 @@ from app.models.token_usage import TokenUsageLog
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.news_raw_repository import NewsRawRepository
 from app.repositories.token_usage_repository import TokenUsageRepository
+from app.services.news.article_fetcher import fetch_article_text
 
 ENGINE_VERSION = "1.0.0"
 
@@ -52,20 +53,28 @@ LOW_CONFIDENCE_THRESHOLD = 0.4
 HIGH_IMPORTANCE_THRESHOLD = 0.8
 
 _SYSTEM_PROMPT = """Sen bir BIST (Borsa İstanbul) finansal haber analistisin. \
-Sana bir hisse senediyle ilgili bir haberin başlığı ve özeti verilecek. Bu \
-haberin o hisse senedi için piyasa etkisini değerlendir.
+Sana bir hisse senediyle ilgili bir haberin başlığı verilecek; çoğu zaman \
+ayrıca özet ve/veya makalenin tam metni de verilecek. Bu haberin o hisse \
+senedi için piyasa etkisini değerlendir.
 
 Kurallar:
 - sentiment_score: -100 (çok olumsuz/satış baskısı yaratır) ile +100 (çok \
 olumlu/alım baskısı yaratır) arası, 0 nötr. Aşırı uçlara yalnızca gerçekten \
 çığır açan haberlerde git.
-- confidence: Bu değerlendirmeye ne kadar güvendiğin (0-1). Haber belirsiz, \
-eksik veya spekülatif ise düşük confidence ver.
+- confidence: Bu değerlendirmeye ne kadar güvendiğin (0-1). ÖNEMLİ: yalnızca \
+BAŞLIK verilmiş olması TEK BAŞINA düşük confidence gerektirmez — Türkçe finans \
+başlıkları genelde tek başına yeterli bilgi taşır (ör. "X hissesi için hedef \
+fiyat yükseltildi", "Y şirketi rekor kâr açıkladı"). Bu durumlarda başlıktaki \
+gerçek bilgiye dayanarak normal bir confidence ver. confidence'ı yalnızca \
+haberin GERÇEKTEN belirsiz, çelişkili veya anlamsız olduğu durumlarda düşür — \
+"detay/metin verilmedi" gerekçesiyle otomatik düşürme.
 - importance: Bu haberin piyasa/hisse fiyatı üzerindeki potansiyel etki \
 büyüklüğü (0-1). Rutin bir haber düşük, çeyrek sonuçları/düzenleyici karar \
 gibi önemli olaylar yüksek olmalı.
 - event_type: haberin kategorisi.
-- reasoning: 1-2 cümlelik kısa Türkçe gerekçe.
+- reasoning: 1-2 cümlelik kısa Türkçe gerekçe — verilen bilgiye (başlık/özet/\
+metin) dayanan somut bir gerekçe olsun, "yeterli bilgi yok" gibi genel \
+ifadelerden kaçın; elindeki bilgiyle en iyi değerlendirmeyi yap.
 
 Yalnızca verilen bilgiye dayan; spekülasyon yapma veya haber dışı bilgi \
 ekleme."""
@@ -126,15 +135,30 @@ class EventIntelligenceEngine:
         self._primary_model = primary_model or EVENT_INTELLIGENCE_PRIMARY_MODEL
 
     def analyze_item(self, news: NewsRawItem, asset: str) -> NewsAnalysis:
-        """Tek bir haberi Luna ile analiz edip immutable olarak kaydeder."""
+        """Tek bir haberi Luna ile analiz edip immutable olarak kaydeder.
+
+        Kullanıcı isteği: "haberin detayı verilmediği için kesin bir yargıya
+        varılamıyor" — kök neden, Google News RSS kaynaklı haberlerde `summary`
+        alanının hep boş gelmesiydi (RSS <description>'ı yalnızca başlığı HTML
+        içinde tekrarlıyor, gerçek içerik değil — bkz. article_fetcher.py
+        docstring'i). İki düzeltme birlikte uygulanıyor: (1) mümkünse GERÇEK
+        makale gövde metni çekilip prompta eklenir, (2) boş bir "Özet:" satırı
+        ARTIK gönderilmiyor — modele "bilgi eksik" sinyali vermek yerine yalnızca
+        gerçekten var olan alanlar gönderiliyor.
+        """
+        article_text = fetch_article_text(news.url)
+
+        content_lines = [f"Varlık: {asset}", f"Başlık: {news.title}"]
+        if news.summary:
+            content_lines.append(f"Özet: {news.summary}")
+        if article_text:
+            content_lines.append(f"Makale Metni: {article_text}")
+
         response = self._client.chat.completions.create(
             model=self._primary_model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"Varlık: {asset}\nBaşlık: {news.title}\nÖzet: {news.summary}",
-                },
+                {"role": "user", "content": "\n".join(content_lines)},
             ],
             response_format={
                 "type": "json_schema",

@@ -2025,3 +2025,24 @@ Kullanıcı: "Hangi analist ne demek diye detaylı istiyorum, bunun hakkında ay
 
 **Tarih / Not:**
 21.08.2026 — Analistler hub'ı (Ayarlar'dan erişilen, hisse+fon arama) + "kim ne demiş" (gerçek kurum adı tespiti) eklendi, 359/359 backend test yeşil (5 yeni test), 43/43 flutter test yeşil (1 yeni).
+
+---
+
+## 65. Haber Analizi "Detay Verilmedi" Sorunu + Habere Dokununca Gerçekten Açılması (21.08.2026)
+
+Kullanıcı: "Haberlerin detayı verilmediği için analiz ettiğinde yapay zeka bir sonuca varamıyor... 'Analiz Et' butonuna bastım, 'haberin detayı verilmediği için kesin bir yargıya varılamaz' yazıyor... haberlere bastığımızda haberin detayı açılsın."
+
+**Kök neden #1 — boş "Özet:" satırı modele "eksik bilgi" sinyali veriyordu:** `GoogleNewsRssProvider` (uygulamadaki Türkçe haberlerin BÜYÜK ÇOĞUNLUĞUNUN kaynağı) `summary` alanını HER ZAMAN boş string olarak dolduruyordu — RSS `<description>` alanı gerçek içerik değil, yalnızca başlığı HTML içinde tekrarlıyor (canlı olarak doğrulandı). `EventIntelligenceEngine`, boş olsa bile prompta her zaman "Özet: " satırı gönderiyordu; bu, modele "bir şey eksik" izlenimi verip "detay verilmediği için kesin yargıya varılamaz" tarzı cevaplara yol açıyordu.
+
+**Kök neden #2 — sistem promptu kısa girdiyi cezalandırıyordu:** Eski talimat "Haber belirsiz, eksik veya spekülatif ise düşük confidence ver" cümlesi, modelin yalnızca BAŞLIK aldığında bunu otomatik olarak "eksik" sayıp güvenini düşürmesine sebep oluyordu — oysa Türkçe finans başlıkları (ör. "THYAO için hedef fiyat 474 TL'ye indirilirken 'al' korundu") çoğu zaman tek başına yeterli bilgi taşıyor.
+
+**Çözülen:** (1) Boş özet artık prompta HİÇ eklenmiyor. (2) Sistem promptu, başlığın tek başına yeterli olabileceğini açıkça belirtip confidence'ı yalnızca GERÇEKTEN belirsiz haberlerde düşürmesini istiyor. (3) Yeni `services/news/article_fetcher.py`: mümkün olduğunda (news.google.com HARİÇ — bu SPA kabuğu döndürüyor, istemci JS'i olmadan sunucu tarafında çözülemiyor, denendi/doğrulandı) makalenin GERÇEK gövde metni (`<p>` etiketleri, BeautifulSoup ile) çekilip prompta "Makale Metni:" olarak eklenir; başarısız olursa (ki Google News kaynaklı haberlerin çoğunda böyle olacak) sessizce atlanır, hiçbir şey uydurulmaz.
+
+**Canlı doğrulama (gerçek OpenAI çağrısı):** Aynı gerçek THYAO başlığı, ESKİ promptla muhtemelen düşük confidence/"yeterli bilgi yok" üretirken, YENİ promptla confidence %96, gerekçe somut: "Hedef fiyatın 474 TL'ye indirilmesi... 'al' tavsiyesinin korunması... olumsuzluğu dengeler."
+
+**Kök neden #3 — habere dokununca hiçbir şey açılmıyordu:** `_openUrl` sadece URL'yi bir SnackBar'da METİN olarak gösteriyordu, hiçbir yere gitmiyordu. Yeni `utils/url_launch.dart` (`url_launcher` paketi, `LaunchMode.externalApplication`) ile artık gerçekten cihazın tarayıcısında açılıyor — Google News linkleri (news.google.com/rss/articles/...) gerçek makaleye istemci tarafı JS ile yönlendiriyor, bu yüzden backend'de değil GERÇEK bir tarayıcıda açılması gerekiyordu. `AndroidManifest.xml`'e Android 11+ için gerekli `<queries>` (ACTION_VIEW, https) eklendi. Haberler sekmesi, Analistler sekmesindeki "Kim Ne Dedi?" listesi ve fon detayındaki haber kartları — üçü de aynı yardımcıyı kullanıyor.
+
+**Doğrulama (gerçek, uçtan uca):** 11 yeni backend testi (`test_article_fetcher.py` — 7, `test_event_intelligence_engine.py`'ye 4 ek) + mevcut, toplam 370/370 backend test yeşil. Cloud Run'a deploy edildi. Android emülatöründe gerçek bir habere dokunuldu — Chrome tarayıcısı gerçekten açıldı (ekran görüntüsüyle doğrulandı). 42/42 flutter test yeşil (yeni Flutter testi bu aşamada eklenmedi, yalnızca mevcut geçiş doğrulandı). Gerçek cihaz için release APK yeniden derlendi.
+
+**Tarih / Not:**
+21.08.2026 — Haber analizi prompt düzeltmesi ("detay verilmedi" sorunu) + habere dokununca tarayıcıda açılma eklendi, 370/370 backend test yeşil (11 yeni test), 42/42 flutter test yeşil.
