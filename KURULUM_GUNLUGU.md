@@ -2132,3 +2132,22 @@ Kullanıcı: "Mevcut yatırım analiz uygulamama Foreks Borsa Haberleri kaynağ�
 
 **Tarih / Not:**
 24.08.2026 — Foreks Borsa Haberleri kaynağı (resmi RSS akışı) eklendi, haber analizine zaman ufku + türetilmiş duygu etiketi eklendi, çoklu-varlık analiz karışması hatası düzeltildi, 395/395 backend test yeşil (6 yeni), 47/47 flutter test yeşil (1 yeni), Cloud Run'a deploy edildi.
+
+---
+
+## 70. Günlük Otomatik Toplu Analiz — Google Cloud Scheduler (24.08.2026)
+
+Kullanıcı: "Tüm hisseler için günde 1 kez analiz yapmanı istiyorum ki günlük olarak takip edelim."
+
+**Bilinçli bir mimari genişleme:** Projede o ana kadar HİÇ scheduler yoktu (bkz. AŞAMA 32 — "her motor yalnızca bir HTTP isteği geldiğinde çalışıyor" kararı, `fcm_sender.py` modül docstring'i). Bu istek gerçek, kullanıcı etkileşimi OLMADAN günde bir kez otomatik çalışma gerektiriyor — bu yüzden proje zaten aynı GCP hesabında olan **Google Cloud Scheduler** eklendi (Cloud Run/Firestore/Secret Manager ile doğal uyum).
+
+**Yeni `services/jobs/daily_analysis.py` (`run_daily_analysis()`):** Aktif TÜM varlıklar (`AssetRepository.list_active()`, BIST100) için sırayla: (1) Foreks piyasa haberlerini TEK seferde çeker (sembol başına değil), (2) `fetch_and_store_news()` ile Yahoo+Google+Foreks haberlerini birleştirir (AŞAMA 69'da bu iş için `api/news.py`'den `services/news/news_aggregator.py`'ye çıkarılmıştı — kod tekrarı yok), (3) OpenAI bütçesi (`EVENT_INTELLIGENCE_BUDGET_USD`) el veriyorsa henüz analiz edilmemiş haberleri `EventIntelligenceEngine` ile analiz eder — bütçe taşarsa (ya da `OPENAI_API_KEY` yoksa) bu adım sessizce atlanır, job ÇÖKMEZ, teknik+makro ile devam eder (Missing Data Davranışı), (4) `DecisionEngine.decide_for_asset()` ile teknik+haber+makroyu birleştirip kararı kaydeder (DecisionEngine'in kendisi DEĞİŞMEDİ — haber hâlâ tek başına karar vermiyor), (5) kayıtlı TÜM kullanıcılara (`FcmTokenRepository.list_all_user_ids()`, yeni method) `GET /decisions/{symbol}` ile AYNI bildirim mantığıyla (portföyde varsa güçlü AL/SAT, yoksa yalnızca en güçlü yeni fırsat sinyalinde) bildirim gönderir — dedup zaten `notify_if_strong_decision` içinde var. Bir varlıkta hata olursa (yfinance geçici arıza vb.) o varlık atlanıp diğerlerine devam edilir, tek bir hata günün geri kalanını iptal etmez.
+
+**Yeni `POST /jobs/daily-analysis` (`app/api/jobs.py`):** Backend herkese açık bir Cloud Run adresinde olduğundan, bu uç nokta korunmadan bırakılsaydı herkes tetikleyip gerçek OpenAI maliyeti oluşturabilirdi — `X-Job-Secret` header'ı, `.env`'deki (Cloud Run'da düz env var olarak) `DAILY_JOB_SECRET` ile eşleşmezse 403 döner; secret ayarlı değilse uç nokta tamamen devre dışı (sessizce açık kalmaz).
+
+**Google Cloud Scheduler kurulumu:** `cloudscheduler.googleapis.com` etkinleştirildi; `daily-stock-analysis` adlı job, her gün **08:00 Europe/Istanbul** (BIST açılışından — 10:00 — önce, günün AL/SAT okuması hazır olsun diye) `POST /jobs/daily-analysis`'i `X-Job-Secret` header'ıyla çağırıyor. 100 varlığın sıralı işlenmesi birkaç dakika sürebileceğinden, Cloud Run zaman aşımı 300s'den **1800s (30 dk)**'ye, Scheduler `attemptDeadline`'ı da 1800s'ye yükseltildi; `max-retry-attempts=1` (gerçek bir zaman aşımında en fazla 1 kez tekrar dener — mevcut haber/analiz dedup'ı zaten aynı gün içindeki bir tekrar çalıştırmayı ucuz/zararsız kılıyor).
+
+**Doğrulama (gerçek, uçtan uca):** 12 yeni backend testi (`test_daily_analysis.py` — 8, `test_jobs_api.py` — 4, sahte repo/engine'lerle) + mevcut, toplam 407/407 backend test yeşil. Canlıda `POST /jobs/daily-analysis` secret'sız/yanlış secret'la 403 döndüğü doğrulandı; doğru secret'la GERÇEKTEN tetiklendi — Firestore'da art arda artan sayıda YENİ `AIDecision` kaydı (AEFES'ten PETKM'e alfabetik sırayla, ~70+ varlık işlendiğinde canlı olarak gözlemlendi) gerçek zamanlı doğrulandı, job üretimde beklendiği gibi tüm BIST100'ü sırayla işliyor. Scheduler `daily-stock-analysis` job'ı `ENABLED` durumda, bir sonraki çalışma 25.08.2026 08:00 (Europe/Istanbul) için zamanlandı — bundan sonra her gün otomatik çalışacak. Flutter tarafında değişiklik yok (tamamen backend) — mevcut 47/47 flutter test yeşil, release APK yine de güncellendi.
+
+**Tarih / Not:**
+24.08.2026 — Günde 1 kez, kullanıcı etkileşimi olmadan TÜM BIST100'ü teknik+haber+makro ile analiz edip karar üreten Google Cloud Scheduler job'ı eklendi (08:00 Europe/Istanbul), 407/407 backend test yeşil (12 yeni), canlıda tetiklenip doğrulandı.

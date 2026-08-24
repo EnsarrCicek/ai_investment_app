@@ -21,3 +21,9 @@ class FcmTokenRepository:
         if not doc.exists:
             return None
         return doc.to_dict().get("token")
+
+    def list_all_user_ids(self) -> list[str]:
+        """Günlük toplu analiz job'ının (AŞAMA 70) bildirim göndereceği
+        kullanıcı kümesi — bildirim alabilecek TÜM kayıtlı cihazların
+        user_id'leri (doküman ID = user_id, bkz. sınıf docstring'i)."""
+        return [doc.id for doc in self._db.collection(COLLECTION).stream()]

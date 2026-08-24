@@ -8,6 +8,7 @@ from app.api import (
     decisions,
     funds,
     ipo,
+    jobs,
     market_data,
     news,
     news_analysis,
@@ -33,6 +34,7 @@ app.include_router(market_data.router)
 app.include_router(funds.router)
 app.include_router(analysts.router)
 app.include_router(ipo.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")

@@ -18,3 +18,11 @@ EVENT_INTELLIGENCE_FALLBACK_MODEL = os.environ.get("EVENT_INTELLIGENCE_FALLBACK_
 # Toplam OpenAI bütçesi (kullanıcı kararı: tek seferlik $5 yükleme) — .env
 # üzerinden değiştirilebilir, kod içinde hard-code edilmez.
 EVENT_INTELLIGENCE_BUDGET_USD = float(os.environ.get("EVENT_INTELLIGENCE_BUDGET_USD", "5.0"))
+
+# AŞAMA 70: günlük toplu analiz job'ını (POST /jobs/daily-analysis) tetikleyen
+# Google Cloud Scheduler'ın kimliğini kanıtlaması için paylaşılan gizli
+# anahtar — backend herkese açık bir Cloud Run adresinde çalıştığından, bu
+# olmadan herkes bu uç noktayı tetikleyip gerçek OpenAI maliyeti
+# oluşturabilirdi. Ayarlanmamışsa (örn. yerel geliştirme) uç nokta devre dışı
+# kalır (403 döner) — hiçbir zaman "kontrol yok" durumuna sessizce düşmez.
+DAILY_JOB_SECRET = os.environ.get("DAILY_JOB_SECRET")
