@@ -18,10 +18,17 @@ class NewsAnalysisRepository:
         _, doc_ref = self._db.collection(COLLECTION).add(analysis.model_dump())
         return doc_ref.id
 
-    def get_by_news_id(self, news_id: str) -> NewsAnalysis | None:
+    def get_by_news_id(self, news_id: str, asset: str) -> NewsAnalysis | None:
+        """`asset` de filtreye dahildir: Foreks gibi TEK bir haberin BİRDEN ÇOK
+        BIST varlığına değindiği kaynaklar eklenince, aynı news_id'nin farklı
+        varlıklar için AYRI (farklı sentiment/reasoning) analizleri olabilir —
+        yalnızca news_id'ye bakmak, başka bir varlık için üretilmiş analizi
+        yanlışlıkla "bu varlık için zaten analiz edildi" sanabilirdi.
+        """
         docs = list(
             self._db.collection(COLLECTION)
             .where(filter=FieldFilter("news_id", "==", news_id))
+            .where(filter=FieldFilter("asset", "==", asset))
             .limit(1)
             .stream()
         )

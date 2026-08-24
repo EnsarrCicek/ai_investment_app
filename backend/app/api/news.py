@@ -2,11 +2,28 @@ from fastapi import APIRouter
 
 from app.repositories.news_raw_repository import NewsRawRepository
 from app.services.news.firm_extraction import extract_analyst_firm
+from app.services.news.foreks_news_provider import ForeksNewsProvider
 from app.services.news.google_news_rss_provider import GoogleNewsRssProvider
 from app.services.news.merge import merge_prioritizing_analyst_mentions
 from app.services.news.yahoo_news_provider import YahooNewsProvider
 
 router = APIRouter(prefix="/news", tags=["news"])
+
+
+@router.get("/foreks/latest")
+def get_foreks_market_news(limit: int = 100):
+    """Foreks'in resmi RSS akışından genel piyasa haberlerini çeker, bilinen
+    BIST varlıklarına değinenleri tespit edip news_raw'a yazar (aynı haber_id
+    tekrar üst üste yazılır, birikmez — bkz. NewsRawRepository.upsert).
+    Herhangi bir OpenAI çağrısı YAPMAZ (maliyetsiz) — analiz, mevcut
+    POST /news/{symbol}/analyze akışıyla, ilgili varlık ekranı açıldığında
+    ayrıca tetiklenir.
+    """
+    items = ForeksNewsProvider().get_market_news(limit=limit)
+    repo = NewsRawRepository()
+    for item in items:
+        repo.upsert(item)
+    return items
 
 # AŞAMA 61: kullanıcı isteği "güvenilir analistleri araştır, al mı diyorlar
 # sat mı diyorlar" — genel "{sembol} hisse" araması çoğunlukla perakende/
@@ -31,6 +48,12 @@ def get_news(symbol: str, limit: int = 10):
     for item in analyst_items:
         item.is_analyst_mention = True
     items += analyst_items
+
+    # Foreks haberleri canlı burada TEKRAR çekilmez (GET /news/foreks/latest
+    # zaten periyodik/talep üzerine tüm piyasayı tarayıp news_raw'a yazıyor) —
+    # bu sembole daha önce eşleştirilmiş Foreks kayıtları doğrudan Firestore'dan
+    # okunup diğer kaynaklarla birlikte gösterilir.
+    items += NewsRawRepository().get_recent(symbol, limit=limit)
 
     items = merge_prioritizing_analyst_mentions(items, limit)
 

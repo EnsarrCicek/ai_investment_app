@@ -51,8 +51,9 @@ class _FakeAnalysisRepo:
         self.added.append(analysis)
         return "fake-id"
 
-    def get_by_news_id(self, news_id):
-        return self._existing.get(news_id)
+    def get_by_news_id(self, news_id, asset):
+        analysis = self._existing.get(news_id)
+        return analysis if analysis is not None and analysis.asset == asset else None
 
 
 class _FakeNewsRepo:

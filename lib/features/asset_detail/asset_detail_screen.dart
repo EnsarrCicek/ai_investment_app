@@ -626,6 +626,12 @@ const Map<String, String> _eventTypeLabels = {
   'other': 'Diğer',
 };
 
+const Map<String, String> _timeHorizonLabels = {
+  'short_term': 'Kısa vadeli etki',
+  'medium_term': 'Orta vadeli etki',
+  'long_term': 'Uzun vadeli etki',
+};
+
 class _NewsTab extends StatefulWidget {
   final String symbol;
   const _NewsTab({required this.symbol});
@@ -880,7 +886,8 @@ class _AnalysisBadge extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Güven %${(analysis.confidence * 100).toStringAsFixed(0)} · Etki %${(analysis.importance * 100).toStringAsFixed(0)}',
+            'Güven %${(analysis.confidence * 100).toStringAsFixed(0)} · Etki %${(analysis.importance * 100).toStringAsFixed(0)} · '
+            '${_timeHorizonLabels[analysis.timeHorizon] ?? analysis.timeHorizon}',
             style: const TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 6),

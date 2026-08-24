@@ -72,6 +72,11 @@ haberin GERÇEKTEN belirsiz, çelişkili veya anlamsız olduğu durumlarda düş
 büyüklüğü (0-1). Rutin bir haber düşük, çeyrek sonuçları/düzenleyici karar \
 gibi önemli olaylar yüksek olmalı.
 - event_type: haberin kategorisi.
+- time_horizon: Bu haberin fiyat etkisinin ne kadar süreceğine dair tahmin — \
+"short_term" (birkaç gün içinde etkisi geçer, ör. günlük piyasa hareketi/\
+teknik yorum), "medium_term" (haftalar-aylar süren etki, ör. çeyrek sonuçları, \
+sözleşme/ihale kazanımı), "long_term" (yapısal/kalıcı etki, ör. düzenleyici \
+karar, uzun vadeli yatırım/ortaklık anlaşması, kapasite artışı).
 - reasoning: 1-2 cümlelik kısa Türkçe gerekçe — verilen bilgiye (başlık/özet/\
 metin) dayanan somut bir gerekçe olsun, "yeterli bilgi yok" gibi genel \
 ifadelerden kaçın; elindeki bilgiyle en iyi değerlendirmeyi yap.
@@ -98,12 +103,17 @@ _RESPONSE_SCHEMA = {
             "type": "string",
             "enum": ["earnings", "regulatory", "corporate_action", "macro", "market_sentiment", "other"],
         },
+        "time_horizon": {
+            "type": "string",
+            "description": "Fiyat etkisinin süreceği tahmini vade",
+            "enum": ["short_term", "medium_term", "long_term"],
+        },
         "reasoning": {
             "type": "string",
             "description": "1-2 cümlelik kısa Türkçe gerekçe",
         },
     },
-    "required": ["sentiment_score", "confidence", "importance", "event_type", "reasoning"],
+    "required": ["sentiment_score", "confidence", "importance", "event_type", "time_horizon", "reasoning"],
     "additionalProperties": False,
 }
 
@@ -214,6 +224,6 @@ class EventIntelligenceEngine:
         news_items = self._news_repo.get_recent(asset, limit=limit)
         results: list[NewsAnalysis] = []
         for news in news_items:
-            existing = self._analysis_repo.get_by_news_id(news.external_id)
+            existing = self._analysis_repo.get_by_news_id(news.external_id, asset)
             results.append(existing if existing else self.analyze_item(news, asset))
         return results
