@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/portfolio_transaction.dart';
 import '../../services/api/portfolio_api.dart';
 
@@ -40,7 +42,7 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Portföy Geçmişi')),
+      appBar: GradientAppBar(title: const Text('Portföy Geçmişi')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<(PortfolioHistorySummary, double)>(

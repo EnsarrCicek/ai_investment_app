@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/usage_summary.dart';
 import '../../services/api/usage_api.dart';
 
@@ -31,7 +33,7 @@ class _UsageScreenState extends State<UsageScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('API Kullanımı')),
+      appBar: GradientAppBar(title: const Text('API Kullanımı')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<UsageSummary>(

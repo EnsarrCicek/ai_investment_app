@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/asset.dart';
 import '../../models/fund_analysis.dart';
 import '../../services/api/asset_api.dart';
@@ -23,7 +25,7 @@ class AnalystsHubScreen extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
+        appBar: GradientAppBar(
           title: const Text('Analistler'),
           bottom: const TabBar(
             tabs: [

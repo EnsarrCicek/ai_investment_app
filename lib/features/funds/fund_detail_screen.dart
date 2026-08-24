@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/fund_analysis.dart';
 import '../../models/news_item.dart';
 import '../../services/api/fund_api.dart';
@@ -32,7 +34,7 @@ class _FundDetailScreenState extends State<FundDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.fundCode)),
+      appBar: GradientAppBar(title: Text(widget.fundCode)),
       body: FutureBuilder<FundAnalysis>(
         future: _future,
         builder: (context, snapshot) {

@@ -2086,3 +2086,26 @@ Kullanıcı: "Halka arz sayfası oluştur, hangisine girmeliyim ne kadar bütçe
 
 **Tarih / Not:**
 21.08.2026 — Halka Arzlar sayfası (gerçek takvim/fiyat/talep verisi + kendi notların) eklendi, 389/389 backend test yeşil (12 yeni test), 46/46 flutter test yeşil (4 yeni).
+
+---
+
+## 68. Modern Görsel Kimlik: Mavi Tonlu Gradyanlar + Uygulama Geneli Tema (21.08.2026)
+
+Kullanıcı: "Uygulamamızın renk paketleri görünümleri çok sıradan, modern hale getirmeni, renk geçişleri yapmanı istiyorum, ayrıca bunları yaparken de görünürlüğü güçleştirme, mavi ve renk tonlarını kullanabilirsin."
+
+**Önceki durum:** `lib/main.dart`'ta yalnızca `ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple))` vardı — hiçbir bileşen teması (AppBar/Card/Button/Input/Chip/TabBar/NavigationBar) özelleştirilmemişti, gradyan hiçbir yerde yoktu. 15 ekranın tamamı düz `AppBar(title: ...)` kullanıyordu (hiçbiri renk override etmiyordu) — bu, TEK bir merkezi değişiklikle tüm uygulamayı güncelleyebileceğimiz anlamına geliyordu.
+
+**Yeni `utils/app_gradients.dart`:** Uygulama genelinde tekrar kullanılan, koyu uçlu (üzerinde her zaman BEYAZ metin/ikonun yeterli kontrastla okunabildiği) mavi tonlu gradyanlar (`AppGradients.appBar`, `.hero`, `.card`) — "görünürlüğü güçleştirme" isteği burada, renk seçiminde en baştan karşılanıyor.
+
+**Yeni `widgets/gradient_app_bar.dart` (`GradientAppBar`):** Standart `AppBar`'ın API'sini birebir taşıyan (title/actions/bottom/leading), ama arka planı köşegen mavi gradyan olan bir sarmalayıcı. Flutter'ın `AppBarTheme`'i gradyan DESTEKLEMEDİĞİNDEN, uygulamadaki TÜM `AppBar(` kullanımları (15 dosya) `GradientAppBar(` ile değiştirildi — her dosyada yalnızca 1 import + 1 kelime değişikliği, mekanik ve düşük riskli.
+
+**`main.dart` tema geneli yenilendi:** Mavi seed'den (`ColorScheme.fromSeed`) tam Material 3 paleti; `CardTheme` (16px yuvarlak köşe), `FilledButtonTheme`/`ElevatedButtonTheme`/`OutlinedButtonTheme` (12px yuvarlak), `ChipTheme` (pill şekli), `InputDecorationTheme` (dolgulu, yuvarlak, mavi odak kenarlığı), `NavigationBarTheme` (seçili sekme mavi + kalın), `TabBarTheme` (beyaz/beyaz70 — gradyan AppBar'ın İÇİNDEKİ TabBar'ların okunabilirliği için KRİTİK, aksi halde varsayılan koyu renkler koyu gradyan üzerinde kaybolurdu), `SnackBarTheme`. Alt gezinme çubuğuna ince bir gölge/derinlik eklendi.
+
+**`login_screen.dart` — tam gradyan arka plan:** Önceden tamamen düz (AppBar bile yoktu) olan giriş ekranına `AppGradients.hero` arka plan + yarı saydam beyaz daire içinde ikon + öne çıkan beyaz başlık + üzerine yüzen (kontrast için beyaz) bir `Card` içinde form eklendi — kullanıcının ilk göreceği ekran artık en belirgin şekilde modernize edildi.
+
+**Önemli düzeltme — kapsam dışı reformat geri alındı:** `dart format lib/` ilk çalıştırıldığında, hiç dokunulmamış 24 dosyayı da (yalnızca satır sarma stiliyle ilgili, anlamca aynı) yeniden biçimlendirdiği fark edildi (2342 satır ekleme/758 çıkarma gibi devasa, konu dışı bir diff). Bu dosyalar `git checkout` ile committed haline geri alındı; yalnızca GERÇEKTEN değiştirilen 17 dosya + 2 yeni dosya commit'e dahil edildi — temiz, incelenebilir bir diff için.
+
+**Doğrulama (gerçek, uçtan uca):** `flutter analyze` ve 46/46 flutter test yeşil (test değişikliği gerekmedi — yalnızca görsel/tema). Release APK yeniden derlendi, Android emülatöründe uçtan uca görsel doğrulama yapıldı: Dashboard'daki gradyan AppBar + mavi vurgulu alt gezinme, Varlık Detayı'ndaki TabBar'ın (Fiyat/Teknik/Haberler/Analistler) gradyan üzerinde beyaz/okunaklı render edildiği, Ayarlar ekranındaki yuvarlatılmış kartlar/pill chip'ler — hepsi ekran görüntüsüyle teyit edildi, hiçbir kontrast/okunabilirlik sorunu görülmedi.
+
+**Tarih / Not:**
+21.08.2026 — Uygulama geneli modern mavi tonlu tema + gradyan AppBar'lar eklendi (15 ekran), görsel doğrulama yapıldı, 46/46 flutter test yeşil (değişiklik yok, regresyon yok).

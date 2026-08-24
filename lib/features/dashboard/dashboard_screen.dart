@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/decision.dart';
 import '../../models/explanation.dart';
 import '../../services/api/asset_api.dart';
@@ -97,7 +99,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: GradientAppBar(
         title: _searching
             ? TextField(
                 controller: _searchController,

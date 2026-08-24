@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/fund_analysis.dart';
 import '../../models/fund_position.dart';
 import '../../services/api/fund_api.dart';
@@ -27,7 +29,7 @@ class FundsScreen extends StatelessWidget {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        appBar: AppBar(
+        appBar: GradientAppBar(
           title: const Text('Fonlar'),
           bottom: const TabBar(
             tabs: [

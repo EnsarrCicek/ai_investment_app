@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/ipo.dart';
 import '../../models/news_item.dart';
 import '../../services/api/ipo_api.dart';
@@ -84,7 +86,7 @@ class _IpoDetailScreenState extends State<IpoDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.listing.companyName, overflow: TextOverflow.ellipsis)),
+      appBar: GradientAppBar(title: Text(widget.listing.companyName, overflow: TextOverflow.ellipsis)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

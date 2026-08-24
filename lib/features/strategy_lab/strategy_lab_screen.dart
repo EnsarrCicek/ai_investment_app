@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/strategy_comparison.dart';
 import '../../models/strategy_lab_run.dart';
 import '../../services/api/asset_api.dart';
@@ -52,7 +54,7 @@ class StrategyLabScreen extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
+        appBar: GradientAppBar(
           title: const Text('Strateji Laboratuvarı'),
           bottom: const TabBar(
             tabs: [

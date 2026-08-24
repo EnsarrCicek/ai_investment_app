@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/portfolio_position.dart';
 import '../../services/api/asset_api.dart';
 import '../../services/api/portfolio_api.dart';
@@ -203,7 +205,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: GradientAppBar(
         title: const Text('Portföy'),
         actions: [
           IconButton(

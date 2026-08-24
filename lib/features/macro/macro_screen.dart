@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/macro_snapshot.dart';
 import '../../services/api/analysis_api.dart';
 
@@ -38,7 +40,7 @@ class _MacroScreenState extends State<MacroScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Makro Analiz')),
+      appBar: GradientAppBar(title: const Text('Makro Analiz')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<MacroSnapshotDetail>(

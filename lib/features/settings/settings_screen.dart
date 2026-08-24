@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../services/api/notification_api.dart';
 import '../analysts/analysts_hub_screen.dart';
 import '../guide/guide_screen.dart';
@@ -41,7 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
-      appBar: AppBar(title: const Text('Ayarlar')),
+      appBar: GradientAppBar(title: const Text('Ayarlar')),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [

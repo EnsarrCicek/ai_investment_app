@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../utils/decision_style.dart';
 
 class GuideScreen extends StatelessWidget {
@@ -8,7 +10,7 @@ class GuideScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Gösterge Rehberi')),
+      appBar: GradientAppBar(title: const Text('Gösterge Rehberi')),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: const [

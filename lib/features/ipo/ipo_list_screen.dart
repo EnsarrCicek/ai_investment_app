@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/ipo.dart';
 import '../../services/api/ipo_api.dart';
 import 'ipo_detail_screen.dart';
@@ -34,7 +36,7 @@ class _IpoListScreenState extends State<IpoListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Halka Arzlar')),
+      appBar: GradientAppBar(title: const Text('Halka Arzlar')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<List<IpoListing>>(

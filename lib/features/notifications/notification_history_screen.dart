@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/notification_record.dart';
 import '../../services/api/notification_api.dart';
 
@@ -76,7 +78,7 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Bildirimler')),
+      appBar: GradientAppBar(title: const Text('Bildirimler')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<List<NotificationRecord>>(

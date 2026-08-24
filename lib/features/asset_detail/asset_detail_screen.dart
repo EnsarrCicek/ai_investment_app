@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/gradient_app_bar.dart';
+
 import '../../models/analyst_consensus.dart';
 import '../../models/backtest_result.dart';
 import '../../models/decision.dart';
@@ -150,7 +152,7 @@ class AssetDetailScreen extends StatelessWidget {
       length: 6,
       initialIndex: initialTabIndex,
       child: Scaffold(
-        appBar: AppBar(
+        appBar: GradientAppBar(
           title: Text(symbol),
           bottom: const TabBar(
             isScrollable: true,
