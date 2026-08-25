@@ -23,6 +23,8 @@ void main() {
     expect(detail.breakout, isNull);
     expect(detail.allZones, isEmpty);
     expect(detail.narrative, '');
+    expect(detail.investmentHorizon, isNull);
+    expect(detail.investmentHorizonReason, '');
   });
 
   test('AŞAMA 48/15 zenginleştirme alanlarını doğru ayrıştırır', () {
@@ -52,6 +54,8 @@ void main() {
       },
       'mtf_aligned': true,
       'mtf_consensus': 'DOWN',
+      'investment_horizon': 'KISA_VADELI',
+      'investment_horizon_reason': 'Yalnızca teknik skor yön veriyor.',
       'all_zones': [
         {'type': 'SUPPORT', 'low': 305.25, 'high': 305.25, 'touch_count': 1},
         {'type': 'RESISTANCE', 'low': 301.75, 'high': 301.75, 'touch_count': 1},
@@ -76,5 +80,7 @@ void main() {
     expect(detail.allZones.length, 2);
     expect(detail.allZones.first.type, 'SUPPORT');
     expect(detail.narrative, 'Fiyat, direnci yukarı yönlü kırdı.');
+    expect(detail.investmentHorizon, 'KISA_VADELI');
+    expect(detail.investmentHorizonReason, 'Yalnızca teknik skor yön veriyor.');
   });
 }

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../widgets/gradient_app_bar.dart';
+import '../../widgets/explanation_content.dart';
 
 import '../../models/analyst_consensus.dart';
 import '../../models/backtest_result.dart';
 import '../../models/decision.dart';
 import '../../models/decision_journal_entry.dart';
+import '../../models/explanation.dart';
 import '../../models/news_analysis.dart';
 import '../../models/news_item.dart';
 import '../../models/price_quote.dart';
@@ -112,6 +114,26 @@ const Map<String, String> _mtfConsensusLabels = {
   'UNKNOWN': 'Belirsiz',
 };
 
+const Map<String, String> _horizonLabels = {
+  'KISA_VADELI': 'Kısa Vadeli',
+  'ORTA_VADELI': 'Orta Vadeli',
+  'UZUN_VADELI': 'Uzun Vadeli',
+  'BELIRSIZ': 'Belirsiz',
+};
+
+Color _horizonColor(String? horizon) {
+  switch (horizon) {
+    case 'UZUN_VADELI':
+      return Colors.teal;
+    case 'ORTA_VADELI':
+      return Colors.indigo;
+    case 'KISA_VADELI':
+      return Colors.orange;
+    default:
+      return Colors.grey;
+  }
+}
+
 const Map<String, String> _candlestickLabels = {
   'DOJI': 'Doji',
   'HAMMER': 'Çekiç (Hammer)',
@@ -192,6 +214,7 @@ class _TechnicalTab extends StatefulWidget {
 class _TechnicalTabState extends State<_TechnicalTab> {
   late Future<TechnicalAnalysisDetail> _future;
   late Future<List<PriceBar>> _historyFuture;
+  late Future<Explanation> _explanationFuture;
 
   @override
   void initState() {
@@ -201,6 +224,10 @@ class _TechnicalTabState extends State<_TechnicalTab> {
     // AYNI pencere (bkz. engines/technical/engine.py, period="6mo") — grafik
     // ile anlatının aynı veriye dayandığından emin olmak için.
     _historyFuture = MarketDataApi().fetchHistory(widget.symbol, period: '6mo', interval: '1d');
+    // Kullanıcı isteği (25.08.2026): "nelere göre AL/SAT diyorsun, hangi
+    // verilere dayanıyorsun" — DecisionEngine'in zaten hesapladığı gerekçe
+    // ve gerçek ağırlıkları Teknik sekmesine göm (bkz. ExplanationEngine).
+    _explanationFuture = DecisionApi().fetchExplanation(widget.symbol);
   }
 
   @override
@@ -223,6 +250,8 @@ class _TechnicalTabState extends State<_TechnicalTab> {
         return ListView(
           padding: const EdgeInsets.all(12),
           children: [
+            _DecisionBasisCard(explanationFuture: _explanationFuture),
+            const SizedBox(height: 12),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -327,6 +356,69 @@ class _TechnicalTabState extends State<_TechnicalTab> {
   }
 }
 
+/// Kullanıcı isteği (25.08.2026): "bana AL SAT derken nelere göre AL SAT
+/// yapıyorsun, hangi verilere dayanıyorsun bunu Teknik sayfasında göster."
+/// ExplanationEngine'in ürettiği (LLM'siz, kural tabanlı) gerekçeyi ve
+/// DecisionEngine'in GERÇEKTEN kullandığı ağırlıkları gösterir.
+class _DecisionBasisCard extends StatelessWidget {
+  final Future<Explanation> explanationFuture;
+  const _DecisionBasisCard({required this.explanationFuture});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Explanation>(
+      future: explanationFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Henüz bir AL/SAT kararı üretilmedi.', style: TextStyle(color: Colors.grey)),
+            ),
+          );
+        }
+        final explanation = snapshot.data!;
+        final color = decisionColor(explanation.decision);
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('AL/SAT Kararının Dayandığı Veriler', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6)),
+                      child: Text(
+                        '${decisionLabel(explanation.decision)} (${explanation.finalScore >= 0 ? '+' : ''}'
+                        '${explanation.finalScore.toStringAsFixed(1)})',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ExplanationContent(explanation: explanation),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _SignalSummaryCard extends StatelessWidget {
   final TechnicalAnalysisDetail data;
   const _SignalSummaryCard({required this.data});
@@ -348,6 +440,32 @@ class _SignalSummaryCard extends StatelessWidget {
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
+            if (data.investmentHorizon != null && data.investmentHorizon != 'BELIRSIZ') ...[
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _horizonColor(data.investmentHorizon),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Vade: ${_horizonLabels[data.investmentHorizon] ?? data.investmentHorizon!}',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+              if (data.investmentHorizonReason.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  data.investmentHorizonReason,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 20,

@@ -74,6 +74,7 @@ from app.engines.technical.narrative import build_narrative
 from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
 from app.engines.technical.data_quality import check_data_quality
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
+from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon, horizon_reason
 from app.engines.technical.market_structure import analyze_market_structure
 from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
 from app.engines.technical.regime import (
@@ -216,6 +217,17 @@ def _compute_enrichment(
     )
     signal_class = classify_signal(signal_inputs)
 
+    horizon_inputs = HorizonInputs(
+        signal_class=signal_class,
+        market_structure=structure_result["structure"],
+        trend_regime=trend_regime_val,
+        relative_strength_class=rs_class,
+        mtf_aligned=alignment["aligned"],
+        mtf_consensus=alignment["consensus"],
+    )
+    investment_horizon = classify_horizon(horizon_inputs)
+    investment_horizon_reason = horizon_reason(investment_horizon, horizon_inputs)
+
     nearest_support_dict = _zone_to_dict(support)
     nearest_resistance_dict = _zone_to_dict(resistance)
     breakout_dict = _breakout_to_dict(breakout_event)
@@ -225,6 +237,8 @@ def _compute_enrichment(
     return {
         "market_structure": structure_result["structure"],
         "signal_class": signal_class,
+        "investment_horizon": investment_horizon,
+        "investment_horizon_reason": investment_horizon_reason,
         "relative_volume_class": rv_class,
         "relative_strength_class": rs_class,
         "volatility_regime": vol_regime,

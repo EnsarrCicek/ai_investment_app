@@ -67,6 +67,12 @@ class TechnicalAnalysisDetail {
   final bool? mtfAligned;
   final String? mtfConsensus;
 
+  // 25.08.2026: saf teknik yapıya dayanan, kural tabanlı vade sınıflandırması
+  // (bkz. backend/app/engines/technical/horizon_classifier.py) — haber/makro
+  // KARIŞTIRILMAZ.
+  final String? investmentHorizon;
+  final String investmentHorizonReason;
+
   // AŞAMA 66: kullanıcı isteği "grafikte dirençler nasıl çiziliyor, neden AL
   // diyorsun detaylı açıkla" — grafikte çizilecek tüm destek/direnç bölgeleri
   // + kural tabanlı (LLM'siz) Türkçe anlatı.
@@ -93,6 +99,8 @@ class TechnicalAnalysisDetail {
     this.breakout,
     this.mtfAligned,
     this.mtfConsensus,
+    this.investmentHorizon,
+    this.investmentHorizonReason = '',
     this.allZones = const [],
     this.narrative = '',
   });
@@ -125,6 +133,8 @@ class TechnicalAnalysisDetail {
       breakout: json['breakout'] == null ? null : BreakoutInfo.fromJson(json['breakout'] as Map<String, dynamic>),
       mtfAligned: json['mtf_aligned'] as bool?,
       mtfConsensus: json['mtf_consensus'] as String?,
+      investmentHorizon: json['investment_horizon'] as String?,
+      investmentHorizonReason: json['investment_horizon_reason'] as String? ?? '',
       allZones:
           (json['all_zones'] as List<dynamic>?)?.map((e) => SrZone.fromJson(e as Map<String, dynamic>)).toList() ??
           const [],

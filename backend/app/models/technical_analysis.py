@@ -31,6 +31,12 @@ class TechnicalAnalysis(BaseModel):
     mtf_aligned: bool | None = None
     mtf_consensus: str | None = None
 
+    # 25.08.2026: kullanıcı isteği "hangi hisseyi uzun süreli alıyoruz hangi
+    # hisseyi kısa süreli alıyoruz bunu belirt" — saf teknik yapıya dayanan
+    # kural tabanlı vade sınıflandırması (bkz. horizon_classifier.py).
+    investment_horizon: str | None = None
+    investment_horizon_reason: str = ""
+
     # AŞAMA 66: kullanıcı isteği "grafikte dirençler nasıl çiziliyor, neden
     # AL diyorsun detaylı açıkla" — grafikte çizilecek tüm destek/direnç
     # bölgeleri (fiyata en yakın MAX_CHART_ZONES tanesi) ve kural tabanlı

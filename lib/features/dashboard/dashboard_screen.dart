@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../widgets/gradient_app_bar.dart';
+import '../../widgets/explanation_content.dart';
 
 import '../../models/decision.dart';
 import '../../models/explanation.dart';
@@ -268,7 +269,7 @@ void _showExplanationDialog(BuildContext context, String symbol) {
               if (snapshot.hasError) {
                 return Text('Hata: ${snapshot.error}');
               }
-              return _ExplanationContent(explanation: snapshot.data!);
+              return ExplanationContent(explanation: snapshot.data!);
             },
           ),
         ),
@@ -283,36 +284,3 @@ void _showExplanationDialog(BuildContext context, String symbol) {
   );
 }
 
-class _ExplanationContent extends StatelessWidget {
-  final Explanation explanation;
-
-  const _ExplanationContent({required this.explanation});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(explanation.summary),
-          if (explanation.technicalReasons.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            const Text('Teknik Analiz:', style: TextStyle(fontWeight: FontWeight.bold)),
-            for (final reason in explanation.technicalReasons) Text('•  $reason'),
-          ],
-          if (explanation.macroReasons.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            const Text('Makro Etkenler:', style: TextStyle(fontWeight: FontWeight.bold)),
-            for (final reason in explanation.macroReasons) Text('•  $reason'),
-          ],
-          if (explanation.missing.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            for (final note in explanation.missing)
-              Text(note, style: const TextStyle(color: Colors.orange, fontStyle: FontStyle.italic)),
-          ],
-        ],
-      ),
-    );
-  }
-}
