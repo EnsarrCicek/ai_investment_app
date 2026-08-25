@@ -13,6 +13,13 @@ class TechnicalAnalysis(BaseModel):
     created_at: datetime
     engine_version: str = "1.0.0"
 
+    # 25.08.2026 (HATA 2A denetimi): `created_at` yalnızca motorun HESABI
+    # YAPTIĞI anı gösterir — kullanılan piyasa verisinin GERÇEKTEN hangi ana
+    # ait olduğunu (son TAMAMLANMIŞ günlük barın tarihi) göstermez. Eski
+    # (bu alan eklenmeden önceki) Firestore kayıtlarında bu alan yoktur —
+    # `None` varsayılanı geriye dönük uyumluluğu bozmadan bunu ifade eder.
+    market_data_as_of: datetime | None = None
+
     # AŞAMA 48/15: market structure/S-R/breakout/hacim/rejim/gap/mum/sinyal
     # sınıfı — TechnicalAnalysisEngine'in üç bileşenli çekirdek skorunu
     # (rsi/macd/trend/ema_slope/bollinger/momentum/roc) DEĞİŞTİRMEZ, yalnızca

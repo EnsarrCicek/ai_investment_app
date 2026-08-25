@@ -1,11 +1,15 @@
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from app.engines.technical import indicators as ind
 from app.engines.technical.engine import TECHNICAL_CACHE_TTL_SECONDS, TechnicalAnalysisEngine
 from app.models.technical_analysis import TechnicalAnalysis
+
+TZ = ZoneInfo("Europe/Istanbul")
 
 
 class _FakeConfigRepo:
@@ -66,11 +70,16 @@ def _real_history_df(rows: int = 120) -> pd.DataFrame:
     # get_history() bu DataFrame'i asla döndürmemeli (cache hit testlerinde) —
     # provider'ın history_df'i None birakilirsa FakeMarketDataProvider
     # NotImplementedError firlatir, bu da cache'in atlanip atlanmadigini kanitlar.
-    # Son bar bilinçli olarak "bugüne" göre üretilir (dun degil): AŞAMA 48'deki
-    # STALE_DATA veto kontrolü, son bar gerçek "şimdi"den çok uzaksa reddeder.
+    # Son bar bilinçli olarak "DÜN"e göre üretilir (bugün DEĞİL): AŞAMA 48'deki
+    # STALE_DATA veto kontrolü hâlâ geçer (1 gün << 5 gün toleransı), AMA HATA
+    # 2A'dan (25.08.2026) sonra "bugün"e göre üretmek testi gerçek saatin
+    # okunduğu ana göre (filter_completed_daily_bars piyasa açık mı kapalı mı
+    # sanıp son barı atıp atmayacağına göre) FLAKY hale getirirdi — "dün"
+    # kullanmak, gerçek çalıştırma saatinden bağımsız, deterministik bir
+    # şekilde her zaman "zaten tamamlanmış" sayılmasını garanti eder.
     rng = np.random.default_rng(42)
     closes = 100 + np.cumsum(rng.normal(0, 1, rows))
-    end = pd.Timestamp.now(tz="UTC").normalize()
+    end = pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)
     return pd.DataFrame(
         {
             "Open": closes,
@@ -221,3 +230,143 @@ def test_analyze_with_id_includes_multi_timeframe_alignment(fake_provider):
 
     assert isinstance(analysis.mtf_aligned, bool)
     assert analysis.mtf_consensus in ("UP", "DOWN", "FLAT", "CONFLICTING", "MIXED", "UNKNOWN")
+
+
+# ---------------------------------------------------------------------------
+# HATA 2A (25.08.2026): günlük teknik analiz yalnızca TAMAMLANMIŞ barları
+# kullanmalı. Aşağıdaki senaryo, "bugünün" (henüz oluşmakta olan) barını,
+# D-1'den (son tamamlanmış bar) KASITLI OLARAK çok farklı kılacak şekilde
+# kurar (büyük fiyat sıçraması + anormal hacim + doji şekli) — böylece
+# motorun bu farkı GÖRÜP GÖRMEDİĞİ (yanlışlıkla sızdırıp sızdırmadığı)
+# doğrudan gözlemlenebilir.
+# ---------------------------------------------------------------------------
+
+_D1_DATE = "2026-08-25"  # Sali — son TAMAMLANMIŞ gün
+_TODAY_DATE = "2026-08-26"  # Carsamba — piyasa acikken hala olusan gun
+
+
+def _breakout_scenario_df() -> pd.DataFrame:
+    # index 0-39: 90 -> 130 yukselis (bar 39 acik bir fraktal swing high olur)
+    # index 40-78: 130 -> 105 alcalis/konsolidasyon (D-1 direncin ALTINDA kalir)
+    # index 79 ("bugun"): 135 -> direncin (130) USTUNE sicrama + doji sekli + cok dusuk hacim
+    up = np.linspace(90.0, 130.0, 40)
+    down = np.linspace(130.0, 105.0, 39)
+    closes = np.concatenate([up, down])  # 79 gun, son (D-1) = 105
+
+    n_history = len(closes)
+    end_d1 = pd.Timestamp(_D1_DATE, tz=TZ)
+    history_index = pd.date_range(end=end_d1, periods=n_history, freq="D")
+
+    df = pd.DataFrame(
+        {
+            "Open": closes - 0.3,
+            "High": closes + 0.5,
+            "Low": closes - 0.5,
+            "Close": closes,
+            "Volume": np.full(n_history, 5000.0),
+        },
+        index=history_index,
+    )
+    # D-1: buyuk govdeli, doji OLMAYAN normal bir bar + normal hacim.
+    df.loc[df.index[-1], ["Open", "High", "Low", "Close", "Volume"]] = [100.0, 106.0, 99.0, 105.0, 5200.0]
+
+    today_row = pd.DataFrame(
+        {"Open": [135.0], "High": [140.0], "Low": [130.0], "Close": [135.05], "Volume": [50.0]},
+        index=[end_d1 + pd.Timedelta(days=1)],
+    )
+    return pd.concat([df, today_row])
+
+
+def _run_breakout_scenario(fake_provider, now: datetime):
+    provider = fake_provider(history_df=_breakout_scenario_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    analysis, _ = engine.analyze_with_id("TEST", now=now)
+    return analysis
+
+
+def test_market_open_uses_d_minus_1_as_market_data_as_of(fake_provider):
+    now_open = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)  # piyasa acik
+    analysis = _run_breakout_scenario(fake_provider, now_open)
+
+    assert analysis.market_data_as_of is not None
+    assert analysis.market_data_as_of.date() == pd.Timestamp(_D1_DATE).date()
+
+
+def test_market_closed_past_finalization_delay_uses_today(fake_provider):
+    now_closed = datetime(2026, 8, 26, 19, 0, tzinfo=TZ)  # kapanis + finalization payi gecti
+    analysis = _run_breakout_scenario(fake_provider, now_closed)
+
+    assert analysis.market_data_as_of is not None
+    assert analysis.market_data_as_of.date() == pd.Timestamp(_TODAY_DATE).date()
+
+
+def test_intraday_breakout_does_not_create_daily_breakout_candidate(fake_provider):
+    # Piyasa acikken: D-1 kapanisi (105) direncin (130) ALTINDA -> daily breakout OLUSMAMALI,
+    # "bugunku" 135 sicramasi goz ardi edilmis olmali.
+    now_open = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)
+    analysis = _run_breakout_scenario(fake_provider, now_open)
+
+    assert analysis.breakout is None
+
+
+def test_completed_close_above_resistance_creates_daily_breakout_candidate(fake_provider):
+    # Ayni veri, ama piyasa kapanip finalization payi da gectikten SONRA "bugun" (135, direncin
+    # ustunde) artik TAMAMLANMIS kabul edilir -> daily breakout adayi olusmali.
+    now_closed = datetime(2026, 8, 26, 19, 0, tzinfo=TZ)
+    analysis = _run_breakout_scenario(fake_provider, now_closed)
+
+    assert analysis.breakout is not None
+    assert analysis.breakout["direction"] == "BULLISH"
+
+
+def test_partial_bar_doji_pattern_not_used_when_market_open(fake_provider):
+    # "Bugunku" satir bilincli olarak doji sekilli kuruldu (Open≈Close, uzun fitiller);
+    # piyasa acikken bu satir disarida birakildigindan DOJI raporlanmamali.
+    now_open = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)
+    analysis = _run_breakout_scenario(fake_provider, now_open)
+
+    assert "DOJI" not in analysis.candlestick_patterns
+
+
+def test_partial_bar_doji_pattern_used_after_finalization(fake_provider):
+    now_closed = datetime(2026, 8, 26, 19, 0, tzinfo=TZ)
+    analysis = _run_breakout_scenario(fake_provider, now_closed)
+
+    assert "DOJI" in analysis.candlestick_patterns
+
+
+def test_partial_day_volume_not_used_in_relative_volume_when_market_open(fake_provider):
+    # "Bugunku" hacim (50) tarihin en dusugu -- eger yanlislikla kullanilsaydi
+    # relative_volume LOW/cok dusuk cikardi. D-1'in normal hacmi (5200) kullanildiginda
+    # NORMAL/HIGH civarinda kalmali, asla en dusuk sinifta olmamali.
+    now_open = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)
+    analysis = _run_breakout_scenario(fake_provider, now_open)
+
+    assert analysis.relative_volume_class != "LOW"
+
+
+def test_daily_rsi_matches_manually_precomputed_completed_series(fake_provider):
+    # Motorun RSI'si, "bugunku" satiri elle cikarilmis AYNI seri uzerinde
+    # dogrudan hesaplanan RSI ile BIREBIR aynı olmalı (float esitligi) --
+    # bu, RSI'nin filtrelenmis df'ten geldigini, ham df'ten degil, kanitlar.
+    now_open = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)
+    raw_df = _breakout_scenario_df()
+    analysis = _run_breakout_scenario(fake_provider, now_open)
+
+    expected_rsi = round(float(ind.rsi(raw_df["Close"].iloc[:-1]).iloc[-1]), 2)
+    assert analysis.indicators["rsi"] == pytest.approx(expected_rsi, abs=1e-9)
+
+
+def test_completed_history_technical_score_is_deterministic(fake_provider):
+    now_open = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)
+
+    analysis1 = _run_breakout_scenario(fake_provider, now_open)
+    analysis2 = _run_breakout_scenario(fake_provider, now_open)
+
+    assert analysis1.technical_score == analysis2.technical_score
+    assert analysis1.indicators == analysis2.indicators

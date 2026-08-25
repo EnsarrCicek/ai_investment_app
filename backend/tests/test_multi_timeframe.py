@@ -1,6 +1,12 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pandas as pd
+import pytest
 
 from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
+
+TZ = ZoneInfo("Europe/Istanbul")
 
 
 def test_timeframe_direction_up_for_rising_series():
@@ -51,7 +57,10 @@ def test_resample_to_weekly_close_reduces_to_weekly_last_values():
     idx = pd.date_range("2024-01-01", periods=14, freq="D")  # Pzt 2024-01-01 .. Paz 2024-01-14 (2 tam hafta)
     daily_close = pd.Series(range(1, 15), index=idx, dtype=float)  # 1..14
 
-    weekly = resample_to_weekly_close(daily_close)
+    # 'now' iki haftanın da kesin tamamlandığından emin olmak için üçüncü haftaya ayarlandı
+    # (HATA 2A: son hafta, 'now' onun haftasıyla çakışıyorsa devam ediyor sayılıp düşürülürdü).
+    now = datetime(2024, 1, 20, 12, 0)  # ertesi haftanın Cumartesi'si
+    weekly = resample_to_weekly_close(daily_close, now=now)
 
     assert len(weekly) == 2
     assert weekly.iloc[0] == 7.0  # ilk haftanın son günü (2024-01-07, Pazar) -> 7
@@ -64,6 +73,68 @@ def test_weekly_resample_direction_matches_underlying_trend_without_extra_fetch(
     idx = pd.date_range("2023-01-02", periods=140, freq="D")
     daily_close = pd.Series([100.0 + 0.5 * i for i in range(140)], index=idx)
 
-    weekly = resample_to_weekly_close(daily_close)
+    now = datetime(2023, 6, 1, 12, 0)  # serinin bittiği tarihten haftalarca sonrası
+    weekly = resample_to_weekly_close(daily_close, now=now)
 
     assert timeframe_direction(weekly, window=10, slope_lookback=4) == "UP"
+
+
+# ---------------------------------------------------------------------------
+# HATA 2A (25.08.2026): devam eden (henüz Cuma'sı gelmemiş) hafta, MTF
+# confirmation'a girmemeli — bkz. TEKNIK_ANALIZ_METODOLOJISI.md ve
+# services/market_data/completed_bars.py.
+# ---------------------------------------------------------------------------
+
+
+def _daily_close(dates: list[str]) -> pd.Series:
+    index = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in dates])
+    return pd.Series(range(100, 100 + len(dates)), index=index, dtype=float)
+
+
+def test_wednesday_ongoing_week_is_excluded_from_weekly_confirmation():
+    # Carsamba (26 Agustos 2026) itibariyla son tamamlanmis gunluk bar Sali
+    # (25) -- bu haftanin Cuma'si henuz gelmedi, bu yuzden bu haftanin
+    # "haftalik kapanisi" MTF confirmation'a girmemeli.
+    dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25"]
+    close = _daily_close(dates)  # son gun: 2026-08-25 (Sali), devam eden hafta
+    now = datetime(2026, 8, 26, 13, 0, tzinfo=TZ)  # Carsamba
+
+    weekly = resample_to_weekly_close(close, now=now)
+
+    # Devam eden haftanin (17-21 Agustos haftasindan SONRAKI hafta) bucket'i dusurulmus olmali.
+    last_completed_week_label = pd.Timestamp("2026-08-23", tz=TZ)  # 17-21 Agustos haftasinin W-SUN etiketi
+    assert weekly.index[-1] == last_completed_week_label
+
+
+def test_friday_after_close_includes_that_weeks_bar():
+    # Son tamamlanmis gunluk bar Cuma (28 Agustos) ise, o haftanin kendisi
+    # BIST icin zaten bitmistir -- devre disi birakilmamali.
+    dates = ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"]
+    close = _daily_close(dates)  # son gun Cuma
+    now = datetime(2026, 8, 28, 19, 0, tzinfo=TZ)  # ayni Cuma, kapanistan sonra
+
+    weekly = resample_to_weekly_close(close, now=now)
+
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def test_weekend_after_friday_close_still_includes_that_weeks_bar():
+    dates = ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"]
+    close = _daily_close(dates)
+    now = datetime(2026, 8, 30, 11, 0, tzinfo=TZ)  # Pazar
+
+    weekly = resample_to_weekly_close(close, now=now)
+
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def test_different_iso_week_than_now_is_always_complete():
+    # Son bar gecen haftadan (tatil nedeniyle Persembe'de bitmis olsa bile)
+    # ve 'now' zaten sonraki haftadaysa, o hafta kesin tamamlanmis sayilir.
+    dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20"]  # son gun Persembe (20)
+    close = _daily_close(dates)
+    now = datetime(2026, 8, 24, 10, 0, tzinfo=TZ)  # sonraki hafta Pazartesi
+
+    weekly = resample_to_weekly_close(close, now=now)
+
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])

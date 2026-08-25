@@ -52,6 +52,12 @@ class TechnicalAnalysisDetail {
   final Map<String, double> components;
   final Map<String, dynamic> indicators;
 
+  // 25.08.2026 (HATA 2A): analizde kullanılan SON TAMAMLANMIŞ günlük barın
+  // tarihi — bu, motorun HESABI YAPTIĞI an (varsa gösterilen "güncel fiyat"
+  // ile karıştırılmamalı, o ayrı bir canlı `quote` akışıdır) DEĞİL, veriNİN
+  // ait olduğu andır. Eski (bu alan eklenmeden önceki) kayıtlarda null olur.
+  final DateTime? marketDataAsOf;
+
   // AŞAMA 48/15 — zenginleştirme katmanı (skoru etkilemez, yalnızca bağlam)
   final String? marketStructure;
   final String? signalClass;
@@ -86,6 +92,7 @@ class TechnicalAnalysisDetail {
     required this.confidence,
     required this.components,
     required this.indicators,
+    this.marketDataAsOf,
     this.marketStructure,
     this.signalClass,
     this.relativeVolumeClass,
@@ -115,6 +122,7 @@ class TechnicalAnalysisDetail {
         (key, value) => MapEntry(key, (value as num).toDouble()),
       ),
       indicators: json['indicators'] as Map<String, dynamic>,
+      marketDataAsOf: json['market_data_as_of'] == null ? null : DateTime.parse(json['market_data_as_of'] as String),
       marketStructure: json['market_structure'] as String?,
       signalClass: json['signal_class'] as String?,
       relativeVolumeClass: json['relative_volume_class'] as String?,

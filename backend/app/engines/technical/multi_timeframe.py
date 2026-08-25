@@ -20,13 +20,45 @@ saf hesaplama). Bu, relative_strength.py'de XU100 için çözülen N+1 istek
 sorununun farklı bir çözümü — orada seri semboller arasında PAYLAŞILABİLDİĞİ
 için önbelleklendi, burada ise zaten elde olan veriden TÜRETİLEBİLDİĞİ için
 hiç yeni istek gerekmiyor.
+
+HATA 2A düzeltmesi (25.08.2026): Girdi artık yalnızca TAMAMLANMIŞ günlük
+barlardan oluşsa bile (bkz. `services/market_data/completed_bars.py`),
+`resample("W").last()` devam eden (henüz Cuma'sı gelmemiş) haftayı da
+"o haftanın kapanışı" gibi göstermeye devam eder — çünkü resample yalnızca
+ELİNDEKİ son günü kullanır, o günün gerçekten haftanın SON iş günü olup
+olmadığını bilmez. `resample_to_weekly_close()` bu yüzden son haftalık
+bar'ın gerçekten tamamlanmış olup olmadığını AYRICA kontrol edip, değilse
+düşürür (bkz. `_is_last_week_complete`).
 """
+
+from datetime import datetime
 
 import pandas as pd
 
 from app.engines.technical.indicators import ema_slope
+from app.engines.technical.session_timing import ISTANBUL_TZ
 
 DEFAULT_TIMEFRAMES = ("1d", "1wk")
+
+
+def _is_last_week_complete(last_bar_date: pd.Timestamp, now: datetime) -> bool:
+    """Girdi serisinin SON gününün ait olduğu hafta gerçekten bitti mi?
+
+    Kural: son gün Cuma'ysa (BIST haftası Cuma biter) hafta kesin tamamlanmış
+    sayılır — bu, "bugün hafta sonu, Cuma zaten tamamlanmış barlardan biri"
+    durumunu da doğru ele alır. Son gün Cuma DEĞİLSE, hafta ancak `now`
+    ARTIK o haftadan (ISO yıl/hafta) tamamen çıkmışsa (farklı bir ISO
+    haftadaysa) tamamlanmış sayılır — aksi halde o hafta hâlâ devam
+    ediyor olabilir (ör. Çarşamba, Cuma henüz gelmedi) ve düşürülür.
+
+    Bilinen sınırlama: Cuma'nın resmi tatil olduğu (haftanın son iş
+    gününün aslında Perşembe olduğu) haftalarda, bu kural o haftayı bir
+    sonraki ISO haftaya geçilene kadar "tamamlanmamış" sayabilir — GÜVENLİ
+    yöndeki bir hata (eksik ama asla yanlış/erken "tamamlanmış" değil).
+    """
+    if last_bar_date.weekday() == 4:  # Cuma
+        return True
+    return last_bar_date.isocalendar()[:2] != now.isocalendar()[:2]
 
 
 def _direction(slope_value: float, neutral_band: float = 0.5) -> str:
@@ -39,11 +71,31 @@ def _direction(slope_value: float, neutral_band: float = 0.5) -> str:
     return "FLAT"
 
 
-def resample_to_weekly_close(daily_close: pd.Series) -> pd.Series:
+def resample_to_weekly_close(daily_close: pd.Series, now: datetime | None = None) -> pd.Series:
     """Günlük kapanış serisini haftalık kapanışlara indirger (her haftanın
     son işlem günü) — ek bir yfinance isteği olmadan, zaten çekilmiş günlük
-    veriden haftalık zaman dilimini türetir."""
-    return daily_close.resample("W").last().dropna()
+    veriden haftalık zaman dilimini türetir.
+
+    Son haftalık bar, girdinin SON gününün haftası henüz bitmediyse (bkz.
+    `_is_last_week_complete`) düşürülür — aksi halde "bu hafta" devam
+    ediyorken bile tamamlanmış bir haftalık kapanışmış gibi kullanılırdı.
+    """
+    weekly = daily_close.resample("W").last().dropna()
+    if weekly.empty or daily_close.empty:
+        return weekly
+
+    last_bar_date = daily_close.index[-1]
+    if last_bar_date.tzinfo is None:
+        last_bar_date = last_bar_date.tz_localize(ISTANBUL_TZ)
+    else:
+        last_bar_date = last_bar_date.astimezone(ISTANBUL_TZ)
+
+    reference_now = now or datetime.now(ISTANBUL_TZ)
+    reference_now = reference_now.astimezone(ISTANBUL_TZ) if reference_now.tzinfo else reference_now.replace(tzinfo=ISTANBUL_TZ)
+
+    if not _is_last_week_complete(last_bar_date, reference_now):
+        weekly = weekly.iloc[:-1]
+    return weekly
 
 
 def timeframe_direction(close: pd.Series, window: int = 20, slope_lookback: int = 5) -> str:

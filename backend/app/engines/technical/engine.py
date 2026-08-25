@@ -76,6 +76,7 @@ from app.engines.technical.data_quality import check_data_quality
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
 from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon, horizon_reason
 from app.engines.technical.market_structure import analyze_market_structure
+from app.services.market_data.completed_bars import filter_completed_daily_bars
 from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
 from app.engines.technical.regime import (
     atr_percentile,
@@ -105,7 +106,15 @@ from app.services.market_data.bist_provider import BistProvider
 # olabilir. Eski kayıtlar (Firestore'daki immutable technical_analyses) HİÇ
 # değiştirilmedi/silinmedi — yalnızca bu tarihten SONRA üretilecek yeni
 # kayıtlar "1.1.0" taşıyacak, denetim izi (audit trail) bozulmadı.
-ENGINE_VERSION = "1.1.0"
+#
+# 25.08.2026: 1.1.0 -> 1.2.0 — HATA 2A: günlük teknik analiz artık yalnızca
+# TAMAMLANMIŞ günlük barları kullanıyor (piyasa açıkken "bugünün" hâlâ
+# oluşmakta olan/partial barı çıkarılıyor, bkz. completed_bars.py); haftalık
+# MTF karşılaştırması da devam eden (henüz Cuma'sı gelmemiş) haftayı artık
+# kullanmıyor. Piyasa açıkken üretilen technical_score, eskisinden (bugünün
+# canlı fiyatını içeren) FARKLI olabilir — genellikle bir önceki tamamlanmış
+# günün skorüne eşittir. Eski kayıtlar değiştirilmedi/silinmedi.
+ENGINE_VERSION = "1.2.0"
 
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
@@ -161,6 +170,7 @@ def _compute_enrichment(
     final_score: float,
     provider: MarketDataProvider | None = None,
     benchmark_cache_repo: BenchmarkCacheRepository | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """market_structure/S-R/breakout/hacim/rejim/gap/mum/göreli güç/sinyal
     sınıfı katmanı — relative_strength dışındaki her şey, `analyze_with_id`'nin
@@ -208,7 +218,7 @@ def _compute_enrichment(
     rs_class = classify_relative_strength(rs_score)
 
     daily_direction = timeframe_direction(close)
-    weekly_close = resample_to_weekly_close(close)
+    weekly_close = resample_to_weekly_close(close, now=now)
     weekly_direction = timeframe_direction(weekly_close)
     alignment = check_alignment({"1d": daily_direction, "1wk": weekly_direction})
 
@@ -279,7 +289,11 @@ class TechnicalAnalysisEngine:
         return analysis
 
     def analyze_with_id(
-        self, symbol: str, persist: bool = True, max_age_seconds: int = TECHNICAL_CACHE_TTL_SECONDS
+        self,
+        symbol: str,
+        persist: bool = True,
+        max_age_seconds: int = TECHNICAL_CACHE_TTL_SECONDS,
+        now: datetime | None = None,
     ) -> tuple[TechnicalAnalysis, str | None]:
         cached, cached_id = self._analysis_repo.get_latest_with_id(symbol)
         if cached is not None:
@@ -288,7 +302,11 @@ class TechnicalAnalysisEngine:
                 return cached, cached_id
 
         df = self._provider.get_history(symbol, period="6mo")
-        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS)
+        # HATA 2A (25.08.2026): piyasa açıkken "bugün" satırı hâlâ oluşuyor
+        # olabilir (developing/partial bar) — günlük teknik analiz yalnızca
+        # TAMAMLANMIŞ barlarla üretilir (bkz. services/market_data/completed_bars.py).
+        df = filter_completed_daily_bars(df, now=now)
+        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS, now=now)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_WEIGHTS)
 
@@ -334,7 +352,13 @@ class TechnicalAnalysisEngine:
         trend = "BULLISH" if final_score > 15 else "BEARISH" if final_score < -15 else "NEUTRAL"
 
         enrichment = _compute_enrichment(
-            df, atr_val, close_val, final_score, provider=self._provider, benchmark_cache_repo=self._benchmark_cache_repo
+            df,
+            atr_val,
+            close_val,
+            final_score,
+            provider=self._provider,
+            benchmark_cache_repo=self._benchmark_cache_repo,
+            now=now,
         )
 
         analysis = TechnicalAnalysis(
@@ -343,6 +367,7 @@ class TechnicalAnalysisEngine:
             trend=trend,
             confidence=confidence,
             components=components,
+            market_data_as_of=df.index[-1].to_pydatetime(),
             **enrichment,
             indicators={
                 "rsi": round(rsi_val, 2),

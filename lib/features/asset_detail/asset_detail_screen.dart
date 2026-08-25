@@ -266,6 +266,20 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         Text('Güven: %${(data.confidence * 100).toStringAsFixed(0)}'),
+                        if (data.marketDataAsOf != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            // HATA 2A (25.08.2026): teknik skor artık yalnızca SON
+                            // TAMAMLANMIŞ günlük barı kullanıyor — güncel fiyat
+                            // (Fiyat sekmesindeki quote) ayrı, canlı bir akıştır,
+                            // bu tarihle karıştırılmamalı.
+                            'Teknik veri: Son tamamlanmış günlük bar — '
+                            '${data.marketDataAsOf!.day.toString().padLeft(2, '0')}.'
+                            '${data.marketDataAsOf!.month.toString().padLeft(2, '0')}.'
+                            '${data.marketDataAsOf!.year}',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ],
                       ],
                     ),
                     Text(data.trend, style: const TextStyle(fontWeight: FontWeight.bold)),

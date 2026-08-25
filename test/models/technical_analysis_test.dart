@@ -25,6 +25,7 @@ void main() {
     expect(detail.narrative, '');
     expect(detail.investmentHorizon, isNull);
     expect(detail.investmentHorizonReason, '');
+    expect(detail.marketDataAsOf, isNull);
   });
 
   test('AŞAMA 48/15 zenginleştirme alanlarını doğru ayrıştırır', () {
@@ -35,6 +36,7 @@ void main() {
       'confidence': 0.72,
       'components': {'rsi': -10.0},
       'indicators': {'rsi': 40.0},
+      'market_data_as_of': '2026-08-24T00:00:00+03:00',
       'market_structure': 'DOWNTREND',
       'signal_class': 'BEARISH_CANDIDATE',
       'relative_volume_class': 'LOW',
@@ -82,5 +84,6 @@ void main() {
     expect(detail.narrative, 'Fiyat, direnci yukarı yönlü kırdı.');
     expect(detail.investmentHorizon, 'KISA_VADELI');
     expect(detail.investmentHorizonReason, 'Yalnızca teknik skor yön veriyor.');
+    expect(detail.marketDataAsOf, DateTime.parse('2026-08-24T00:00:00+03:00'));
   });
 }
