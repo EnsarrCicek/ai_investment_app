@@ -72,7 +72,7 @@ from app.engines.technical import indicators as ind
 from app.engines.technical.breakout import BreakoutEvent, check_retest, confirm_breakout, detect_breakout
 from app.engines.technical.narrative import build_narrative
 from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
-from app.engines.technical.data_quality import check_data_quality
+from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
 from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon, horizon_reason
 from app.engines.technical.market_structure import analyze_market_structure
@@ -114,7 +114,16 @@ from app.services.market_data.bist_provider import BistProvider
 # kullanmıyor. Piyasa açıkken üretilen technical_score, eskisinden (bugünün
 # canlı fiyatını içeren) FARKLI olabilir — genellikle bir önceki tamamlanmış
 # günün skorüne eşittir. Eski kayıtlar değiştirilmedi/silinmedi.
-ENGINE_VERSION = "1.2.0"
+#
+# 25.08.2026: 1.2.0 -> 1.3.0 — HATA 2B: BIST'in resmi işlem takvimine göre
+# beklenen ama seride bulunmayan bir işlem günü varsa (bkz. data_quality.py,
+# check_trading_day_continuity — ör. 24.08.2026'da tüm BIST100'ü etkileyen
+# Yahoo veri boşluğu) artık analiz HİÇ ÜRETİLMEZ (HARD VETO) — eskiden bu
+# durum hiç tespit edilmiyor, boşluk sessizce göz ardı ediliyordu. Bazı
+# semboller için (gerçek bir boşluk sürdüğü sürece) `GET /decisions/{symbol}`
+# ve `GET /analysis/{symbol}/technical` artık 422 dönebilir. Eski kayıtlar
+# değiştirilmedi/silinmedi.
+ENGINE_VERSION = "1.3.0"
 
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
@@ -307,6 +316,14 @@ class TechnicalAnalysisEngine:
         # TAMAMLANMIŞ barlarla üretilir (bkz. services/market_data/completed_bars.py).
         df = filter_completed_daily_bars(df, now=now)
         check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS, now=now)
+        # HATA 2B (25.08.2026): "bugünü çıkar" yeterli değil — serinin
+        # İÇİNDE de BIST'in resmi takvimine göre beklenen ama Yahoo'da
+        # bulunmayan bir işlem günü olabilir (bkz. 24.08.2026 örneği, tüm
+        # BIST100'ü aynı anda etkiledi). Böyle bir boşluk varsa, RSI/MACD/
+        # EMA gibi recursive göstergeler sessizce yanlış bir "N gün önce"
+        # referansı kullanacağından, eksik veri UYDURULMAZ/yoksayılmaz —
+        # analiz hiç ÜRETİLMEZ (HARD VETO).
+        check_trading_day_continuity(df, symbol, now=now)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_WEIGHTS)
 

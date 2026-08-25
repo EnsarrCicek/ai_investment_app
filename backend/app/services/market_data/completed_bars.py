@@ -34,7 +34,7 @@ DEĞİL — projenin "uydurma veri kullanma" ilkesiyle tutarlı: güvenilir,
   modülün hiçbir etkisi olmaz (son satır zaten "bugün" değil).
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -52,6 +52,31 @@ def _to_istanbul(ts) -> datetime:
     return ts.astimezone(ISTANBUL_TZ)
 
 
+def latest_expected_completed_date(now: datetime | None = None) -> date:
+    """Şu ana göre TAMAMLANMIŞ kabul edilmesi gereken EN SON takvim gününü
+    döner — bugünün kapanış (18:00 TSİ) + finalization payı geçtiyse BUGÜN,
+    geçmediyse DÜN.
+
+    Bu sınır, `filter_completed_daily_bars()` (hangi satırın çıkarılacağı)
+    VE `data_quality.check_trading_day_continuity()` (süreklilik kontrolünün
+    ne kadar İLERİYE bakması gerektiği) tarafından PAYLAŞILIR — HATA 2B
+    denetiminde bulunan bir hatayı önlemek için: eğer continuity kontrolü
+    yalnızca `df.index[-1]`'e (filtre SONRASI son satıra) bakıyorsa, "bugün"
+    çıkarıldığında kontrol aralığının üst sınırı da geri çekilir ve tam da
+    bugünden hemen önceki gerçek bir boşluk (ör. 24.08.2026) görünmez hale
+    gelirdi. Bu fonksiyonu paylaşarak iki modül de "ne kadar ileriye kadar
+    veri BEKLİYORUZ" sorusuna aynı, `df`'in kendisinden BAĞIMSIZ cevabı verir.
+    """
+    now = _to_istanbul(now) if now is not None else datetime.now(ISTANBUL_TZ)
+    finalization_cutoff = now.replace(
+        hour=SESSION_CLOSE.hour, minute=SESSION_CLOSE.minute, second=0, microsecond=0
+    ) + timedelta(minutes=DAILY_BAR_FINALIZATION_DELAY_MINUTES)
+
+    if now >= finalization_cutoff:
+        return now.date()
+    return now.date() - timedelta(days=1)
+
+
 def filter_completed_daily_bars(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
     """Piyasa açıkken (veya kapanıştan itibaren finalization payı dolmadan)
     oluşan, henüz tamamlanmamış "bugünkü" günlük barı çıkarır.
@@ -67,17 +92,13 @@ def filter_completed_daily_bars(df: pd.DataFrame, now: datetime | None = None) -
     if df.empty:
         return df
 
-    now = _to_istanbul(now) if now is not None else datetime.now(ISTANBUL_TZ)
+    now_ist = _to_istanbul(now) if now is not None else datetime.now(ISTANBUL_TZ)
     last_bar_date = _to_istanbul(df.index[-1])
 
-    if last_bar_date.date() != now.date():
+    if last_bar_date.date() != now_ist.date():
         return df
 
-    finalization_cutoff = now.replace(
-        hour=SESSION_CLOSE.hour, minute=SESSION_CLOSE.minute, second=0, microsecond=0
-    ) + timedelta(minutes=DAILY_BAR_FINALIZATION_DELAY_MINUTES)
-
-    if now >= finalization_cutoff:
+    if last_bar_date.date() <= latest_expected_completed_date(now):
         return df
 
     return df.iloc[:-1]

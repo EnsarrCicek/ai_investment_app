@@ -370,3 +370,79 @@ def test_completed_history_technical_score_is_deterministic(fake_provider):
 
     assert analysis1.technical_score == analysis2.technical_score
     assert analysis1.indicators == analysis2.indicators
+
+
+# ---------------------------------------------------------------------------
+# HATA 2B (25.08.2026): BIST'in resmi işlem takvimine göre beklenen ama
+# seride bulunmayan bir işlem günü varsa (bkz. 24.08.2026 örneği) analiz hiç
+# ÜRETİLMEMELİ (HARD VETO) — completed-bar filtresinden SONRA, herhangi bir
+# gösterge hesaplanmadan ÖNCE çalışan check_trading_day_continuity() ile.
+# ---------------------------------------------------------------------------
+
+
+def _history_with_trading_day_gap(missing_date: str) -> pd.DataFrame:
+    dates = pd.bdate_range(start="2026-04-01", end="2026-08-24", freq="B")
+    dates = dates[dates != pd.Timestamp(missing_date)]
+    rng = np.random.default_rng(3)
+    closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
+    return pd.DataFrame(
+        {
+            "Open": closes - 0.2,
+            "High": closes + 0.5,
+            "Low": closes - 0.5,
+            "Close": closes,
+            "Volume": rng.integers(1000, 5000, len(dates)),
+        },
+        index=dates,
+    )
+
+
+def test_analyze_with_id_raises_and_does_not_persist_on_trading_day_gap(fake_provider):
+    from app.engines.technical.data_quality import TradingDayContinuityError
+
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_history_with_trading_day_gap("2026-06-17"))
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    now = datetime(2026, 8, 25, 13, 0, tzinfo=TZ)
+
+    with pytest.raises(TradingDayContinuityError) as exc_info:
+        engine.analyze_with_id("TEST", now=now)
+
+    assert exc_info.value.missing_dates == [pd.Timestamp("2026-06-17").date()]
+    # HATA 2B madde 11: veto nedeniyle sahte/eksik bir kayıt Firestore'a YAZILMAMALI.
+    assert analysis_repo.added == []
+
+
+def test_analyze_with_id_passes_when_no_trading_day_gap(fake_provider):
+    dates = pd.bdate_range(start="2026-04-01", end="2026-08-24", freq="B")
+    rng = np.random.default_rng(3)
+    closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
+    df = pd.DataFrame(
+        {
+            "Open": closes - 0.2,
+            "High": closes + 0.5,
+            "Low": closes - 0.5,
+            "Close": closes,
+            "Volume": rng.integers(1000, 5000, len(dates)),
+        },
+        index=dates,
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=df)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    now = datetime(2026, 8, 25, 13, 0, tzinfo=TZ)
+
+    analysis, _ = engine.analyze_with_id("TEST", now=now)
+
+    assert analysis is not None
+    assert len(analysis_repo.added) == 1
