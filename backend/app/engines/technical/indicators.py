@@ -17,14 +17,55 @@ def ema(series: pd.Series, window: int) -> pd.Series:
     return series.ewm(span=window, adjust=False).mean()
 
 
+def _rsi_from_averages(avg_gain: float, avg_loss: float) -> float:
+    if avg_loss == 0 and avg_gain == 0:
+        return 50.0
+    if avg_loss == 0:
+        return 100.0
+    if avg_gain == 0:
+        return 0.0
+    return 100 - (100 / (1 + avg_gain / avg_loss))
+
+
 def rsi(series: pd.Series, window: int = 14) -> pd.Series:
+    """Klasik Wilder RSI — 25.08.2026 RSI denetimi sonucu düzeltildi.
+
+    Önceki sürüm `avg_gain`/`avg_loss` için `ewm(alpha=1/window, adjust=False)`
+    kullanıyordu: recursion adımı Wilder'la aynı olsa da, SEED farklıydı —
+    `ewm` recursion'a tek bir ham gözlemden (bar 1) başlıyor, bu da ilk
+    `window` barı (henüz gerçek bir `window`-barlık ortalama oluşmamışken)
+    "geçerli" bir sayıymış gibi üretiyordu; ayrıca `avg_loss == 0` olan
+    barlarda (ör. kesintisiz yükseliş) `NaN → fillna(50)` devreye girip
+    RSI=100 olması gerekirken 50 (nötr) dönüyordu — bkz. TEKNIK_ANALIZ_
+    METODOLOJISI.md.
+
+    Bu sürüm: ilk `window` fiyat değişimi SMA ile "seed" edilir (bar
+    `window`'da ilk geçerli değer oluşur), sonrasında Wilder'ın recursive
+    düzleştirmesiyle ilerletilir. `window`'dan önceki barlar (yetersiz
+    geçmiş) kasıtlı olarak NaN kalır — Missing Data Davranışı ilkesiyle
+    uyumlu, hiçbir global `fillna(50)`/`fillna(0)` uygulanmaz.
+    """
     delta = series.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / window, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / window, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, pd.NA)
-    return (100 - (100 / (1 + rs))).fillna(50)
+
+    n = len(series)
+    result = pd.Series(index=series.index, dtype=float)
+    if n <= window:
+        return result
+
+    avg_gain = float(gain.iloc[1 : window + 1].mean())
+    avg_loss = float(loss.iloc[1 : window + 1].mean())
+    result.iloc[window] = _rsi_from_averages(avg_gain, avg_loss)
+
+    gain_values = gain.to_numpy()
+    loss_values = loss.to_numpy()
+    for i in range(window + 1, n):
+        avg_gain = (avg_gain * (window - 1) + gain_values[i]) / window
+        avg_loss = (avg_loss * (window - 1) + loss_values[i]) / window
+        result.iloc[i] = _rsi_from_averages(avg_gain, avg_loss)
+
+    return result
 
 
 def macd(

@@ -17,30 +17,72 @@ def test_ema_converges_toward_recent_values():
     assert result.iloc[-1] > 19.0
 
 
-def test_rsi_mostly_increasing_series_is_high():
-    # Not: mutlak monoton (hiç kaybı olmayan) bir seri özel bir durum yaratır —
-    # avg_loss tam 0 olur, rs = avg_gain/0 -> NaN -> fillna(50) devreye girer
-    # (bkz. indicators.py rsi()). Gerçek piyasa verisinde bu neredeyse hiç
-    # olmaz; küçük ara düşüşler içeren bir seri kullanmak gerçek kullanımı
-    # daha doğru temsil eder.
-    values = [100.0]
-    for i in range(29):
-        values.append(values[-1] + (2.0 if i % 5 != 4 else -0.5))
-    series = pd.Series(values)
+def test_rsi_warmup_is_nan_before_window():
+    # 25.08.2026 RSI denetimi: klasik Wilder'da ilk `window` fiyat değişimi
+    # tamamlanmadan (SMA seed oluşmadan) RSI tanımsızdır — index 0..window-1
+    # NaN olmalı, ilk geçerli değer tam index=window'da oluşmalı.
+    series = pd.Series([100.0 + i for i in range(30)])
     result = ind.rsi(series, window=14)
-    assert result.iloc[-1] > 80
+    assert result.iloc[0:14].isna().all()
+    assert pd.notna(result.iloc[14])
 
 
-def test_rsi_strictly_decreasing_series_is_low():
+def test_rsi_matches_reference_wilder_values():
+    # Elle hesaplanmış (SMA seed + Wilder recursion) referans değerlerle
+    # floating-point toleransı dışında birebir eşleşmeli — "yaklaşık Wilder"
+    # değil GERÇEK Wilder olduğunu kilit altına alır.
+    deltas = [
+        1.2, -0.5, 0.8, 1.5, -0.3, 0.6, -1.1, 2.0, -0.4, 0.9,
+        -0.7, 1.3, 0.2, -0.9, 1.1, -0.6, 0.5, -0.2, 1.4, -0.8,
+    ]
+    prices = [100.0]
+    for d in deltas:
+        prices.append(prices[-1] + d)
+    series = pd.Series(prices)
+    window = 14
+
+    # Referans: window=14 -> seed = gain/loss[1:15].mean(), sonrası recursive.
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.iloc[1 : window + 1].mean()
+    avg_loss = loss.iloc[1 : window + 1].mean()
+    expected_at_seed = 100 - (100 / (1 + avg_gain / avg_loss))
+
+    expected = [expected_at_seed]
+    ag, al = avg_gain, avg_loss
+    for i in range(window + 1, len(series)):
+        ag = (ag * (window - 1) + gain.iloc[i]) / window
+        al = (al * (window - 1) + loss.iloc[i]) / window
+        expected.append(100 - (100 / (1 + ag / al)))
+
+    result = ind.rsi(series, window=window)
+
+    assert result.iloc[window] == pytest.approx(expected[0], abs=1e-9)
+    for offset, exp_val in enumerate(expected[:5]):
+        assert result.iloc[window + offset] == pytest.approx(exp_val, abs=1e-9)
+    assert result.iloc[-1] == pytest.approx(expected[-1], abs=1e-9)
+
+
+def test_rsi_strictly_increasing_series_is_exactly_100():
+    series = pd.Series([100.0 + i for i in range(30)])
+    result = ind.rsi(series, window=14)
+    assert result.iloc[0:14].isna().all()
+    assert (result.iloc[14:] == 100.0).all()
+
+
+def test_rsi_strictly_decreasing_series_is_exactly_zero():
     series = pd.Series(range(30, 1, -1), dtype=float)
     result = ind.rsi(series, window=14)
-    assert result.iloc[-1] < 5
+    assert result.iloc[0:14].isna().all()
+    assert (result.iloc[14:] == 0.0).all()
 
 
-def test_rsi_flat_series_is_50():
+def test_rsi_flat_series_is_50_only_after_warmup():
     series = pd.Series([100.0] * 30)
     result = ind.rsi(series, window=14)
-    assert result.iloc[-1] == 50.0
+    assert result.iloc[0:14].isna().all()
+    assert (result.iloc[14:] == 50.0).all()
 
 
 def test_macd_returns_three_series_same_length():

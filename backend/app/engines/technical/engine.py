@@ -99,7 +99,13 @@ from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.benchmark_service import get_benchmark_close_series
 from app.services.market_data.bist_provider import BistProvider
 
-ENGINE_VERSION = "1.0.0"
+# 25.08.2026: 1.0.0 -> 1.1.0 — RSI hesaplaması gerçek Wilder yöntemine
+# (SMA seed + recursive smoothing, warm-up=NaN) düzeltildi; aynı sembol/tarih
+# için üretilen technical_score artık eskisinden (yaklaşık-Wilder/EWM) farklı
+# olabilir. Eski kayıtlar (Firestore'daki immutable technical_analyses) HİÇ
+# değiştirilmedi/silinmedi — yalnızca bu tarihten SONRA üretilecek yeni
+# kayıtlar "1.1.0" taşıyacak, denetim izi (audit trail) bozulmadı.
+ENGINE_VERSION = "1.1.0"
 
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
