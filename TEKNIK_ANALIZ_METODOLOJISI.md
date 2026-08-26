@@ -136,7 +136,24 @@ Eşikler (varsayılan): final_score ≥ 40 → **AL**, ≥ 15 → **ZAYIF AL**, 
 
 ---
 
-## 6. Dürüstlük İlkeleri (Özet)
+## 6. Backtest Nasıl Çalışıyor? (`engines/backtest/engine.py`) — Execution Modeli (HATA 3A, 25.08.2026)
+
+Backtest, canlı motorla AYNI teknik skor formülünü (bkz. bölüm 2) geçmiş veri üzerinde vektörize çalıştırıp AL/SAT sinyallerine göre bir "sinyalde pozisyon aç/kapat" stratejisi simüle eder. **Execution modeli: `NEXT_SESSION_OPEN`.**
+
+- **Sinyal:** `T` gününün TAMAMLANMIŞ Close'undan üretilir.
+- **İşlem (execution):** Sinyal, aynı `T` gününün Close'undan DEĞİL, **`T+1` seansının Open'ından** gerçekleştirilir. Gerekçe: canlıda `T`'nin Close'u ancak seans kapandıktan SONRA bilinir — o anda artık o fiyattan işlem yapılamaz (bu, HATA 3 denetiminde kanıtlanan "same-bar execution bias"in düzeltmesidir). Kural BUY ve SELL için simetriktir.
+- **Overnight gap sahipliği:** BUY'da `Close[T]→Open[T+1]` gece hareketi yatırımcıya AİT DEĞİLDİR (pozisyon henüz açılmamıştır). SELL'de aynı gece hareketi yatırımcıya AİTTİR (pozisyon T+1 açılışına kadar hâlâ elde tutulur).
+- **Son barda T+1 yoksa:** Yeni bir sinyal ASLA execute edilmez (`Close`'a sahte fallback YAPILMAZ) — `unexecuted_signal` alanında (`reason: "NO_NEXT_BAR"`) bilgi amaçlı raporlanır, ne pozisyon açılır ne kapanmış bir işlem sayılır.
+- **`Open[T+1]` geçersizse** (NaN/inf/≤0): execution yine YAPILMAZ, `skipped_executions` içinde (`reason: "INVALID_NEXT_OPEN"`) raporlanır — bilinmeyen bir fiyat asla uydurulmaz.
+- **Backtest sonunda açık kalan pozisyon:** Bu GERÇEK bir SELL execution DEĞİLDİR — `trades[]`'e sahte bir kapanış kaydı EKLENMEZ. Yalnızca `final Close` ile **mark-to-market** değerlenir (`cash + shares × final_close`) ve ayrı bir `open_position` alanında (`status: "OPEN"`, giriş sinyal/execution tarih-fiyatları, `unrealized_return_pct`) raporlanır.
+- **Metrik ayrımı:** `trade_count`/`win_rate_pct`/`profit_factor`/`expectancy_pct` **yalnızca gerçek kapanmış (closed round-trip) işlemlerden** hesaplanır — açık pozisyon bu metriklere hiç girmez. Buna karşılık `total_return_pct`/`final_equity`/`equity_curve`/`max_drawdown_pct`/Sharpe/Sortino, açık pozisyonun **gerçekleşmemiş (unrealized) kâr/zararını İÇERİR** (mark-to-market üzerinden). Yani aynı backtest sonucunda getiri unrealized P/L içerebilirken, win_rate yalnızca gerçekleşmiş (realized) işlemlere aittir — bu bilinçli, iki farklı taban alan bir tasarımdır.
+- **Trade kaydı alanları:** Geriye dönük uyumluluk için `entry_date`/`exit_date`/`entry_price`/`exit_price` adları KORUNDU, ama artık açıkça **execution** an/fiyatını taşırlar (`entry_date == entry_execution_date`). Sinyalin an/fiyatı ayrıca `entry_signal_date`/`entry_signal_price`/`exit_signal_date`/`exit_signal_price` alanlarında EK olarak taşınır.
+- **Sonucun üst seviyesinde** `execution_model: "NEXT_SESSION_OPEN"` ve `terminal_position_policy: "MARK_TO_MARKET"` alanları bulunur — eski (bu değişiklikten önceki, same-bar execution kullanan) sonuçlardan ayırt edilebilmesi için.
+- **Bu sürümde HENÜZ UYGULANMAYAN (bilinçli olarak dışarıda bırakılan):** brokerage komisyonu, BSMV, spread, slippage, minimum komisyon, piyasa etkisi (price impact) — backtest sonuçları şu an **maliyetsiz** bir işlem varsayımıyla üretiliyor, gerçek getiriler bu maliyetler kadar daha düşük olacaktır. Ayrıca backtest, canlı motorun BIST işlem-günü süreklilik kontrolünü (bkz. bölüm 1, HATA 2B) ve tamamlanmış-bar filtresini (bkz. bölüm 1, HATA 2A) HENÜZ kullanmıyor — piyasa açıkken çalıştırılırsa son bar hâlâ oluşmakta olan (partial) bir gün olabilir (ayrı bir denetim konusu, HATA 3B).
+
+---
+
+## 7. Dürüstlük İlkeleri (Özet)
 
 - **Uydurma veri yok:** Bir gösterge hesaplanamıyorsa (yetersiz geçmiş, eksik sütun) skor üretilmez, "veri yok" denir.
 - **Geleceğe bakma yok (look-ahead-bias):** Hem swing point onayı hem breakout teyidi hem de göstergelerin kendisi yalnızca o ana kadarki barlara bakar; bu ayrı bir otomatik testle (`test_indicator_causality.py`) her yeni özellik eklendiğinde tekrar doğrulanır.

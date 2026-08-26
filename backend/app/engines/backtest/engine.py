@@ -19,8 +19,50 @@ indicators.py fonksiyonlarını kullanır). Vektörize (tüm seri için tek
 seferde) hesaplanması gerektiğinden — canlı motor yalnızca son günü
 hesapladığından — ortak bir yardımcıya taşımak yerine burada ayrı,
 küçük bir fonksiyon olarak tutuldu.
+
+25.08.2026 (HATA 3A) — EXECUTION MODELİ: NEXT_SESSION_OPEN.
+Önceki sürüm sinyali T gününün Close'undan ÜRETİP yine AYNI T gününün
+Close'undan EXECUTE ediyordu (same-bar execution bias — HATA 3 denetiminde
+kanıtlandı: canlıda T'nin Close'u ancak seans kapandıktan SONRA bilinir,
+o anda artık o fiyattan işlem yapılamaz). Artık sözleşme şudur:
+
+    Signal[T]  = T'nin TAMAMLANMIŞ Close'undan üretilir (T Close ↓)
+    Execution  = T+1 seansının Open'ında gerçekleşir (pending signal ↓ Open[T+1])
+
+BUY ve SELL için AYNI kural — hiçbir taraf kayırılmıyor. Sonuç olarak:
+- BUY'da Close[T]→Open[T+1] gece hareketi ("overnight gap") yatırımcıya
+  AİT DEĞİLDİR (pozisyon henüz yok).
+- SELL'de aynı gece hareketi yatırımcıya AİTTİR (pozisyon T+1 açılışına
+  kadar hâlâ elde tutuluyor).
+Sentetik testlerle (gap-up/gap-down × BUY/SELL) doğrulandı, bkz.
+tests/test_backtest_engine.py.
+
+Son bardaki YENİ bir sinyal için T+1 barı yoksa (`unexecuted_signal`,
+reason="NO_NEXT_BAR") ya da T+1'in Open'ı geçersizse (NaN/inf/<=0,
+`skipped_executions`, reason="INVALID_NEXT_OPEN") — HİÇBİR ZAMAN Close'a
+sahte bir fallback YAPILMAZ; bilinmeyen bir execution fiyatı UYDURULMAZ.
+
+Backtest sonunda hâlâ açık bir pozisyon varsa (gerçekten execute edilmiş
+bir BUY'dan sonra hiç SELL sinyali gelmemişse) bu GERÇEK bir SELL execution
+DEĞİLDİR — `trades[]`'e sahte bir kapanış kaydı EKLENMEZ, yalnızca
+`open_position` alanında mark-to-market (`cash + shares * final_close`)
+olarak ayrı raporlanır. `trades[]` bundan böyle SADECE gerçek BUY execution
++ gerçek SELL execution çifti olan (closed round-trip) işlemleri içerir —
+`trade_count`/`win_rate_pct` bu closed-trade listesinden hesaplanır, AMA
+`total_return_pct`/`final_equity`/`equity_curve`/`max_drawdown_pct` açık
+pozisyonun gerçekleşmemiş (unrealized) kâr/zararını İÇERİR (bu iki grup
+metriğin farklı taban aldığı bilinçli bir tasarım — bkz. TEKNIK_ANALIZ_
+METODOLOJISI.md).
+
+Eski `entry_date`/`exit_date`/`entry_price`/`exit_price` alanları
+KORUNDU (backward compatibility — Flutter `BacktestTrade` bu adları
+sabit okuyor) ama semantikleri artık AÇIKÇA execution an/fiyatıdır
+(`entry_date == entry_execution_date`, vb.) — sinyal an/fiyatı ayrıca
+`entry_signal_date`/`entry_signal_price`/`exit_signal_date`/
+`exit_signal_price` alanlarında EK olarak taşınır.
 """
 
+import math
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -70,6 +112,12 @@ def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
     return _clamp_series(score).round(2)
 
 
+def _is_valid_execution_price(value: float) -> bool:
+    """HATA 3A: bilinmeyen/geçersiz bir execution fiyatı ASLA uydurulmaz
+    (ör. Open[T+1] NaN/inf/<=0 ise Close'a sessizce fallback YAPILMAZ)."""
+    return not math.isnan(value) and not math.isinf(value) and value > 0
+
+
 def simulate(
     df: pd.DataFrame,
     score_series: pd.Series,
@@ -80,60 +128,127 @@ def simulate(
     veri çekmeden, tek bir zaten-hesaplanmış skor serisi üzerinde çalışır (bu ayrım
     WalkForwardOptimizer'ın aynı df'in farklı pencerelerini tekrar tekrar simüle
     edebilmesi için gerekli).
+
+    HATA 3A — NEXT_SESSION_OPEN execution modeli (bkz. modül docstring'i):
+    T günü Close'undan üretilen sinyal, T+1 günü Open'ında `pending_signal`
+    olarak execute edilir — hiçbir zaman aynı barın Close'undan değil.
     """
     close = df["Close"]
+    open_ = df["Open"]
     cash = initial_capital
     shares = 0.0
-    entry_price: float | None = None
-    entry_date = None
+    entry_execution_date = None
+    entry_execution_price: float | None = None
+    entry_signal_date = None
+    entry_signal_price: float | None = None
+    pending_signal: dict | None = None  # {"action","signal_date","signal_price"} — bir SONRAKI barda uygulanır
     trades: list[dict] = []
     equity_curve: list[dict] = []
+    skipped_executions: list[dict] = []
 
     for i in range(len(df)):
         date = df.index[i]
-        price = float(close.iloc[i])
-        score = score_series.iloc[i]
 
+        # 1) i-1'de oluşan pending signal varsa, BUGÜNÜN (i) Open'ında execute et.
+        if pending_signal is not None:
+            open_price = float(open_.iloc[i])
+            if _is_valid_execution_price(open_price):
+                action = pending_signal["action"]
+                if action == "BUY" and shares == 0:
+                    shares = cash / open_price
+                    cash = 0.0
+                    entry_execution_date = date
+                    entry_execution_price = open_price
+                    entry_signal_date = pending_signal["signal_date"]
+                    entry_signal_price = pending_signal["signal_price"]
+                elif action == "SELL" and shares > 0:
+                    cash = shares * open_price
+                    trades.append(
+                        {
+                            "entry_date": str(entry_execution_date.date()),
+                            "exit_date": str(date.date()),
+                            "entry_price": round(entry_execution_price, 2),
+                            "exit_price": round(open_price, 2),
+                            "return_pct": round(
+                                (open_price - entry_execution_price) / entry_execution_price * 100, 2
+                            ),
+                            "entry_signal_date": str(entry_signal_date.date()),
+                            "entry_signal_price": round(entry_signal_price, 2),
+                            "entry_execution_date": str(entry_execution_date.date()),
+                            "entry_execution_price": round(entry_execution_price, 2),
+                            "exit_signal_date": str(pending_signal["signal_date"].date()),
+                            "exit_signal_price": round(pending_signal["signal_price"], 2),
+                            "exit_execution_date": str(date.date()),
+                            "exit_execution_price": round(open_price, 2),
+                        }
+                    )
+                    shares = 0.0
+                    entry_execution_date = None
+                    entry_execution_price = None
+                    entry_signal_date = None
+                    entry_signal_price = None
+                # action=="BUY" ama shares>0 (veya "SELL" ama shares==0) olamaz —
+                # pending_signal yalnızca uygun durumdayken oluşturulur (aşağıda).
+            else:
+                skipped_executions.append(
+                    {
+                        "action": pending_signal["action"],
+                        "signal_date": str(pending_signal["signal_date"].date()),
+                        "attempted_execution_date": str(date.date()),
+                        "reason": "INVALID_NEXT_OPEN",
+                    }
+                )
+            pending_signal = None
+
+        # 2) BUGÜNÜN (i) Close'u TAMAMLANDIĞINDA sinyal bilinir hale gelir —
+        #    hemen execute EDİLMEZ, yalnızca "yarın (i+1) Open'ında uygulanacak"
+        #    olarak işaretlenir.
+        score = score_series.iloc[i]
         if pd.notna(score):
             decision = _classify(float(score), thresholds)
             if shares == 0 and decision in ("BUY", "WEAK_BUY"):
-                shares = cash / price
-                cash = 0.0
-                entry_price = price
-                entry_date = date
+                pending_signal = {"action": "BUY", "signal_date": date, "signal_price": float(close.iloc[i])}
             elif shares > 0 and decision in ("SELL", "WEAK_SELL"):
-                cash = shares * price
-                trades.append(
-                    {
-                        "entry_date": str(entry_date.date()),
-                        "exit_date": str(date.date()),
-                        "entry_price": round(entry_price, 2),
-                        "exit_price": round(price, 2),
-                        "return_pct": round((price - entry_price) / entry_price * 100, 2),
-                    }
-                )
-                shares = 0.0
-                entry_price = None
-                entry_date = None
+                pending_signal = {"action": "SELL", "signal_date": date, "signal_price": float(close.iloc[i])}
 
-        equity_curve.append({"date": str(date.date()), "equity": round(cash + shares * price, 2)})
+        # 3) Mark-to-market: bugünün Close'u ile, olası execution SONRASI durum.
+        mark_price = float(close.iloc[i])
+        equity_curve.append({"date": str(date.date()), "equity": round(cash + shares * mark_price, 2)})
 
+    # Son barda hâlâ bekleyen bir sinyal varsa: T+1 barı YOK — EXECUTE EDİLMEZ
+    # (Close'a sahte fallback YAPILMAZ). Bilgi amaçlı ayrı raporlanır.
+    unexecuted_signal = None
+    if pending_signal is not None:
+        unexecuted_signal = {
+            "action": pending_signal["action"],
+            "signal_date": str(pending_signal["signal_date"].date()),
+            "signal_price": round(pending_signal["signal_price"], 2),
+            "reason": "NO_NEXT_BAR",
+        }
+
+    # Backtest sonunda hâlâ açık bir pozisyon varsa: bu GERÇEK bir SELL
+    # execution DEĞİLDİR — trades[]'e sahte bir kapanış kaydı EKLENMEZ,
+    # yalnızca mark-to-market ile ayrı raporlanır (bkz. modül docstring'i).
+    open_position = None
     if shares > 0:
         final_price = float(close.iloc[-1])
-        cash = shares * final_price
-        trades.append(
-            {
-                "entry_date": str(entry_date.date()),
-                "exit_date": str(df.index[-1].date()),
-                "entry_price": round(entry_price, 2),
-                "exit_price": round(final_price, 2),
-                "return_pct": round((final_price - entry_price) / entry_price * 100, 2),
-                "note": "Backtest sonunda açık kalan pozisyon son fiyattan kapatıldı (mark-to-market)",
-            }
-        )
-        shares = 0.0
+        open_position = {
+            "status": "OPEN",
+            "entry_signal_date": str(entry_signal_date.date()),
+            "entry_signal_price": round(entry_signal_price, 2),
+            "entry_execution_date": str(entry_execution_date.date()),
+            "entry_execution_price": round(entry_execution_price, 2),
+            "shares": round(shares, 6),
+            "mark_price": round(final_price, 2),
+            "market_value": round(shares * final_price, 2),
+            "unrealized_return_pct": round(
+                (final_price - entry_execution_price) / entry_execution_price * 100, 2
+            ),
+        }
+        final_equity = cash + shares * final_price
+    else:
+        final_equity = cash
 
-    final_equity = cash
     total_return_pct = round((final_equity - initial_capital) / initial_capital * 100, 2)
 
     equity_values = pd.Series([point["equity"] for point in equity_curve])
@@ -141,6 +256,11 @@ def simulate(
     drawdown = (equity_values - running_max) / running_max
     max_drawdown_pct = round(float(drawdown.min() * 100), 2) if not drawdown.empty else 0.0
 
+    # win_rate_pct: yalnızca GERÇEK kapanmış (closed round-trip) işlemlerden.
+    # Açık pozisyon hiç trades[]'e girmediğinden burada zaten karışmıyor.
+    # Kapalı işlem yoksa 0.0 (Flutter `winRatePct` alanı non-nullable `double`
+    # okuyor — mevcut API sözleşmesini bozmamak için `None` DEĞİL, eski
+    # davranışla aynı 0.0 varsayılanı korunuyor, bkz. HATA 3A raporu).
     winning_trades = [t for t in trades if t["return_pct"] > 0]
     win_rate_pct = round(len(winning_trades) / len(trades) * 100, 2) if trades else 0.0
 
@@ -157,7 +277,12 @@ def simulate(
         "trade_count": len(trades),
         "win_rate_pct": win_rate_pct,
         "trades": trades,
+        "open_position": open_position,
+        "unexecuted_signal": unexecuted_signal,
+        "skipped_executions": skipped_executions,
         "equity_curve": equity_curve,
+        "execution_model": "NEXT_SESSION_OPEN",
+        "terminal_position_policy": "MARK_TO_MARKET",
     }
 
 
