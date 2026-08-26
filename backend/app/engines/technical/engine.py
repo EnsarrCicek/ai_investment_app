@@ -100,6 +100,7 @@ from app.repositories.technical_analysis_repository import TechnicalAnalysisRepo
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.benchmark_service import get_benchmark_close_series
 from app.services.market_data.bist_provider import BistProvider
+from app.services.market_data.trading_calendar import normalize_bist_daily_sessions, session_normalization_to_dict
 
 # 25.08.2026: 1.0.0 -> 1.1.0 — RSI hesaplaması gerçek Wilder yöntemine
 # (SMA seed + recursive smoothing, warm-up=NaN) düzeltildi; aynı sembol/tarih
@@ -138,7 +139,25 @@ from app.services.market_data.bist_provider import BistProvider
 # daha ileri bir tarihe kaydırabilir — technical_score hesaplamasının
 # GİRDİSİ (kaç günlük veri kullanıldığı) bu sembollerde değişebilir. Eski
 # kayıtlar değiştirilmedi/silinmedi.
-ENGINE_VERSION = "1.4.0"
+#
+# 26.08.2026: 1.4.0 -> 1.5.0 — HATA 3D: authoritative BIST takvimine göre
+# "expected session" OLMAYAN (hafta sonu/planlı tatil/olağanüstü kapanış/
+# iptal edilmiş seans) hiçbir tarihteki provider barı — OHLC/Volume
+# içeriğine BAKILMADAN — artık normalize aşamasında ÖNCEDEN düşürülüyor
+# (bkz. `trading_calendar.normalize_bist_daily_sessions()`). Önceden bu
+# barlar ya HATA 3C'nin `UNEXPECTED_TRADING_SESSION` kontrolüne takılıp
+# analizi TAMAMEN veto ediyordu (ör. 27-29 Mayıs 2026 Kurban Bayramı'nda
+# Yahoo'nun bireysel hisselerde döndürdüğü phantom barlar YÜZÜNDEN BIST100'ün
+# TAMAMI HARD_VETO alıyordu) ya da (normalize edilmeden önce) sessizce
+# göstergelere sızabiliyordu. Artık analiz, bu tarihler HİÇ VARMIŞ GİBİ,
+# yalnızca gerçek completed session'lar üzerinden üretiliyor — bazı
+# sembollerde bu, önceden HARD_VETO edilen bir analizin artık BAŞARIYLA
+# üretilmesi VEYA technical_score'un girdisinin (kaç/hangi bar kullanıldığı)
+# değişmesi anlamına gelebilir. Düşürülen her tarihin provenance'ı
+# (`session_normalization_policy`/`normalized_dropped_sessions`) yeni,
+# backward-compatible alanlarla sonuca şeffaf şekilde eklendi. Eski kayıtlar
+# değiştirilmedi/silinmedi.
+ENGINE_VERSION = "1.5.0"
 
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
@@ -340,6 +359,20 @@ class TechnicalAnalysisEngine:
         # TAMAMLANMIŞ barlarla üretilir (bkz. services/market_data/completed_bars.py).
         provider_history = filter_completed_daily_bars(provider_history, now=now)
 
+        # HATA 3D (26.08.2026): authoritative takvime göre "expected session"
+        # OLMAYAN (hafta sonu/planlı tatil/olağanüstü kapanış/iptal edilmiş
+        # seans) hiçbir tarihteki bar — OHLC/Volume içeriğine BAKILMADAN —
+        # düşürülür (ör. 27-29 Mayıs 2026 Kurban Bayramı'nda Yahoo'nun
+        # bireysel hisselerde döndürdüğü, Open=High=Low=Close=önceki kapanış
+        # + Volume=0 "phantom" barlar — BIST100'ün TAMAMINDA gözlemlendi).
+        # KRİTİK SIRALAMA: bu adım `resolve_expected_start()`'TAN (aşağıda)
+        # ÖNCE çalışmalı — aksi halde pre-roll bölgesine denk gelen bir
+        # phantom bar, sembolün gerçekten `analysis_start`'tan önce işlem
+        # gördüğüne dair SAHTE bir "kanıt" (VERIFIED_PRE_WINDOW) üretebilirdi.
+        provider_history, session_normalization_result = normalize_bist_daily_sessions(
+            provider_history, symbol=symbol, provider="yahoo_finance"
+        )
+
         # Pre-roll bölgesinde en az bir bar varsa (analysis_start'tan ÖNCE),
         # sembolün zaten işlem gördüğü KANITLANMIŞTIR (VERIFIED_PRE_WINDOW) —
         # continuity kontrolü analysis_start'tan başlar. Yoksa (LEADING_EDGE_
@@ -425,6 +458,7 @@ class TechnicalAnalysisEngine:
             components=components,
             market_data_as_of=df.index[-1].to_pydatetime(),
             history_validation_status=validation_status.value,
+            **session_normalization_to_dict(session_normalization_result),
             **enrichment,
             indicators={
                 "rsi": round(rsi_val, 2),

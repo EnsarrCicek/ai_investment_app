@@ -33,6 +33,7 @@ from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WE
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
+from app.services.market_data.trading_calendar import session_normalization_to_dict
 
 DEFAULT_CANDIDATE_THRESHOLDS = [
     {"buy": 40.0, "weak_buy": 15.0, "weak_sell": -15.0, "sell": -40.0},  # varsayılan (DecisionEngine ile aynı)
@@ -62,7 +63,9 @@ class WalkForwardOptimizer:
     ) -> dict:
         # HATA 3B (26.08.2026): BacktestEngine ile AYNI completed-session-only
         # sözleşmesi — bkz. completed_history.py, engine.py modül docstring'i.
-        df, backtest_data_as_of = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
+        df, backtest_data_as_of, normalization_result = prepare_backtest_history(
+            self._provider, symbol, period, MIN_HISTORY_DAYS, now=now
+        )
         if len(df) < MIN_HISTORY_DAYS + train_days + test_days:
             raise ValueError(
                 f"'{symbol}' için walk-forward optimizasyona yetecek geçmiş veri yok "
@@ -129,6 +132,7 @@ class WalkForwardOptimizer:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
+            **session_normalization_to_dict(normalization_result),
             "window_count": len(windows),
             "window_win_rate_pct": window_win_rate_pct,
             "aggregate_out_of_sample_return_pct": aggregate_out_of_sample_return_pct,

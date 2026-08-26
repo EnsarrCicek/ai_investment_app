@@ -632,3 +632,59 @@ def test_pre_roll_content_never_leaks_into_score_or_enrichment(fake_provider):
     assert analysis_calm.investment_horizon == analysis_wild.investment_horizon
     assert analysis_calm.mtf_aligned == analysis_wild.mtf_aligned
     assert analysis_calm.mtf_consensus == analysis_wild.mtf_consensus
+
+
+# ---------------------------------------------------------------------------
+# HATA 3D, madde 22: normalizasyon `resolve_expected_start()`'TAN ÖNCE
+# çalışmalıdır -- aksi halde pre-roll bölgesindeki bir "phantom" (Yahoo'nun
+# planlı bir tatilde ürettiği sahte) bar, sembolün analysis_start'tan ÖNCE
+# ZATEN işlem gördüğüne dair YANLIŞ bir kanıt (VERIFIED_PRE_WINDOW) üretebilir.
+# Bu test, HATA 2C (pre-roll evidence) ile HATA 3D (normalization) arasındaki
+# sıralama sözleşmesini kilitler.
+# ---------------------------------------------------------------------------
+
+
+def test_pre_roll_region_with_only_a_phantom_holiday_bar_is_not_verified_pre_window(fake_provider):
+    # Pre-roll bölgesindeki TEK bar, 2026-01-01 (Yılbaşı -- planlı tam gün
+    # kapanış) tarihli bir "phantom" bar (bkz. HATA 3D: Open=High=Low=Close=
+    # önceki kapanış, Volume=0) -- normalize edilmeden ÖNCE bu, index'te
+    # analysis_start'tan (2026-02-25) daha ESKİ bir tarih olarak GÖRÜNÜR ve
+    # eski (HATA 3D öncesi) kodda yanlışlıkla "kanıt" sayılırdı. Normalization
+    # bunu düşürdükten SONRA pre-roll bölgesi tamamen BOŞ kalır.
+    tail = _bday_df(_ANALYSIS_START_2C.isoformat(), _BOUNDARY_2C.isoformat(), base_price=100.0, seed=99)
+    phantom_pre_roll = pd.DataFrame(
+        {"Open": [100.0], "High": [100.0], "Low": [100.0], "Close": [100.0], "Volume": [0]},
+        index=[pd.Timestamp("2026-01-01", tz=TZ)],
+    )
+    df = pd.concat([phantom_pre_roll, tail]).sort_index()
+
+    (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
+
+    assert analysis.history_validation_status == "LEADING_EDGE_UNVERIFIED"
+    assert len(analysis_repo.added) == 1
+    dropped = {d["date"]: d["classification"] for d in analysis.normalized_dropped_sessions}
+    assert dropped.get("2026-01-01") == "PLANNED_FULL_DAY_CLOSURE"
+
+
+def test_pre_roll_region_with_real_evidence_plus_phantom_bar_still_verifies(fake_provider):
+    # Phantom barın YANINDA GERÇEK bir pre-roll bar da varsa (sembol gerçekten
+    # analysis_start'tan önce işlem görmüş), normalization phantom'u düşürse
+    # bile GERÇEK kanıt hâlâ VERIFIED_PRE_WINDOW üretmelidir -- normalization
+    # yalnızca sahte barı temizler, gerçek kanıtı ETKİLEMEZ.
+    tail = _bday_df(_ANALYSIS_START_2C.isoformat(), _BOUNDARY_2C.isoformat(), base_price=100.0, seed=99)
+    real_pre_roll = pd.DataFrame(
+        {"Open": [95.0], "High": [96.0], "Low": [94.0], "Close": [95.5], "Volume": [12345]},
+        index=[pd.Timestamp("2025-09-01", tz=TZ)],
+    )
+    phantom_pre_roll = pd.DataFrame(
+        {"Open": [100.0], "High": [100.0], "Low": [100.0], "Close": [100.0], "Volume": [0]},
+        index=[pd.Timestamp("2026-01-01", tz=TZ)],
+    )
+    df = pd.concat([real_pre_roll, phantom_pre_roll, tail]).sort_index()
+
+    (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
+
+    assert analysis.history_validation_status == "VERIFIED_PRE_WINDOW"
+    assert len(analysis_repo.added) == 1
+    dropped = {d["date"]: d["classification"] for d in analysis.normalized_dropped_sessions}
+    assert dropped.get("2026-01-01") == "PLANNED_FULL_DAY_CLOSURE"

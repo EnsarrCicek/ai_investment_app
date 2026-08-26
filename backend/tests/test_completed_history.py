@@ -7,7 +7,7 @@ import pytest
 
 from app.engines.backtest.completed_history import SUPPORTED_BACKTEST_PERIODS, prepare_backtest_history
 from app.engines.technical.data_quality import DataQualityError, TradingDayContinuityError
-from app.services.market_data.trading_calendar import expected_trading_sessions
+from app.services.market_data.trading_calendar import NonSessionClassification, expected_trading_sessions
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -77,7 +77,7 @@ def test_pre_cutoff_excludes_partial_today_row():
     completed = _bday_df("2026-01-05", "2026-08-25")  # ...24,25 Agustos completed
     raw = _append_partial_row(completed, "2026-08-26", open_=100.0, close=110.0, volume=1_000_000)
 
-    df, backtest_data_as_of = prepare_backtest_history(_FakeProvider(raw), "TEST", "1y", min_history_days=60, now=now)
+    df, backtest_data_as_of, _norm = prepare_backtest_history(_FakeProvider(raw), "TEST", "1y", min_history_days=60, now=now)
 
     assert backtest_data_as_of == pd.Timestamp("2026-08-25").date()
     assert df.index[-1].date() == pd.Timestamp("2026-08-25").date()
@@ -90,7 +90,7 @@ def test_post_cutoff_includes_todays_now_completed_row():
     completed = _bday_df("2026-01-05", "2026-08-25")
     raw = _append_partial_row(completed, "2026-08-26", open_=100.0, close=110.0, volume=1_000_000)
 
-    df, backtest_data_as_of = prepare_backtest_history(_FakeProvider(raw), "TEST", "1y", min_history_days=60, now=now)
+    df, backtest_data_as_of, _norm = prepare_backtest_history(_FakeProvider(raw), "TEST", "1y", min_history_days=60, now=now)
 
     assert backtest_data_as_of == pd.Timestamp("2026-08-26").date()
     assert df.index[-1].date() == pd.Timestamp("2026-08-26").date()
@@ -120,8 +120,8 @@ def test_partial_contamination_isolation_two_wildly_different_partial_rows_produ
     raw_a = _append_partial_row(completed, "2026-08-26", open_=100.0, close=110.0, volume=1_000_000)
     raw_b = _append_partial_row(completed, "2026-08-26", open_=500.0, close=900.0, volume=999_000_000)
 
-    df_a, as_of_a = prepare_backtest_history(_FakeProvider(raw_a), "TEST", "1y", min_history_days=60, now=now)
-    df_b, as_of_b = prepare_backtest_history(_FakeProvider(raw_b), "TEST", "1y", min_history_days=60, now=now)
+    df_a, as_of_a, norm_a = prepare_backtest_history(_FakeProvider(raw_a), "TEST", "1y", min_history_days=60, now=now)
+    df_b, as_of_b, norm_b = prepare_backtest_history(_FakeProvider(raw_b), "TEST", "1y", min_history_days=60, now=now)
 
     assert as_of_a == as_of_b
     pd.testing.assert_frame_equal(df_a, df_b)
@@ -133,7 +133,7 @@ def test_weekend_now_does_not_alter_friday_completed_history():
     now = datetime(2026, 8, 29, 12, 0, tzinfo=TZ)
     completed = _bday_df("2026-01-05", "2026-08-28")
 
-    df, backtest_data_as_of = prepare_backtest_history(_FakeProvider(completed), "TEST", "1y", min_history_days=60, now=now)
+    df, backtest_data_as_of, _norm = prepare_backtest_history(_FakeProvider(completed), "TEST", "1y", min_history_days=60, now=now)
 
     assert backtest_data_as_of == pd.Timestamp("2026-08-28").date()
     assert len(df) == len(completed)
@@ -177,7 +177,7 @@ def test_holiday_now_does_not_alter_prior_session_history():
     now = datetime(2026, 1, 1, 12, 0, tzinfo=TZ)
     completed = _bday_df("2025-09-01", "2025-12-31")
 
-    df, backtest_data_as_of = prepare_backtest_history(_FakeProvider(completed), "TEST", "1y", min_history_days=60, now=now)
+    df, backtest_data_as_of, _norm = prepare_backtest_history(_FakeProvider(completed), "TEST", "1y", min_history_days=60, now=now)
 
     assert backtest_data_as_of == pd.Timestamp("2025-12-31").date()
     assert len(df) == len(completed)
@@ -256,7 +256,7 @@ def test_prepare_backtest_history_drops_08_02_2023_cancelled_bar():
     now = datetime(2023, 2, 15, 19, 0, tzinfo=TZ)  # boundary = 15.02 (son gercek bar ile ayni)
     df = _feb_2023_earthquake_df()
 
-    result_df, backtest_data_as_of = prepare_backtest_history(
+    result_df, backtest_data_as_of, normalization_result = prepare_backtest_history(
         _FakeProvider(df), "THYAO", "1y", min_history_days=2, now=now
     )
 
@@ -264,16 +264,22 @@ def test_prepare_backtest_history_drops_08_02_2023_cancelled_bar():
     assert list(result_df.index.date) == [date(2023, 2, 7), date(2023, 2, 15)]
     assert date(2023, 2, 8) not in result_df.index.date
     assert backtest_data_as_of == date(2023, 2, 15)
+    dropped_dates = {d.date: d.classification for d in normalization_result.dropped_sessions}
+    assert dropped_dates.get(date(2023, 2, 8)) == NonSessionClassification.CANCELLED_SESSION.value
     # 09-14.02 (olağanüstü kapanış) veya 08.02'nin kendisi "missing"/"unexpected"
     # olarak HARD_VETO tetiklemiyor -- ikisi de authoritative takvimde
     # "expected" DEĞİL (bkz. BIST_EXTRAORDINARY_CLOSURES/BIST_CANCELLED_SESSIONS).
 
 
-def test_unexpected_bar_on_planned_holiday_is_hard_vetoed_not_silently_dropped():
-    # Genel ("bilinmeyen") bir anomali -- CANCELLED_SESSION olarak
-    # TANIMLANMAMIŞ bir tatilde provider bar döndürürse bu authoritative
-    # olarak düşürülmez, HARD VETO edilir (drop_cancelled_sessions yalnızca
-    # BIST_CANCELLED_SESSIONS'ta AÇIKÇA tanımlı tarihler için çalışır).
+def test_unexpected_bar_on_planned_holiday_is_authoritatively_dropped_not_vetoed():
+    # HATA 3D (26.08.2026): 1 Mayıs resmi tam gün tatildir -- provider (Yahoo)
+    # bu tarihte "phantom" bir bar döndürürse (bkz. HATA 3D denetimi, 27-29
+    # Mayıs 2026 gerçek örneği), bu artık HARD VETO edilmez; authoritative
+    # takvime göre PLANNED_FULL_DAY_CLOSURE olarak şeffaf biçimde düşürülür ve
+    # backtest normal şekilde devam eder (bkz. normalize_bist_daily_sessions).
+    # Bu davranış, kararın OHLC/Volume desenine DEĞİL yalnızca takvime dayandığını
+    # kilitler -- bogus_holiday_row'un OHLC/Volume değerleri bilinçli olarak
+    # "phantom imzasından" (Open=High=Low=Close=önceki kapanış, Volume=0) FARKLI.
     now = datetime(2026, 5, 8, 19, 0, tzinfo=TZ)
     valid_before = _bday_df("2026-04-01", "2026-04-30")
     bogus_holiday_row = pd.DataFrame(
@@ -283,9 +289,33 @@ def test_unexpected_bar_on_planned_holiday_is_hard_vetoed_not_silently_dropped()
     valid_after = _bday_df("2026-05-04", "2026-05-08")
     df = pd.concat([valid_before, bogus_holiday_row, valid_after]).sort_index()
 
+    result_df, backtest_data_as_of, normalization_result = prepare_backtest_history(
+        _FakeProvider(df), "TEST", "1y", min_history_days=10, now=now
+    )
+
+    assert date(2026, 5, 1) not in [ts.date() for ts in result_df.index]
+    assert len(normalization_result.dropped_sessions) == 1
+    dropped = normalization_result.dropped_sessions[0]
+    assert dropped.date == date(2026, 5, 1)
+    assert dropped.classification == NonSessionClassification.PLANNED_FULL_DAY_CLOSURE.value
+
+
+def test_unexpected_bar_on_genuinely_unknown_weekday_is_still_hard_vetoed():
+    # HATA 3D defense-in-depth (spec bölüm 12): normalization yalnızca
+    # AUTHORITATIVE olarak bilinen 4 sınıfı (weekend/planlı/olağanüstü/iptal)
+    # düşürür. Hafta içi, hiçbir sınıfa girmeyen (yani gerçekte var olmaması
+    # gereken ama takvimde hiçbir gerekçesi bulunmayan) bir bar hâlâ
+    # check_trading_day_continuity() tarafından HARD VETO edilmelidir --
+    # normalization bu koruma katmanını ASLA zayıflatmaz.
+    now = datetime(2026, 5, 8, 19, 0, tzinfo=TZ)
+    valid_before = _bday_df("2026-04-01", "2026-04-24")
+    # 2026-04-27 (Pazartesi) expected bir seans -- provider'da hiç YOK, bu
+    # nedenle normalization sonrası bile "missing" olarak kalmalı.
+    valid_after = _bday_df("2026-04-28", "2026-05-08")
+    df = pd.concat([valid_before, valid_after]).sort_index()
+
     with pytest.raises(TradingDayContinuityError) as exc_info:
         prepare_backtest_history(_FakeProvider(df), "TEST", "1y", min_history_days=10, now=now)
 
-    assert exc_info.value.reason_code == "UNEXPECTED_TRADING_SESSION"
-    assert exc_info.value.unexpected_dates == [date(2026, 5, 1)]
-    assert exc_info.value.missing_dates == []
+    assert exc_info.value.reason_code == "MISSING_TRADING_SESSION"
+    assert date(2026, 4, 27) in exc_info.value.missing_dates

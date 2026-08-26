@@ -40,27 +40,35 @@ kesiciler tetiklenip piyasa saat 11:00'de durduruldu VE o gün gerçekleşen
 TÜM işlemler Borsa İstanbul A.Ş. Yönetmeliği'nin "Emir ve İşlemlerin
 İptali" başlıklı 33. maddesi uyarınca iptal edildi (kaynak: Anadolu
 Ajansı, KAP duyurusunu doğrudan aktarıyor — 26.08.2026'da bağımsız
-araştırmayla doğrulandı). Yahoo bu tarih için hâlâ bir bar döndürüyor
-(Open=High=Low=Close, ihmal edilebilir hacim — THYAO/GARAN/ASELS/SISE/
-KCHOL'de doğrudan gözlemlendi) — bu bar GERÇEK bir finalized session
-DEĞİLDİR; `trading_calendar.drop_cancelled_sessions()` ile authoritative
-olarak DÜŞÜRÜLÜR (RSI/MACD/EMA/execution'a asla girmez). Bu, GENEL bir
-"anomali gördüm, sil" mekanizması DEĞİLDİR — yalnızca `BIST_CANCELLED_
-SESSIONS`'ta AÇIKÇA, kaynak gösterilerek tanımlanmış tarihler için
-çalışır; bilinmeyen/belgelenmemiş herhangi bir başka anomalik bar
-`UNEXPECTED_TRADING_SESSION` ile HARD VETO edilir, asla sessizce
-düşürülmez veya normalize edilmez.
+araştırmayla doğrulandı).
+
+HATA 3D (26.08.2026) — AUTHORITATIVE NON-SESSION NORMALIZATION: HATA 3C-EX'in
+`drop_cancelled_sessions()`'ı yalnızca CANCELLED_SESSION'ı kapsıyordu VE
+yalnızca bu modülden (backtest) çağrılıyordu — canlı `TechnicalAnalysisEngine`
+KAPSAM DIŞIYDI. Kanıtlandı ki Yahoo, PLANLI tam-gün kapanışlarda (yıllık
+tatil tablosunda olan günler) da ARA SIRA phantom bar döndürebiliyor —
+en şiddetli örnek: 27-28-29 Mayıs 2026 (Kurban Bayramı), BIST100'ün
+TAMAMINDA (`Open=High=Low=Close=`önceki kapanış, `Volume=0`). Bu YÜZDEN
+`drop_cancelled_sessions()` YERİNE, dört kategoriyi de (WEEKEND/PLANNED_
+FULL_DAY_CLOSURE/EXTRAORDINARY_CLOSURE/CANCELLED_SESSION) kapsayan TEK,
+PAYLAŞILAN `trading_calendar.normalize_bist_daily_sessions()` kullanılıyor
+— hem bu modül (backtest) HEM `TechnicalAnalysisEngine` (canlı) AYNI
+fonksiyonu çağırır. Karar YALNIZCA authoritative takvime dayanır — OHLC/
+Volume değerlerine bakılarak "phantom'a benziyor" çıkarımı YAPILMAZ.
+Düşürülen her tarihin provenance'ı (`SessionNormalizationResult.
+dropped_sessions`) sonuca şeffaf şekilde eklenir — bkz. `backtest_data_as_of`
+yanındaki `session_normalization_policy`/`normalized_dropped_sessions`.
 
 Normalizasyon sırası (her biri kendi HATA numarasıyla etiketli):
     raw provider history
     ↓
-    completed-session filter          [HATA 3B — filter_completed_daily_bars]
+    completed-session filter              [HATA 3B — filter_completed_daily_bars]
     ↓
-    known CANCELLED_SESSION removal   [HATA 3C-EX — drop_cancelled_sessions]
+    authoritative non-session drop        [HATA 3D — normalize_bist_daily_sessions, WEEKEND/PLANNED/EXTRAORDINARY/CANCELLED hepsi]
     ↓
-    session continuity validation     [HATA 3C — check_trading_day_continuity]
+    session continuity validation         [HATA 3C — check_trading_day_continuity, defense-in-depth]
     ↓
-    check_data_quality                [MIN_HISTORY_DAYS dahil, NORMALIZE EDİLMİŞ seri üzerinde]
+    check_data_quality                    [MIN_HISTORY_DAYS dahil, NORMALIZE EDİLMİŞ seri üzerinde]
     ↓
     technical_score_series / simulate NEXT_SESSION_OPEN   [HATA 3A]
 
@@ -70,6 +78,9 @@ compare_strategies()`, `WalkForwardOptimizer.run()`) aynı mantığı
 kopyala-yapıştır ile birbirinden bağımsız (ve zamanla birbirinden
 sapabilecek) şekilde tekrarlamasını önler. `MIN_HISTORY_DAYS` kontrolü
 RAW history üzerinde DEĞİL, TAM NORMALİZE EDİLMİŞ seri üzerinde çalışır.
+`check_trading_day_continuity`'nin `missing`/`unexpected` kontrolleri
+normalizasyondan SONRA da HÂLÂ çalışır (defense-in-depth — normalizasyonu
+atlayan varsayımsal bir gelecekteki caller'a karşı, bkz. HATA 3C).
 
 Period sözleşmesi (HATA 3C, madde 1): `SUPPORTED_BACKTEST_PERIODS` tek,
 paylaşılan bir sabittir — API katmanına AYRI bir whitelist eklenmedi;
@@ -90,7 +101,7 @@ import pandas as pd
 from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.completed_bars import filter_completed_daily_bars
-from app.services.market_data.trading_calendar import drop_cancelled_sessions
+from app.services.market_data.trading_calendar import SessionNormalizationResult, normalize_bist_daily_sessions
 
 # HATA 3C (26.08.2026): koddaki TEK gerçek period sözleşmesi. Gerçek
 # caller'ların (Flutter Strategy Lab: 6mo/1y/2y/3y/5y; ana Backtest sekmesi:
@@ -107,15 +118,18 @@ def prepare_backtest_history(
     period: str,
     min_history_days: int,
     now: datetime | None = None,
-) -> tuple[pd.DataFrame, date]:
-    """Ham geçmişi çeker; TAMAMLANMAMIŞ ("bugünkü") barı çıkarır; bilinen,
-    resmi olarak iptal edilmiş seansları düşürür; BIST işlem-günü
-    sürekliliğini doğrular; kalite kontrolünü NORMALİZE EDİLMİŞ seri
-    üzerinde yapar.
+) -> tuple[pd.DataFrame, date, SessionNormalizationResult]:
+    """Ham geçmişi çeker; TAMAMLANMAMIŞ ("bugünkü") barı çıkarır; authoritative
+    takvime göre expected OLMAYAN (hafta sonu/planlı tatil/olağanüstü kapanış/
+    iptal edilmiş seans) hiçbir tarihteki bar'ı — içeriğine bakmadan — düşürür;
+    BIST işlem-günü sürekliliğini doğrular; kalite kontrolünü NORMALİZE
+    EDİLMİŞ seri üzerinde yapar.
 
-    Döner: `(normalized_history, backtest_data_as_of)` — ikincisi,
-    backtest'in fiilen hesaba kattığı EN SON tamamlanmış günün tarihidir
-    (sonuçlara `backtest_data_as_of` alanı olarak şeffaf şekilde eklenir).
+    Döner: `(normalized_history, backtest_data_as_of, normalization_result)`
+    — `backtest_data_as_of`, backtest'in fiilen hesaba kattığı EN SON
+    tamamlanmış günün tarihidir; `normalization_result.dropped_sessions`
+    düşürülen her tarihin provenance'ını (`classification`) taşır — boşsa
+    `[]` (hiçbir şey düşürülmediyse).
 
     Raises:
         ValueError: `period`, `SUPPORTED_BACKTEST_PERIODS` içinde değilse.
@@ -134,8 +148,10 @@ def prepare_backtest_history(
 
     raw_history = provider.get_history(symbol, period=period)
     completed_history = filter_completed_daily_bars(raw_history, now=now)
-    normalized_history = drop_cancelled_sessions(completed_history)
+    normalized_history, normalization_result = normalize_bist_daily_sessions(
+        completed_history, symbol=symbol, provider="yahoo_finance"
+    )
     check_trading_day_continuity(normalized_history, symbol, now=now)
     check_data_quality(normalized_history, symbol, min_history_days=min_history_days, now=now)
     backtest_data_as_of = normalized_history.index[-1].date()
-    return normalized_history, backtest_data_as_of
+    return normalized_history, backtest_data_as_of, normalization_result

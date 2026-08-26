@@ -1,4 +1,4 @@
-"""BIST resmi işlem takvimi — HATA 2B (25.08.2026), genişletildi HATA 3C/3C-EX (26.08.2026).
+"""BIST resmi işlem takvimi — HATA 2B (25.08.2026), genişletildi HATA 3C/3C-EX/3D (26.08.2026).
 
 Kaynak: Borsa İstanbul A.Ş.'nin her yıl resmi web sitesinde yayınladığı
 "Pay Piyasası Tatil Tablosu" (EK-3) belgeleri — 2021-2026'nın TAMAMI bu
@@ -52,9 +52,8 @@ HATA 3C-EX (26.08.2026) — ÜÇ AYRI "işlem günü DEĞİL" KATEGORİSİ, prov
    kategorisine girer — üçüncü, ayrı bir sınıftır. Yahoo bu tarih için hâlâ
    bir bar döndürüyor (Open=High=Low=Close, ihmal edilebilir hacim — 08.02.
    2023'te THYAO/GARAN/ASELS/SISE/KCHOL'de doğrudan gözlemlendi) — bu bar,
-   `completed_history.prepare_backtest_history()` içinde authoritative
-   olarak DÜŞÜRÜLÜR (bkz. `drop_cancelled_sessions()`), skorlamaya/
-   execution'a ASLA girmez.
+   `normalize_bist_daily_sessions()` içinde authoritative olarak DÜŞÜRÜLÜR,
+   skorlamaya/execution'a ASLA girmez.
 
 Fonksiyonel olarak (1) ve (2) `is_full_day_closure()` açısından TAMAMEN
 AYNI davranır (o tarih hiç "expected" sayılmaz) — ayrı tutulmalarının
@@ -62,7 +61,7 @@ TEK nedeni provenance/auditability'dir (biri her yıl yeniden doğrulanması
 gereken rutin bir belge, diğeri tarihe gömülü, tek seferlik bir olay).
 (3) ise FARKLI davranır: hem "expected" sayılmaz HEM DE üzerinde bulunan
 gerçek bir bar varsa bu bar sessizce yok sayılmaz, açıkça DÜŞÜRÜLÜR (bkz.
-`drop_cancelled_sessions()`) — genel bir "anomali gördüm, sil" mekanizması
+`normalize_bist_daily_sessions()`) — genel bir "anomali gördüm, sil" mekanizması
 DEĞİLDİR, yalnızca burada AÇIKÇA, kaynak gösterilerek tanımlanmış tarihler
 için çalışır. Bilinmeyen/belgelenmemiş herhangi bir başka "beklenmeyen bar"
 (ör. hafta sonuna veya bir tatile denk gelen açıklanamayan bir Yahoo barı)
@@ -74,6 +73,24 @@ bir olağanüstü tam-gün kapanış BULUNAMADI (normal, aynı gün içinde çö
 intraday devre kesici olayları — ör. 2026 Mayıs/Haziran — kapsam dışıdır,
 tam günlük bar oluşumunu engellemezler).
 
+HATA 3D (26.08.2026) — AUTHORITATIVE NON-SESSION NORMALIZATION: Ayrıca
+kanıtlandı ki Yahoo, bireysel BIST hisseleri için PLANLI (yıllık tatil
+tablosunda olan) tam-gün kapanışlarda da ARA SIRA "phantom" bar
+döndürebiliyor — 2021-2026 arası 59 hafta-içi resmi tatilin 7'sinde en az
+bir sembolde gözlendi. En şiddetli örnek: **27-28-29 Mayıs 2026 (Kurban
+Bayramı tam kapanışı)** — BIST100'ün TAMAMINDA (100/100), her üç günde de
+`Open=High=Low=Close=26 Mayıs'ın kapanışı` (donmuş/forward-fill) VE
+`Volume=0`. `^XU100` (endeksin kendisi) bu üç günde HİÇ satır döndürmüyor —
+anomali yalnızca bireysel hisse sembollerinde. `normalize_bist_daily_
+sessions()`, bu barları — OHLC/Volume DEĞERLERİNE BAKMADAN, yalnızca
+tarihin authoritative takvimde "expected session" olmadığı bilgisine
+dayanarak — düşürür. Bu KESİNLİKLE bir "Volume=0 ise/OHLC eşitse düşür"
+heuristic'i DEĞİLDİR (bkz. denetim raporu, madde 9-10: 2021-2026 arası 13
+sembol/~7000 gün taramasında, zaten bilinen iki kategori dışında hiçbir
+"gerçek" işlem gününde Volume=0 bulunamadı — ama bu, teorik olarak
+imkansız olduğu ANLAMINA GELMEZ, yalnızca ampirik gözlem; asıl otorite her
+zaman takvimdir, verinin İÇERİĞİ değil).
+
 Bakım: Bu listeler YILLIK olarak güncellenmelidir. Desteklenmeyen bir yıl
 için SESSİZCE tahmin YÜRÜTÜLMEZ — `expected_trading_sessions()` böyle bir
 durumda `None` döner, çağıran taraf (`data_quality.py`) bunu açık bir
@@ -82,9 +99,14 @@ OLARAK henüz eklenmedi (şu an hiçbir gerçek backtest period'u gerektirmiyor,
 bkz. `completed_history.SUPPORTED_BACKTEST_PERIODS`).
 """
 
+import logging
+from dataclasses import dataclass, field
 from datetime import date, timedelta
+from enum import Enum
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 BIST_FULL_DAY_CLOSURES: dict[int, frozenset[date]] = {
     2021: frozenset(
@@ -194,7 +216,7 @@ BIST_EXTRAORDINARY_CLOSURES: dict[int, frozenset[date]] = {
 
 # HATA 3C-EX (26.08.2026): seans FİİLEN AÇILDI ama o güne ait TÜM işlemler
 # Borsa'nın kararıyla resmi olarak İPTAL edildi — bkz. modül docstring'i.
-# `drop_cancelled_sessions()` tarafından kullanılır (provider barı varsa düşürülür).
+# `normalize_bist_daily_sessions()` tarafından kullanılır (provider barı varsa düşürülür).
 BIST_CANCELLED_SESSIONS: dict[int, frozenset[date]] = {
     2023: frozenset(
         {
@@ -273,18 +295,118 @@ def is_full_day_closure(day: date) -> bool:
     return is_cancelled_session(day)
 
 
-def drop_cancelled_sessions(df: pd.DataFrame) -> pd.DataFrame:
-    """`BIST_CANCELLED_SESSIONS`'ta AÇIKÇA tanımlı bir tarihe denk gelen barları
-    çıkarır — bkz. modül docstring'i. Bu GENEL bir "anomali gördüm, sil"
-    mekanizması DEĞİLDİR; yalnızca burada kaynak gösterilerek tanımlanmış,
-    resmi olarak iptal edildiği KANITLANMIŞ tarihler için çalışır. Bilinmeyen
-    herhangi bir başka anomalik bar burada ele alınmaz (bkz.
-    `data_quality.check_trading_day_continuity`, `UNEXPECTED_TRADING_SESSION`).
+class NonSessionClassification(str, Enum):
+    """HATA 3D (26.08.2026) — `normalize_bist_daily_sessions()`'ın düşürdüğü
+    bir tarihin PROVENANCE'ı. Sıra ÖNEMLİ (bkz. `classify_non_session_day`):
+    daha SPESİFİK/ad-hoc-kaynaklı kategoriler (CANCELLED_SESSION,
+    EXTRAORDINARY_CLOSURE), genel WEEKEND kuralının veya yıllık
+    PLANNED_FULL_DAY_CLOSURE tablosunun ALTINDA "kaybolmamalı"."""
+
+    WEEKEND = "WEEKEND"
+    PLANNED_FULL_DAY_CLOSURE = "PLANNED_FULL_DAY_CLOSURE"
+    EXTRAORDINARY_CLOSURE = "EXTRAORDINARY_CLOSURE"
+    CANCELLED_SESSION = "CANCELLED_SESSION"
+
+
+SESSION_NORMALIZATION_POLICY = "AUTHORITATIVE_NON_SESSION_DROP"
+
+
+@dataclass(frozen=True)
+class DroppedSession:
+    date: date
+    classification: str  # NonSessionClassification değeri (string — Pydantic/JSON serileştirme kolaylığı için)
+
+
+@dataclass(frozen=True)
+class SessionNormalizationResult:
+    """`normalize_bist_daily_sessions()`'ın provenance çıktısı — backward-
+    compatible: boşsa `dropped_sessions == []` (asla `None` değil)."""
+
+    dropped_sessions: list[DroppedSession] = field(default_factory=list)
+    policy: str = SESSION_NORMALIZATION_POLICY
+
+
+def classify_non_session_day(day: date) -> NonSessionClassification | None:
+    """`day` authoritative takvime göre bir "expected session DEĞİL" günüyse
+    PROVENANCE'ını döner; `day` gerçekten expected bir session ise (yarım
+    günler DAHİL — `HALF_DAY` hiçbir zaman bu fonksiyonun döndürdüğü bir
+    kategori DEĞİLDİR) `None` döner.
+
+    Sıra KASITLI: CANCELLED_SESSION ve EXTRAORDINARY_CLOSURE (ad-hoc,
+    kaynağı ayrı araştırılan kararlar) ÖNCE kontrol edilir — aksi halde
+    (ör. `is_full_day_closure`'ın basit OR mantığıyla) bu tarihler genel bir
+    "tatil" gibi yanlış sınıflandırılıp provenance'ları kaybolabilirdi.
+    """
+    if is_cancelled_session(day):
+        return NonSessionClassification.CANCELLED_SESSION
+    if day in BIST_EXTRAORDINARY_CLOSURES.get(day.year, frozenset()):
+        return NonSessionClassification.EXTRAORDINARY_CLOSURE
+    if day in BIST_FULL_DAY_CLOSURES.get(day.year, frozenset()):
+        return NonSessionClassification.PLANNED_FULL_DAY_CLOSURE
+    if day.weekday() >= 5:
+        return NonSessionClassification.WEEKEND
+    return None
+
+
+def normalize_bist_daily_sessions(
+    df: pd.DataFrame, symbol: str | None = None, provider: str | None = None
+) -> tuple[pd.DataFrame, SessionNormalizationResult]:
+    """HATA 3D (26.08.2026) — TEK, PAYLAŞILAN authoritative non-session
+    normalizasyon katmanı. Hem canlı `TechnicalAnalysisEngine` hem
+    `BacktestEngine`/`WalkForwardOptimizer` (`completed_history.py` üzerinden)
+    AYNI bu fonksiyonu çağırır — HATA 3C-EX'in `normalize_bist_daily_sessions()`'ı
+    (yalnızca backtest'te kullanılıyordu, canlı motoru KAPSAMIYORDU) YERİNE
+    geçer ve dört kategoriyi de (WEEKEND/PLANNED_FULL_DAY_CLOSURE/
+    EXTRAORDINARY_CLOSURE/CANCELLED_SESSION) kapsar.
+
+    KESİN KURAL: Karar YALNIZCA authoritative takvime (`classify_non_session_
+    day`) dayanır — OHLC değerlerine veya Volume'a BAKILMAZ, "bu satır
+    phantom'a benziyor" gibi bir çıkarım YAPILMAZ (bkz. HATA 3D denetim
+    raporu, madde 9-10: Volume=0/OHLC-eşitliği asla karar kriteri değildir).
+    Bir tarih authoritative takvimde "expected session" ise (yarım günler
+    DAHİL), o tarihteki bar — içeriği ne olursa olsun — ASLA düşürülmez.
+
+    Döner: `(normalized_df, result)` — `result.dropped_sessions` boşsa `[]`
+    (hiçbir şey düşürülmediyse). Düşürülen HER tarih için tek bir INFO log
+    satırı üretilir (indikatör/skor hesaplaması başına DEĞİL — bkz. modül
+    docstring'i, "normalization aşamasında bir kez").
     """
     if df.empty:
-        return df
-    keep_mask = [not is_cancelled_session(ts.date()) for ts in df.index]
-    return df[keep_mask]
+        return df, SessionNormalizationResult(dropped_sessions=[])
+
+    dropped: list[DroppedSession] = []
+    keep_mask: list[bool] = []
+    for ts in df.index:
+        day = ts.date()
+        classification = classify_non_session_day(day)
+        if classification is None:
+            keep_mask.append(True)
+            continue
+        keep_mask.append(False)
+        dropped.append(DroppedSession(date=day, classification=classification.value))
+
+    if dropped:
+        logger.info(
+            "BIST non-session bar normalization: symbol=%s provider=%s dropped=%s",
+            symbol or "?",
+            provider or "?",
+            [(d.date.isoformat(), d.classification) for d in dropped],
+        )
+
+    return df[keep_mask], SessionNormalizationResult(dropped_sessions=dropped)
+
+
+def session_normalization_to_dict(result: SessionNormalizationResult) -> dict:
+    """`SessionNormalizationResult`'ı JSON/Pydantic-uyumlu, backward-compatible
+    bir sözlüğe çevirir — hem `TechnicalAnalysis` hem backtest sonuç
+    sözlükleri AYNI şemayı kullanır, provenance iki tarafta da birbirinden
+    sapmaz. Boşsa `normalized_dropped_sessions: []` (asla `None` değil)."""
+    return {
+        "session_normalization_policy": result.policy,
+        "normalized_dropped_sessions": [
+            {"date": d.date.isoformat(), "classification": d.classification} for d in result.dropped_sessions
+        ],
+    }
 
 
 def expected_trading_sessions(start: date, end: date) -> list[date] | None:

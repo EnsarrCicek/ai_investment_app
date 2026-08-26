@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -11,7 +11,7 @@ from app.engines.backtest.strategy_presets import STRATEGY_PRESETS
 from app.engines.backtest.walk_forward import WalkForwardOptimizer
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.data_quality import TradingDayContinuityError
-from app.services.market_data.trading_calendar import expected_trading_sessions
+from app.services.market_data.trading_calendar import NonSessionClassification, expected_trading_sessions
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -160,7 +160,7 @@ def test_cancelled_session_bar_is_never_used_for_execution(fake_provider):
     raw = _feb_2023_earthquake_df()
     provider = fake_provider(history_df=raw)
 
-    normalized_df, backtest_data_as_of = prepare_backtest_history(
+    normalized_df, backtest_data_as_of, _norm = prepare_backtest_history(
         provider, "THYAO", "1y", min_history_days=2, now=now
     )
     assert list(normalized_df.index.date) == [
@@ -179,6 +179,82 @@ def test_cancelled_session_bar_is_never_used_for_execution(fake_provider):
     assert pos["entry_execution_date"] == "2023-02-15"
     assert pos["entry_execution_price"] == pytest.approx(132.86)  # Open[15.02]
     assert pos["entry_execution_price"] != pytest.approx(112.34)  # Open[08.02] ASLA kullanılmadı
+
+
+# ---------------------------------------------------------------------------
+# HATA 3D, madde 21: 27-29 Mayıs 2026 (Kurban Bayramı) -- Yahoo'nun gerçek
+# hayatta ürettiği "phantom" barlar (bkz. HATA 3D denetimi). 26 Mayıs
+# Close'unda kurulan BUY sinyali, normalizasyon sonrası ASLA 27/28/29
+# Mayıs'ın (var olmaması gereken, fiilen düşürülmüş) barlarında değil,
+# yalnızca bir sonraki GERÇEK seans olan 01 Haziran'ın Open'ında
+# gerçekleştirilmelidir.
+# ---------------------------------------------------------------------------
+
+
+def _may_2026_bayram_phantom_df() -> pd.DataFrame:
+    before = _bday_df(periods=10, end="2026-05-26")
+    close_26_may = before["Close"].iloc[-1]
+    # HATA 3D phantom imzası: Open=High=Low=Close=önceki kapanış, Volume=0.
+    phantom = pd.DataFrame(
+        {
+            "Open": [close_26_may] * 3,
+            "High": [close_26_may] * 3,
+            "Low": [close_26_may] * 3,
+            "Close": [close_26_may] * 3,
+            "Volume": [0, 0, 0],
+        },
+        index=pd.DatetimeIndex(
+            [pd.Timestamp(d, tz=TZ) for d in ("2026-05-27", "2026-05-28", "2026-05-29")]
+        ),
+    )
+    after_sessions = expected_trading_sessions(date(2026, 6, 1), date(2026, 6, 10))
+    after_dates = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in after_sessions])
+    rng = np.random.default_rng(11)
+    after_closes = 100 + np.cumsum(rng.normal(0, 1, len(after_dates)))
+    after = pd.DataFrame(
+        {
+            "Open": after_closes - 0.2,
+            "High": after_closes + 0.5,
+            "Low": after_closes - 0.5,
+            "Close": after_closes,
+            "Volume": rng.integers(1000, 5000, len(after_dates)),
+        },
+        index=after_dates,
+    )
+    return pd.concat([before, phantom, after]).sort_index()
+
+
+def test_planned_holiday_phantom_bars_never_used_for_execution(fake_provider):
+    now = datetime(2026, 6, 10, 19, 0, tzinfo=TZ)
+    raw = _may_2026_bayram_phantom_df()
+    provider = fake_provider(history_df=raw)
+
+    normalized_df, backtest_data_as_of, normalization_result = prepare_backtest_history(
+        provider, "TEST", "1y", min_history_days=2, now=now
+    )
+
+    assert pd.Timestamp("2026-05-26").date() in normalized_df.index.date
+    for phantom_date in ("2026-05-27", "2026-05-28", "2026-05-29"):
+        assert pd.Timestamp(phantom_date).date() not in normalized_df.index.date
+    assert pd.Timestamp("2026-06-01").date() in normalized_df.index.date
+
+    dropped = {d.date: d.classification for d in normalization_result.dropped_sessions}
+    for phantom_date in ("2026-05-27", "2026-05-28", "2026-05-29"):
+        assert dropped.get(pd.Timestamp(phantom_date).date()) == NonSessionClassification.PLANNED_FULL_DAY_CLOSURE.value
+
+    scores = pd.Series([0.0] * len(normalized_df), index=normalized_df.index)
+    signal_pos = list(normalized_df.index.date).index(pd.Timestamp("2026-05-26").date())
+    scores.iloc[signal_pos] = 50.0  # 26.05 Close'unda BUY sinyali
+
+    result = simulate(normalized_df, scores, DEFAULT_THRESHOLDS, initial_capital=1000.0)
+
+    pos = result["open_position"]
+    assert pos is not None
+    assert pos["entry_execution_date"] == "2026-06-01"
+    expected_open = normalized_df.loc[pd.Timestamp("2026-06-01", tz=TZ), "Open"]
+    assert pos["entry_execution_price"] == pytest.approx(round(expected_open, 2))
+    phantom_open = raw.loc[pd.Timestamp("2026-05-27", tz=TZ), "Open"]
+    assert pos["entry_execution_price"] != pytest.approx(phantom_open)  # 27.05 phantom Open'ı ASLA kullanılmadı
 
 
 # ---------------------------------------------------------------------------

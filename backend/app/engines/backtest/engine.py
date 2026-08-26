@@ -98,6 +98,7 @@ from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WE
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
+from app.services.market_data.trading_calendar import session_normalization_to_dict
 
 MIN_HISTORY_DAYS = 60
 
@@ -360,7 +361,9 @@ class BacktestEngine:
         initial_capital: float = 100_000.0,
         now: datetime | None = None,
     ) -> dict:
-        df, backtest_data_as_of = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
+        df, backtest_data_as_of, normalization_result = prepare_backtest_history(
+            self._provider, symbol, period, MIN_HISTORY_DAYS, now=now
+        )
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
@@ -378,6 +381,7 @@ class BacktestEngine:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
+            **session_normalization_to_dict(normalization_result),
             **result,
         }
 
@@ -389,10 +393,15 @@ class BacktestEngine:
         initial_capital: float = 100_000.0,
         now: datetime | None = None,
     ) -> dict:
-        df, backtest_data_as_of = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
+        df, backtest_data_as_of, normalization_result = prepare_backtest_history(
+            self._provider, symbol, period, MIN_HISTORY_DAYS, now=now
+        )
 
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
         warm_df = df.iloc[MIN_HISTORY_DAYS:]
+        # HATA 3D, madde 14: aynı normalize edilmiş history TÜM preset'ler
+        # için kullanıldığından, provenance TOP-LEVEL tek bir yerde taşınır
+        # — her preset sonucuna AYRI AYRI kopyalanmaz.
         results = compare_strategies(df, presets, thresholds, initial_capital)
         return {
             "asset": symbol,
@@ -402,5 +411,6 @@ class BacktestEngine:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
+            **session_normalization_to_dict(normalization_result),
             "results": results,
         }

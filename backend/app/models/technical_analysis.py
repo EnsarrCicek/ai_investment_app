@@ -30,6 +30,19 @@ class TechnicalAnalysis(BaseModel):
     # `None` bunu geriye dönük uyumlu şekilde ifade eder — migration YAPILMADI.
     history_validation_status: str | None = None
 
+    # 26.08.2026 (HATA 3D denetimi): authoritative BIST takvimine göre
+    # "expected session" OLMAYAN (hafta sonu/planlı tatil/olağanüstü kapanış/
+    # iptal edilmiş seans) bir tarihte provider'ın (Yahoo) döndürdüğü herhangi
+    # bir bar varsa, bu barlar skorlamaya girmeden ÖNCE düşürülür — bu iki
+    # alan HANGİ tarihlerin, HANGİ gerekçeyle düşürüldüğünü şeffaf şekilde
+    # taşır (bkz. services/market_data/trading_calendar.py,
+    # normalize_bist_daily_sessions/session_normalization_to_dict). Eski (bu
+    # alanlar eklenmeden önceki) Firestore kayıtlarında yoktur; `None`/`[]`
+    # varsayılanları geriye dönük uyumluluğu bozmadan bunu ifade eder —
+    # migration YAPILMADI.
+    session_normalization_policy: str | None = None
+    normalized_dropped_sessions: list[dict] = Field(default_factory=list)
+
     # AŞAMA 48/15: market structure/S-R/breakout/hacim/rejim/gap/mum/sinyal
     # sınıfı — TechnicalAnalysisEngine'in üç bileşenli çekirdek skorunu
     # (rsi/macd/trend/ema_slope/bollinger/momentum/roc) DEĞİŞTİRMEZ, yalnızca
