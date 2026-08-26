@@ -22,6 +22,16 @@ alt-pencerede yeniden hesaplamak, uzun pencereli göstergelerin (EMA50 gibi)
 DİLİMLENİR. Bu, causality garantisini bozmaz (bkz. test_indicator_
 causality.py) — bir bar'daki skor yalnızca o bar'a kadarki veriye bağlıdır,
 sonradan dilimlemek geçmişe dönük hiçbir şeyi değiştirmez.
+
+26.08.2026 (HATA 3B) — VERİ SÖZLEŞMESİ SORUMLULUĞU: Bu modül kendi
+`get_history()` çağrısını YAPMAZ, `df`'i çağırandan parametre olarak alır.
+`walk_forward_optimize_weights()`'e verilen `df`'in COMPLETED_DAILY_ONLY
+olması (piyasa açıkken bugünün partial/developing barını İÇERMEMESİ) —
+bkz. `completed_history.prepare_backtest_history()` — ÇAĞIRANIN
+sorumluluğundadır, bu fonksiyon kendi başına garanti edemez. Şu an bu
+fonksiyonu üreten canlı bir API/job çağrısı YOKTUR (yalnızca testlerde
+kullanılıyor); ileride bir çağıran eklenirse o çağıran `prepare_backtest_
+history()`'yi kullanmalıdır.
 """
 
 import pandas as pd

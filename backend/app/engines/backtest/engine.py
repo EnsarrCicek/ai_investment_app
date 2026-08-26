@@ -60,6 +60,30 @@ sabit okuyor) ama semantikleri artık AÇIKÇA execution an/fiyatıdır
 (`entry_date == entry_execution_date`, vb.) — sinyal an/fiyatı ayrıca
 `entry_signal_date`/`entry_signal_price`/`exit_signal_date`/
 `exit_signal_price` alanlarında EK olarak taşınır.
+
+26.08.2026 (HATA 3B) — VERİ SÖZLEŞMESİ: COMPLETED_DAILY_ONLY.
+Kanıtlandı: `run()`/`compare_strategies()` piyasa açıkken ham (partial/
+developing) "bugünkü" barı hiç filtrelemeden `technical_score_series()`'e
+veriyordu — bu hem skoru hem (açık bir pozisyon varsa) terminal mark-to-
+market'i dakikalar içinde değişen, kararsız bir değere bağlıyordu. Karar
+(kullanıcı, 26.08.2026): backtest canlı/paper-trading DEĞİLDİR — yalnızca
+TAMAMLANMIŞ günlük seanslar kullanılır. Bilinçli olarak REDDEDİLEN
+alternatif: "partial günün Close'unu skordan çıkar ama Open'ını execution
+için kullan" hibrit modeli (Open'ın gün içinde sabit kaldığı ölçüldü, ama
+bu ayrım historical backtest'i live/paper execution ile karıştırır).
+`self._provider.get_history(...)`'nin çıktısı artık DOĞRUDAN kullanılmaz —
+bkz. `completed_history.prepare_backtest_history()`: ham veri
+`filter_completed_daily_bars()`'tan (HATA 2A) geçirilir, `check_data_quality`
+(`MIN_HISTORY_DAYS` dahil) bu FİLTRELENMİŞ seri üzerinde çalışır. Sonuç
+sözlüğüne `backtest_data_as_of` (kullanılan son tamamlanmış barın tarihi)
+ve `data_policy: "COMPLETED_DAILY_ONLY"` eklendi — eski (bu değişiklikten
+önceki, partial bar'a maruz) sonuçlardan ayırt edilebilmesi için. HATA 3A'nın
+`NEXT_SESSION_OPEN` sözleşmesi (`simulate()`) HİÇ DEĞİŞMEDİ — yalnızca artık
+her zaman completed-only bir seri görüyor; son tamamlanmış barda oluşan bir
+sinyal için backtest ufkunda henüz bir T+1 yoksa (piyasa hâlâ açıksa) bu
+zaten mevcut `unexecuted_signal`/`NO_NEXT_BAR` yoluyla doğru şekilde
+yakalanıyor (aynı backtest, T+1 tamamlandıktan sonra yeniden çalıştırılırsa
+o sinyal artık normal şekilde execute edilir).
 """
 
 import math
@@ -67,9 +91,9 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from app.engines.backtest.completed_history import prepare_backtest_history
 from app.engines.decision.engine import DEFAULT_THRESHOLDS, _classify
 from app.engines.technical import indicators as ind
-from app.engines.technical.data_quality import check_data_quality
 from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
@@ -329,9 +353,14 @@ class BacktestEngine:
         self._provider = provider or BistProvider()
         self._config_repo = config_repo or SystemConfigRepository()
 
-    def run(self, symbol: str, period: str = "2y", initial_capital: float = 100_000.0) -> dict:
-        df = self._provider.get_history(symbol, period=period)
-        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS)
+    def run(
+        self,
+        symbol: str,
+        period: str = "2y",
+        initial_capital: float = 100_000.0,
+        now: datetime | None = None,
+    ) -> dict:
+        df, backtest_data_as_of = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
@@ -347,14 +376,20 @@ class BacktestEngine:
             "to_date": str(warm_df.index[-1].date()),
             "thresholds": thresholds,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "backtest_data_as_of": str(backtest_data_as_of),
+            "data_policy": "COMPLETED_DAILY_ONLY",
             **result,
         }
 
     def compare_strategies(
-        self, symbol: str, presets: dict[str, dict], period: str = "2y", initial_capital: float = 100_000.0
+        self,
+        symbol: str,
+        presets: dict[str, dict],
+        period: str = "2y",
+        initial_capital: float = 100_000.0,
+        now: datetime | None = None,
     ) -> dict:
-        df = self._provider.get_history(symbol, period=period)
-        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS)
+        df, backtest_data_as_of = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
 
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
         warm_df = df.iloc[MIN_HISTORY_DAYS:]
@@ -365,5 +400,7 @@ class BacktestEngine:
             "from_date": str(warm_df.index[0].date()),
             "to_date": str(warm_df.index[-1].date()),
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "backtest_data_as_of": str(backtest_data_as_of),
+            "data_policy": "COMPLETED_DAILY_ONLY",
             "results": results,
         }

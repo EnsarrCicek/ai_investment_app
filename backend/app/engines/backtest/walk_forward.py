@@ -15,12 +15,18 @@ Kapsam kararı: Optimize edilen parametre, 6 teknik gösterge ağırlığı değ
 karar eşikleridir (buy/weak_buy/weak_sell/sell) — küçük, yorumlanabilir bir
 arama uzayı ve doğrudan "ne kadar agresif alım-satım yapılsın" sorusuna
 karşılık gelir.
+
+26.08.2026 (HATA 3B): `BacktestEngine.run()` ile AYNI completed-session-only
+veri sözleşmesi burada da kullanılır (bkz. `completed_history.py`) — bu
+sınıf kendi BAĞIMSIZ `get_history()` çağrısını yaptığından, o düzeltmeyi
+otomatik devralmıyordu; HATA 3B denetiminde bu ayrıca tespit edildi.
 """
 
 from datetime import datetime, timezone
 
 import pandas as pd
 
+from app.engines.backtest.completed_history import prepare_backtest_history
 from app.engines.backtest.engine import MIN_HISTORY_DAYS, simulate, technical_score_series
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
@@ -52,8 +58,11 @@ class WalkForwardOptimizer:
         test_days: int = 63,
         candidate_thresholds: list[dict] | None = None,
         initial_capital: float = 100_000.0,
+        now: datetime | None = None,
     ) -> dict:
-        df = self._provider.get_history(symbol, period=period)
+        # HATA 3B (26.08.2026): BacktestEngine ile AYNI completed-session-only
+        # sözleşmesi — bkz. completed_history.py, engine.py modül docstring'i.
+        df, backtest_data_as_of = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
         if len(df) < MIN_HISTORY_DAYS + train_days + test_days:
             raise ValueError(
                 f"'{symbol}' için walk-forward optimizasyona yetecek geçmiş veri yok "
@@ -118,6 +127,8 @@ class WalkForwardOptimizer:
             "train_days": train_days,
             "test_days": test_days,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "backtest_data_as_of": str(backtest_data_as_of),
+            "data_policy": "COMPLETED_DAILY_ONLY",
             "window_count": len(windows),
             "window_win_rate_pct": window_win_rate_pct,
             "aggregate_out_of_sample_return_pct": aggregate_out_of_sample_return_pct,
