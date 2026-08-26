@@ -20,6 +20,16 @@ class TechnicalAnalysis(BaseModel):
     # `None` varsayılanı geriye dönük uyumluluğu bozmadan bunu ifade eder.
     market_data_as_of: datetime | None = None
 
+    # 25.08.2026 (HATA 2C denetimi): analiz penceresinden (`analysis_start`)
+    # ÖNCEYE uzanan bir "pre-roll" bölgesinde en az bir gerçek bar bulunup
+    # bulunmadığını (yani sembolün analiz başlangıcından ÖNCE zaten işlem
+    # gördüğünün KANITLANIP kanıtlanamadığını) gösterir — bkz.
+    # engines/technical/history_window.py, HistoryValidationStatus.
+    # "VERIFIED_PRE_WINDOW" veya "LEADING_EDGE_UNVERIFIED" değerini alır.
+    # Eski (bu alan eklenmeden önceki) Firestore kayıtlarında yoktur;
+    # `None` bunu geriye dönük uyumlu şekilde ifade eder — migration YAPILMADI.
+    history_validation_status: str | None = None
+
     # AŞAMA 48/15: market structure/S-R/breakout/hacim/rejim/gap/mum/sinyal
     # sınıfı — TechnicalAnalysisEngine'in üç bileşenli çekirdek skorunu
     # (rsi/macd/trend/ema_slope/bollinger/momentum/roc) DEĞİŞTİRMEZ, yalnızca

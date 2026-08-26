@@ -28,8 +28,10 @@ class _FakeTicker:
         self._intraday_df = intraday_df
         self._daily_df = daily_df
         self.fast_info = _FakeFastInfo(previousClose=previous_close)
+        self.history_calls: list[dict] = []
 
     def history(self, period=None, interval=None, **kwargs):
+        self.history_calls.append({"period": period, "interval": interval, **kwargs})
         if interval == "5m":
             return self._intraday_df
         return self._daily_df
@@ -101,3 +103,55 @@ def test_get_quote_uses_intraday_when_available(monkeypatch):
     assert quote.last_price == 302.0
     assert quote.open == 301.0
     assert quote.volume == 2500
+
+
+# ---------------------------------------------------------------------------
+# HATA 2C (25.08.2026): get_history() iki AYRI mod destekler — mevcut `period`
+# (geriye dönük uyumlu) VEYA açık `start`/`end` (yalnızca TechnicalAnalysisEngine
+# pre-roll sözleşmesi için) — ikisi ASLA aynı anda Yahoo'ya gönderilmez.
+# ---------------------------------------------------------------------------
+
+
+def test_get_history_period_mode_unchanged(monkeypatch):
+    daily = _daily_df([("2026-08-18", 298.5, 302.5, 297.75, 300.5, 27_211_586)])
+    fake_ticker = _FakeTicker(intraday_df=pd.DataFrame(), daily_df=daily, previous_close=300.0)
+    monkeypatch.setattr(bist_provider_module.yf, "Ticker", lambda _symbol: fake_ticker)
+
+    result = BistProvider().get_history("THYAO", period="6mo", interval="1d")
+
+    assert len(result) == 1
+    call = fake_ticker.history_calls[0]
+    assert call["period"] == "6mo"
+    assert call.get("start") is None
+    assert call.get("end") is None
+
+
+def test_get_history_explicit_start_end_mode(monkeypatch):
+    daily = _daily_df([("2026-02-10", 100.0, 101.0, 99.0, 100.5, 1000)])
+    fake_ticker = _FakeTicker(intraday_df=pd.DataFrame(), daily_df=daily, previous_close=100.0)
+    monkeypatch.setattr(bist_provider_module.yf, "Ticker", lambda _symbol: fake_ticker)
+
+    result = BistProvider().get_history("THYAO", start="2026-02-10", end="2026-08-26", interval="1d")
+
+    assert len(result) == 1
+    call = fake_ticker.history_calls[0]
+    # start/end modunda period'un Yahoo'ya HİÇ gönderilmediği doğrulanır.
+    assert call["period"] is None
+    assert call["start"] == "2026-02-10"
+    assert call["end"] == "2026-08-26"
+
+
+def test_get_history_raises_when_only_start_given(monkeypatch):
+    fake_ticker = _FakeTicker(intraday_df=pd.DataFrame(), daily_df=pd.DataFrame(), previous_close=100.0)
+    monkeypatch.setattr(bist_provider_module.yf, "Ticker", lambda _symbol: fake_ticker)
+
+    with pytest.raises(ValueError):
+        BistProvider().get_history("THYAO", start="2026-02-10")
+
+
+def test_get_history_raises_when_only_end_given(monkeypatch):
+    fake_ticker = _FakeTicker(intraday_df=pd.DataFrame(), daily_df=pd.DataFrame(), previous_close=100.0)
+    monkeypatch.setattr(bist_provider_module.yf, "Ticker", lambda _symbol: fake_ticker)
+
+    with pytest.raises(ValueError):
+        BistProvider().get_history("THYAO", end="2026-08-26")

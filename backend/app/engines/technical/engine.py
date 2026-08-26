@@ -75,6 +75,7 @@ from app.engines.technical.candlestick_patterns import detect_patterns as detect
 from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
 from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon, horizon_reason
+from app.engines.technical.history_window import compute_history_window, resolve_expected_start
 from app.engines.technical.market_structure import analyze_market_structure
 from app.services.market_data.completed_bars import filter_completed_daily_bars
 from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
@@ -123,7 +124,21 @@ from app.services.market_data.bist_provider import BistProvider
 # semboller için (gerçek bir boşluk sürdüğü sürece) `GET /decisions/{symbol}`
 # ve `GET /analysis/{symbol}/technical` artık 422 dönebilir. Eski kayıtlar
 # değiştirilmedi/silinmedi.
-ENGINE_VERSION = "1.3.0"
+#
+# 25.08.2026: 1.3.0 -> 1.4.0 — HATA 2C: `analysis_start`'tan (df.index[0])
+# ÖNCEYE uzanan bir "pre-roll" penceresi artık her istekte AYRICA çekiliyor
+# — yalnızca sembolün analysis_start'tan ÖNCE zaten işlem gördüğünü
+# KANITLAMAK için (bkz. history_window.py); pre-roll barları göstergelere
+# ASLA girmez. Pre-roll'da kanıt yoksa analiz artık otomatik veto edilmiyor
+# (yeni yürürlüğe giren yanlış varsayım riski önlendi) — bunun yerine
+# `history_validation_status="LEADING_EDGE_UNVERIFIED"` ile işaretlenip
+# sembolün gözlemlenen ilk barından itibaren normal continuity kontrolüne
+# tabi tutuluyor. Bu, bazı sembollerde (özellikle pre-roll penceresinde
+# Yahoo'nun hiç veri döndürmediği durumlarda) `expected_start`'ı eskisinden
+# daha ileri bir tarihe kaydırabilir — technical_score hesaplamasının
+# GİRDİSİ (kaç günlük veri kullanıldığı) bu sembollerde değişebilir. Eski
+# kayıtlar değiştirilmedi/silinmedi.
+ENGINE_VERSION = "1.4.0"
 
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
@@ -310,12 +325,29 @@ class TechnicalAnalysisEngine:
             if age < max_age_seconds:
                 return cached, cached_id
 
-        df = self._provider.get_history(symbol, period="6mo")
+        # HATA 2C (25.08.2026): analiz penceresinden (analysis_start) BİRAZ
+        # daha ÖNCESİNİ ("pre-roll") de kapsayan TEK bir geniş istek yapılır
+        # — pre-roll, sembolün analysis_start'tan ÖNCE zaten işlem gördüğünü
+        # KANITLAMAK içindir, göstergelere ASLA girmez (bkz. history_window.py).
+        history_window = compute_history_window(now)
+        provider_history = self._provider.get_history(
+            symbol,
+            start=history_window.provider_request_start.isoformat(),
+            end=history_window.provider_request_end.isoformat(),
+        )
         # HATA 2A (25.08.2026): piyasa açıkken "bugün" satırı hâlâ oluşuyor
         # olabilir (developing/partial bar) — günlük teknik analiz yalnızca
         # TAMAMLANMIŞ barlarla üretilir (bkz. services/market_data/completed_bars.py).
-        df = filter_completed_daily_bars(df, now=now)
-        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS, now=now)
+        provider_history = filter_completed_daily_bars(provider_history, now=now)
+
+        # Pre-roll bölgesinde en az bir bar varsa (analysis_start'tan ÖNCE),
+        # sembolün zaten işlem gördüğü KANITLANMIŞTIR (VERIFIED_PRE_WINDOW) —
+        # continuity kontrolü analysis_start'tan başlar. Yoksa (LEADING_EDGE_
+        # UNVERIFIED) ne "PRE_LISTING" varsayılır ne otomatik HARD VETO
+        # uygulanır — yalnızca sembolün gözlemlenen ilk barından itibaren
+        # kontrol edilir (o tarihten SONRAKİ gerçek boşluklar hâlâ veto sebebidir).
+        expected_start, validation_status = resolve_expected_start(provider_history, history_window.analysis_start)
+
         # HATA 2B (25.08.2026): "bugünü çıkar" yeterli değil — serinin
         # İÇİNDE de BIST'in resmi takvimine göre beklenen ama Yahoo'da
         # bulunmayan bir işlem günü olabilir (bkz. 24.08.2026 örneği, tüm
@@ -323,7 +355,14 @@ class TechnicalAnalysisEngine:
         # EMA gibi recursive göstergeler sessizce yanlış bir "N gün önce"
         # referansı kullanacağından, eksik veri UYDURULMAZ/yoksayılmaz —
         # analiz hiç ÜRETİLMEZ (HARD VETO).
-        check_trading_day_continuity(df, symbol, now=now)
+        check_trading_day_continuity(provider_history, symbol, now=now, expected_start=expected_start)
+
+        # Pre-roll barları ASLA göstergelere girmez — skorlama yalnızca
+        # analysis_start'tan itibaren çalışır. `MIN_HISTORY_DAYS` kontrolü de
+        # BİLİNÇLİ OLARAK bu kırpılmış seri üzerinde yapılır (pre-roll'un
+        # kendisi minimum-geçmiş şartını "sahte" karşılamasın diye).
+        df = provider_history[provider_history.index.date >= expected_start]
+        check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS, now=now)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_WEIGHTS)
 
@@ -385,6 +424,7 @@ class TechnicalAnalysisEngine:
             confidence=confidence,
             components=components,
             market_data_as_of=df.index[-1].to_pydatetime(),
+            history_validation_status=validation_status.value,
             **enrichment,
             indicators={
                 "rsi": round(rsi_val, 2),

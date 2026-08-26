@@ -138,16 +138,17 @@ def check_trading_day_continuity(
     symbol: str,
     provider: str = DEFAULT_PROVIDER_NAME,
     now: datetime | None = None,
+    expected_start: date | None = None,
 ) -> None:
-    """HATA 2B (25.08.2026): BIST'in resmi işlem takvimine göre, sembolün
-    GÖZLEMLENEN İLK barından, `now`'a göre BEKLENEN son tamamlanmış BIST
-    seansına kadar olan aralıkta beklenen ama seride bulunmayan bir işlem
-    günü varsa `TradingDayContinuityError` fırlatır.
+    """BIST'in resmi işlem takvimine göre, `expected_start`'tan (dahil),
+    `now`'a göre BEKLENEN son tamamlanmış BIST seansına kadar olan aralıkta
+    beklenen ama seride bulunmayan bir işlem günü varsa
+    `TradingDayContinuityError` fırlatır.
 
     Bu fonksiyonun GARANTİ ETTİĞİ ŞEY TAM OLARAK BUDUR — ne daha fazlası, ne
-    daha azı: "sembolün gözlemlenen ilk barından, now'a göre beklenen son
-    tamamlanmış BIST seansına kadar olan continuity." "6 aylık geçmişin
-    TAMAMEN eksiksiz olduğu" gibi daha geniş bir iddia YAPILMAZ.
+    daha azı: "`expected_start`'tan, now'a göre beklenen son tamamlanmış
+    BIST seansına kadar olan continuity." "6 aylık geçmişin TAMAMEN
+    eksiksiz olduğu" gibi daha geniş bir iddia YAPILMAZ.
 
     ÖNEMLİ: Kontrol aralığının üst sınırı `df.index[-1]` DEĞİL,
     `latest_expected_completed_date(now)`'dur (bkz. completed_bars.py).
@@ -160,26 +161,32 @@ def check_trading_day_continuity(
     fonksiyon her zaman AYNI "ne kadar ileriye kadar veri bekliyoruz"
     sınırında hemfikir olur.
 
-    **BİLİNEN, ÇÖZÜLMEMİŞ SINIRLAMA — "leading-gap" kör noktası (25.08.2026
-    denetiminde bulundu, bu görevde KASITLI OLARAK çözülmedi):**
-    Kontrolün ALT sınırı `df.index[0]`'dır (sembolün SERİDE gözlemlenen İLK
-    barı). Bu tasarımın bilinçli fakat KANITLANMAMIŞ bir varsayımı vardır:
-    - `df.index[0]`'DAN ÖNCE sağlayıcının (provider) eksik bar döndürüp
-      döndürmediği BİLİNEMEZ — bu fonksiyon o aralığa hiç bakmaz.
-    - `df.index[0]`, sembolün KANITLANMIŞ bir `listing_date`'i DEĞİLDİR —
-      yalnızca "seride rastladığımız ilk tarih"tir.
-    - Gerçek pre-listing (sembol o tarihten önce gerçekten borsada yoktu)
-      ile "sağlayıcı, istenen pencerenin BAŞINDAKİ günleri sessizce
-      düşürdü" (established bir sembol için bile) durumları, mevcut veriyle
-      AYIRT EDİLEMİYOR — sentetik bir testle kanıtlandı (established bir
-      sembulun ilk 2 günü sağlayıcı tarafından düşürülmüş gibi simüle
-      edildiğinde bu fonksiyon PASS döner, hatayı YAKALAMAZ).
-    - Bu nedenle "leading-edge validation" (serinin en başının da gerçekten
-      eksiksiz olduğunun doğrulanması) BİLİNÇLİ OLARAK bu fonksiyonun
-      kapsamı DIŞINDA bırakılmıştır — AYRI bir geliştirme konusudur (gerçek
-      bir çözüm, Yahoo'nun kendi `ticker.info`'sundaki gerçek listing
-      tarihini çekip `Asset` modeline eklemeyi gerektirir; bu görevde
-      YAPILMADI, sahte/varsayımsal bir listing tarihi de UYDURULMADI).
+    **`expected_start` parametresi (HATA 2C, 25.08.2026 — "leading-gap" kör
+    noktasının düzeltmesi):** Verilmezse (None) eski davranış korunur:
+    alt sınır `df.index[0]`'dır. VERİLİRSE, alt sınır olarak DOĞRUDAN bu
+    kullanılır — `df.index[0]`'dan BAĞIMSIZ. Bunun nedeni: HATA 2B'de
+    kanıtlanan kör nokta — sağlayıcı, analiz penceresinin TAM BAŞINDAKİ
+    günleri düşürürse, `df.index[0]` yanlışlıkla "muhtemelen pre-listing"
+    sanılıp gerçek bir boşluk maskelenebiliyordu. Çözüm (bkz.
+    `history_window.py`, `resolve_expected_start()`): `df`'e, analiz
+    penceresinden BİRAZ daha ÖNCESİNİ kapsayan bir "pre-roll" bölgesi de
+    dahil edilir; pre-roll'da EN AZ bir bar bulunması sembolün
+    `analysis_start`'tan ÖNCE ZATEN işlem gördüğünü KANITLAR ve o durumda
+    `expected_start=analysis_start` geçirilir — pre-roll'un KENDİ içindeki
+    boşluklar bu fonksiyona hiç görünmez (`observed_dates`'te var ama
+    `expected` listesi `expected_start`'tan başladığından hiç eşleşmezler,
+    dolayısıyla asla "eksik" sayılmazlar). Pre-roll'da HİÇ bar yoksa
+    (`LEADING_EDGE_UNVERIFIED`), `expected_start` sembolün GÖZLEMLENEN İLK
+    barı olur — bu durumda da o tarihten SONRAKİ gerçek boşluklar (bkz.
+    "new listing + middle gap" test senaryosu) hâlâ HARD VETO'ya yol açar,
+    yalnızca o tarihten ÖNCESİ hiç sorgulanmaz.
+
+    **HÂLÂ ÇÖZÜLMEMİŞ, KABUL EDİLMİŞ SINIRLAMA:** Pre-roll bölgesinin
+    TAMAMI boş dönerse (`LEADING_EDGE_UNVERIFIED`), bu GERÇEK bir yeni
+    halka arz ile sağlayıcının pre-roll'un TAMAMINI kaybetmesi arasında
+    HÂLÂ kesin bir ayrım YAPAMAZ — bilinçli olarak `PRE_LISTING`
+    varsayılmaz, ne de otomatik `HARD_VETO` uygulanır (bkz. `engine.py`,
+    `HistoryValidationStatus.LEADING_EDGE_UNVERIFIED`).
 
     Takvim, aralıktaki herhangi bir yıl için tanımlı değilse
     `TradingCalendarUnsupportedError` fırlatılır — sessizce tahmin YÜRÜTÜLMEZ.
@@ -193,7 +200,7 @@ def check_trading_day_continuity(
     if df.empty:
         return
 
-    first_bar_date = df.index[0].date()
+    first_bar_date = expected_start if expected_start is not None else df.index[0].date()
     boundary_date = latest_expected_completed_date(now)
     end_date = max(df.index[-1].date(), boundary_date)
 

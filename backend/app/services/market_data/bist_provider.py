@@ -122,7 +122,33 @@ class BistProvider(MarketDataProvider):
             source=self.SOURCE,
         )
 
-    def get_history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
+    def get_history(
+        self,
+        symbol: str,
+        period: str = "6mo",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+    ) -> pd.DataFrame:
+        """HATA 2C (25.08.2026): İki AYRI mod destekler — `period` (varsayılan,
+        geriye dönük uyumlu, `BacktestEngine` ve diğer tüm mevcut çağıranlar
+        bunu kullanmaya devam eder) VEYA açık `start`/`end` (yalnızca
+        `TechnicalAnalysisEngine`'in pre-roll sözleşmesi için, bkz.
+        `history_window.py`). İKİSİ BİRDEN Yahoo'ya asla gönderilmez.
+
+        `start`/`end` verilirse İKİSİ DE verilmelidir. Ölçüldü: yfinance'te
+        `end` EXCLUSIVE'dir — bugünü de kapsamak isteyen çağıran `end` için
+        yarının tarihini geçirmelidir (bkz. `history_window.compute_history_window`).
+        """
+        if start is not None or end is not None:
+            if start is None or end is None:
+                raise ValueError("get_history: 'start' ve 'end' birlikte verilmelidir (period ile karıştırılamaz)")
+            ticker = yf.Ticker(f"{symbol}.IS")
+            history = _fetch_with_retry(lambda: ticker.history(start=start, end=end, interval=interval))
+            if history.empty:
+                raise ValueError(f"'{symbol}' için geçmiş veri bulunamadı (start={start}, end={end}, interval={interval})")
+            return history[["Open", "High", "Low", "Close", "Volume"]]
+
         ticker = yf.Ticker(f"{symbol}.IS")
         history = _fetch_with_retry(lambda: ticker.history(period=period, interval=interval))
         if history.empty:

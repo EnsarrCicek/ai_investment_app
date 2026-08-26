@@ -17,12 +17,24 @@ class MarketDataProvider(ABC):
         ...
 
     @abstractmethod
-    def get_history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
+    def get_history(
+        self,
+        symbol: str,
+        period: str = "6mo",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+    ) -> pd.DataFrame:
         """Open/High/Low/Close/Volume sütunlu, tarih indeksli geçmiş veri döndürür.
 
         `interval`, yfinance'in desteklediği herhangi bir değer olabilir
         (ör. "5m" gün-içi grafik için, "1wk"/"1mo"/"3mo" uzun dönem grafikler
         için) — `period` ile tutarlı olmalıdır (yfinance kısıtları geçerlidir,
         ör. "5m" interval en fazla ~60 gün geriye gidebilir).
+
+        HATA 2C (25.08.2026): `start`/`end` (ikisi birlikte) verilirse `period`
+        yok sayılır — açık tarih aralığı modu. Yalnızca `TechnicalAnalysisEngine`'in
+        pre-roll sözleşmesi için (bkz. `history_window.py`); diğer tüm
+        çağıranlar `period` kullanmaya devam eder.
         """
         ...

@@ -40,7 +40,14 @@ class FakeMarketDataProvider(MarketDataProvider):
             source="fake",
         )
 
-    def get_history(self, symbol: str, period: str = "6mo", interval: str = "1d"):
+    def get_history(
+        self,
+        symbol: str,
+        period: str = "6mo",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+    ):
         if self._history_df is None:
             raise NotImplementedError
         return self._history_df

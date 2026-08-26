@@ -446,3 +446,166 @@ def test_analyze_with_id_passes_when_no_trading_day_gap(fake_provider):
 
     assert analysis is not None
     assert len(analysis_repo.added) == 1
+
+
+# ---------------------------------------------------------------------------
+# HATA 2C (25.08.2026): pre-roll / leading-edge doğrulama sözleşmesi —
+# `analysis_start`'tan (now - 6 ay) ÖNCEye uzanan bir gözlem bölgesinde en az
+# bir bar bulunması "VERIFIED_PRE_WINDOW", bulunmaması "LEADING_EDGE_
+# UNVERIFIED" olarak işaretlenir; ikinci durum ARTIK otomatik HARD VETO
+# DEĞİLDİR (bkz. history_window.py). NOT: FakeMarketDataProvider start/end
+# parametrelerini YOK SAYAR (bkz. conftest.py) — bu yüzden aşağıdaki
+# testlerde motora verilen tam DataFrame'in KENDİSİ senaryoyu belirler,
+# provider'a "hangi aralık istendiği" değil.
+# ---------------------------------------------------------------------------
+
+_NOW_2C = datetime(2026, 8, 25, 13, 0, tzinfo=TZ)  # analysis_start = 2026-02-25, boundary = 2026-08-24
+_ANALYSIS_START_2C = pd.Timestamp("2026-02-25").date()
+_BOUNDARY_2C = pd.Timestamp("2026-08-24").date()
+
+
+def _bday_df(start: str, end: str, base_price: float = 100.0, seed: int = 7) -> pd.DataFrame:
+    dates = pd.bdate_range(start=start, end=end, freq="B")
+    rng = np.random.default_rng(seed)
+    closes = base_price + np.cumsum(rng.normal(0, 1, len(dates)))
+    return pd.DataFrame(
+        {
+            "Open": closes - 0.2,
+            "High": closes + 0.5,
+            "Low": closes - 0.5,
+            "Close": closes,
+            "Volume": rng.integers(1000, 5000, len(dates)),
+        },
+        index=dates,
+    )
+
+
+def _run_2c_scenario(fake_provider, df: pd.DataFrame):
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=df)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    return engine.analyze_with_id("TEST", now=_NOW_2C), analysis_repo
+
+
+def test_established_symbol_clean_history_is_verified_pre_window(fake_provider):
+    # analysis_start'tan (2026-02-25) çok ÖNCE (2025-09-01) başlayan, tamamen
+    # kesintisiz bir seri -- "köklü/established" bir sembolü simüle eder.
+    df = _bday_df("2025-09-01", "2026-08-24")
+
+    (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
+
+    assert analysis.history_validation_status == "VERIFIED_PRE_WINDOW"
+    assert len(analysis_repo.added) == 1
+
+
+def test_established_symbol_gap_after_analysis_start_still_hard_vetoes(fake_provider):
+    from app.engines.technical.data_quality import TradingDayContinuityError
+
+    df = _bday_df("2025-09-01", "2026-08-24")
+    df = df.drop(pd.Timestamp("2026-06-17"))  # analysis_start'tan SONRA bir boşluk
+
+    with pytest.raises(TradingDayContinuityError) as exc_info:
+        _run_2c_scenario(fake_provider, df)
+
+    assert exc_info.value.missing_dates == [pd.Timestamp("2026-06-17").date()]
+
+
+def test_pre_roll_internal_gap_before_analysis_start_is_not_a_veto(fake_provider):
+    # Boşluk analysis_start'tan ÖNCE (pre-roll bölgesinin içinde) -- pre-roll
+    # barları hiçbir zaman continuity kontrolüne dahil edilmez, sadece "kanıt
+    # var mı" sorusuna cevap verir (bkz. resolve_expected_start).
+    df = _bday_df("2025-09-01", "2026-08-24")
+    df = df.drop(pd.Timestamp("2025-10-15"))  # analysis_start'tan ONCE bir boşluk
+
+    (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
+
+    assert analysis.history_validation_status == "VERIFIED_PRE_WINDOW"
+    assert len(analysis_repo.added) == 1
+
+
+def test_new_listing_no_pre_roll_evidence_passes_as_unverified(fake_provider):
+    # İlk bar analysis_start'tan (2026-02-25) SONRA -- pre-roll'da hiç kanıt
+    # yok. Bu ARTIK otomatik PRE_LISTING/HARD_VETO sayılmaz (HATA 2C öncesi
+    # tasarımdan fark budur) -- sembolün GÖZLEMLENEN ilk barından itibaren
+    # normal continuity kontrolüne tabi olur.
+    df = _bday_df("2026-05-01", "2026-08-24")  # ~82 iş günü, MIN_HISTORY_DAYS(60) üstü
+
+    (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
+
+    assert analysis.history_validation_status == "LEADING_EDGE_UNVERIFIED"
+    assert len(analysis_repo.added) == 1
+
+
+def test_new_listing_with_middle_gap_still_hard_vetoes(fake_provider):
+    from app.engines.technical.data_quality import TradingDayContinuityError
+
+    df = _bday_df("2026-05-01", "2026-08-24")
+    df = df.drop(pd.Timestamp("2026-06-17"))  # gözlemlenen ilk bardan SONRAKİ bir boşluk
+
+    with pytest.raises(TradingDayContinuityError) as exc_info:
+        _run_2c_scenario(fake_provider, df)
+
+    assert exc_info.value.missing_dates == [pd.Timestamp("2026-06-17").date()]
+
+
+def test_new_listing_with_insufficient_history_raises_insufficient_history_not_veto(fake_provider):
+    from app.engines.technical.data_quality import DataQualityError
+
+    # Cok yeni bir sembol: ilk bar boundary'ye (2026-08-24) cok yakin, kesintisiz
+    # ama MIN_HISTORY_DAYS(60)'in COK altinda -- continuity kontrolu GECER
+    # (kesinti yok), ama check_data_quality INSUFFICIENT_HISTORY ile veto eder.
+    df = _bday_df("2026-08-01", "2026-08-24")  # ~17 iş günü
+
+    with pytest.raises(DataQualityError) as exc_info:
+        _run_2c_scenario(fake_provider, df)
+
+    assert exc_info.value.reason_code == "INSUFFICIENT_HISTORY"
+
+
+def test_pre_roll_content_never_leaks_into_score_or_enrichment(fake_provider):
+    # analysis_start'tan (2026-02-25) İTİBAREN BİREBİR AYNI "kuyruk" (tail),
+    # ama analysis_start'tan ÖNCEki pre-roll bölgesi biri "sakin" (calm) biri
+    # aşırı oynak (wild) iki AYRI DataFrame -- pre-roll'un skora/indikatörlere/
+    # zenginleştirmeye SIZMADIĞI, yalnızca "kanıt var mı" sorusuna cevap
+    # verdiği doğrudan kanıtlanır.
+    tail = _bday_df(_ANALYSIS_START_2C.isoformat(), _BOUNDARY_2C.isoformat(), base_price=100.0, seed=99)
+
+    pre_roll_index = pd.bdate_range(start="2025-09-01", end="2026-02-24")
+    n_pre_roll = len(pre_roll_index)
+    calm_pre_roll = pd.DataFrame(
+        {"Open": 50.0, "High": 50.5, "Low": 49.5, "Close": 50.0, "Volume": 1000},
+        index=pre_roll_index,
+    )
+    wild_close = np.resize([1.0, 99999.0], n_pre_roll)
+    wild_pre_roll = pd.DataFrame(
+        {
+            "Open": wild_close - 0.5,
+            "High": wild_close + 1.0,
+            "Low": wild_close - 1.0,
+            "Close": wild_close,
+            "Volume": np.resize([1, 9_999_999], n_pre_roll),
+        },
+        index=pre_roll_index,
+    )
+
+    df_calm = pd.concat([calm_pre_roll, tail]).sort_index()
+    df_wild = pd.concat([wild_pre_roll, tail]).sort_index()
+
+    (analysis_calm, _), _ = _run_2c_scenario(fake_provider, df_calm)
+    (analysis_wild, _), _ = _run_2c_scenario(fake_provider, df_wild)
+
+    assert analysis_calm.history_validation_status == "VERIFIED_PRE_WINDOW"
+    assert analysis_wild.history_validation_status == "VERIFIED_PRE_WINDOW"
+    assert analysis_calm.technical_score == analysis_wild.technical_score
+    assert analysis_calm.components == analysis_wild.components
+    assert analysis_calm.indicators == analysis_wild.indicators
+    assert analysis_calm.market_structure == analysis_wild.market_structure
+    assert analysis_calm.signal_class == analysis_wild.signal_class
+    assert analysis_calm.investment_horizon == analysis_wild.investment_horizon
+    assert analysis_calm.mtf_aligned == analysis_wild.mtf_aligned
+    assert analysis_calm.mtf_consensus == analysis_wild.mtf_consensus

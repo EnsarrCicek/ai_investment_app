@@ -52,6 +52,15 @@ def _to_istanbul(ts) -> datetime:
     return ts.astimezone(ISTANBUL_TZ)
 
 
+def resolve_now(now: datetime | None) -> datetime:
+    """HATA 2C (25.08.2026): `completed_bars.py`, `data_quality.py` ve
+    `history_window.py`'nin HEPSİNİN "şu an" için AYNI, Europe/Istanbul
+    saatine göre çözümlenmiş referansı kullanmasını sağlayan tek nokta —
+    tarih/saat mantığının üç ayrı yerde birbirinden habersiz tekrarlanıp
+    zamanla birbirinden sapmasını önler."""
+    return _to_istanbul(now) if now is not None else datetime.now(ISTANBUL_TZ)
+
+
 def latest_expected_completed_date(now: datetime | None = None) -> date:
     """Şu ana göre TAMAMLANMIŞ kabul edilmesi gereken EN SON takvim gününü
     döner — bugünün kapanış (18:00 TSİ) + finalization payı geçtiyse BUGÜN,
@@ -67,7 +76,7 @@ def latest_expected_completed_date(now: datetime | None = None) -> date:
     gelirdi. Bu fonksiyonu paylaşarak iki modül de "ne kadar ileriye kadar
     veri BEKLİYORUZ" sorusuna aynı, `df`'in kendisinden BAĞIMSIZ cevabı verir.
     """
-    now = _to_istanbul(now) if now is not None else datetime.now(ISTANBUL_TZ)
+    now = resolve_now(now)
     finalization_cutoff = now.replace(
         hour=SESSION_CLOSE.hour, minute=SESSION_CLOSE.minute, second=0, microsecond=0
     ) + timedelta(minutes=DAILY_BAR_FINALIZATION_DELAY_MINUTES)
@@ -92,7 +101,7 @@ def filter_completed_daily_bars(df: pd.DataFrame, now: datetime | None = None) -
     if df.empty:
         return df
 
-    now_ist = _to_istanbul(now) if now is not None else datetime.now(ISTANBUL_TZ)
+    now_ist = resolve_now(now)
     last_bar_date = _to_istanbul(df.index[-1])
 
     if last_bar_date.date() != now_ist.date():
