@@ -159,14 +159,16 @@ def test_continuity_detects_consecutive_missing_sessions():
 
 
 def test_continuity_raises_for_unsupported_calendar_year():
-    # 2023 icin BIST_FULL_DAY_CLOSURES tanimli degil -- sessizce tahmin YOK.
-    df = _df_for_dates(["2023-08-21", "2023-08-22"])
-    now = datetime(2023, 8, 22, 19, 0, tzinfo=TZ)
+    # HATA 3C (26.08.2026): takvim artik 2021-2026'yi kapsiyor -- 2027
+    # (henuz eklenmedi) icin BIST_FULL_DAY_CLOSURES tanimli degil -- sessizce
+    # tahmin YOK.
+    df = _df_for_dates(["2027-08-23", "2027-08-24"])
+    now = datetime(2027, 8, 24, 19, 0, tzinfo=TZ)
     with pytest.raises(TradingCalendarUnsupportedError) as exc_info:
         check_trading_day_continuity(df, "TEST", now=now)
 
     assert exc_info.value.reason_code == "TRADING_CALENDAR_UNSUPPORTED_YEAR"
-    assert exc_info.value.year == 2023
+    assert exc_info.value.year == 2027
 
 
 def test_continuity_empty_dataframe_is_noop():

@@ -57,13 +57,24 @@ class TradingCalendarUnsupportedError(DataQualityError):
 
 
 class TradingDayContinuityError(DataQualityError):
-    """HATA 2B (25.08.2026): BIST'in resmi takvimine göre beklenen bir işlem
-    gününde OHLCV barı yok VE bu, sembolün kendi gözlem penceresinin (ilk
-    gerçek barından sonrası) İÇİNDE — yani tatil veya "henüz halka açık
-    değildi" ile açıklanamıyor. Alanlar serbest metne gömülmek yerine
-    doğrudan öz nitelik (attribute) olarak taşınır — çağıran taraf (API,
-    log, gelecekteki bir monitoring katmanı) bunları serbest metni
-    ayrıştırmadan doğrudan okuyabilir.
+    """HATA 2B (25.08.2026) + HATA 3C (26.08.2026): BIST'in resmi takvimine
+    göre beklenen bir işlem gününde OHLCV barı YOK (`missing_dates`) VE/VEYA
+    takvime göre "expected" OLMAYAN bir günde (hafta sonu/planlı tatil/
+    olağanüstü kapanış) bir bar VAR (`unexpected_dates`) — ikisi de sembolün
+    kendi gözlem penceresinin (ilk gerçek barından sonrası) İÇİNDE.
+
+    HATA 3C denetiminde kanıtlandı: önceki sürüm yalnızca `expected -
+    observed` (missing) kontrolü yapıyordu, `observed - expected`
+    (unexpected) hiç kontrol edilmiyordu — bu, takvimde "non-session"
+    olarak işaretli bir güne ait bir bar sessizce kabul edilip göstergelere/
+    execution'a sızabiliyordu (bkz. 08.02.2023 sentetik testi). Bilinen,
+    kaynak gösterilmiş bir istisna (`BIST_CANCELLED_SESSIONS`) DIŞINDA,
+    böyle bir bar asla sessizce düşürülmez veya başka bir güne taşınmaz —
+    açıkça HARD VETO edilir.
+
+    Alanlar serbest metne gömülmek yerine doğrudan öz nitelik (attribute)
+    olarak taşınır — çağıran taraf (API, log, gelecekteki bir monitoring
+    katmanı) bunları serbest metni ayrıştırmadan doğrudan okuyabilir.
     """
 
     def __init__(
@@ -73,21 +84,37 @@ class TradingDayContinuityError(DataQualityError):
         checked_period: tuple[date, date],
         provider: str = DEFAULT_PROVIDER_NAME,
         severity: str = "HARD_VETO",
+        unexpected_dates: list[date] | None = None,
     ):
         self.symbol = symbol
         self.missing_dates = missing_dates
-        self.first_missing_date = missing_dates[0]
-        self.latest_missing_date = missing_dates[-1]
+        self.unexpected_dates = unexpected_dates or []
+        self.first_missing_date = missing_dates[0] if missing_dates else None
+        self.latest_missing_date = missing_dates[-1] if missing_dates else None
         self.missing_count = len(missing_dates)
+        self.unexpected_count = len(self.unexpected_dates)
         self.checked_period = checked_period
         self.severity = severity
         self.provider = provider
-        message = (
-            f"'{symbol}' için {self.missing_count} beklenen BIST işlem günü eksik "
-            f"({self.first_missing_date.isoformat()}–{self.latest_missing_date.isoformat()}, "
-            f"kaynak: {provider})"
-        )
-        super().__init__("MISSING_TRADING_SESSION", message)
+
+        message_parts = []
+        if missing_dates:
+            message_parts.append(
+                f"{self.missing_count} beklenen BIST işlem günü eksik "
+                f"({self.first_missing_date.isoformat()}–{self.latest_missing_date.isoformat()})"
+            )
+        if self.unexpected_dates:
+            message_parts.append(
+                f"{self.unexpected_count} beklenmeyen (non-session) günde veri var "
+                f"({self.unexpected_dates[0].isoformat()}–{self.unexpected_dates[-1].isoformat()})"
+            )
+        message = f"'{symbol}' için " + " ve ".join(message_parts) + f" (kaynak: {provider})"
+
+        # Geriye dönük uyumluluk: yalnızca missing varsa (mevcut, en yaygın
+        # durum) reason_code eskisiyle BİREBİR aynı kalır. Yalnızca
+        # unexpected varsa yeni, ayrı bir reason_code kullanılır.
+        reason_code = "MISSING_TRADING_SESSION" if missing_dates else "UNEXPECTED_TRADING_SESSION"
+        super().__init__(reason_code, message)
 
 
 def check_data_quality(
@@ -196,6 +223,26 @@ def check_trading_day_continuity(
     BacktestEngine veya ileride eklenecek bir ikincil sağlayıcı katmanı
     tarafından da doğrudan çağrılabilir (bkz. modül docstring'i,
     provider-agnostic tasarım).
+
+    **HATA 3C (26.08.2026) — `unexpected_dates` (missing-only kör noktasının
+    düzeltmesi):** Önceki sürüm yalnızca `expected - observed` (missing)
+    kontrol ediyordu; `observed - expected` (takvime göre "non-session"
+    olan ama provider'da bar bulunan tarihler) hiç sorgulanmıyordu — bu,
+    ör. resmi olarak iptal edilmiş bir seansın (bkz. `trading_calendar.py`,
+    `BIST_CANCELLED_SESSIONS`, 08.02.2023 örneği) sessizce kabul edilip
+    göstergelere sızmasına izin veriyordu. Artık HER İKİSİ de kontrol
+    edilir; ikisinden biri (veya ikisi birden) doluysa `TradingDayContinuityError`
+    fırlatılır. Bilinen `BIST_CANCELLED_SESSIONS` tarihleri, bu fonksiyon
+    çağrılmadan ÖNCE `trading_calendar.drop_cancelled_sessions()` ile
+    `df`'ten zaten düşürülmüş olmalıdır (bkz. `completed_history.py`) —
+    aksi halde o tarih burada `unexpected_dates` olarak HARD VETO'ya yol
+    açar (bu fonksiyonun kendisi hiçbir authoritative-normalizasyon
+    YAPMAZ, yalnızca kendisine verilen `df`'in takvimle tutarlılığını
+    kontrol eder). `unexpected_dates` kontrolü, YALNIZCA `[first_bar_date,
+    end_date]` aralığındaki gözlemlenen tarihlere bakar — pre-roll
+    bölgesindeki (yukarıdaki `expected_start` açıklamasına bkz.) bar'lar
+    bu aralığın DIŞINDA kaldığından hiçbir zaman "unexpected" sayılmaz,
+    HATA 2C'nin pre-roll sözleşmesi bozulmaz.
     """
     if df.empty:
         return
@@ -209,13 +256,25 @@ def check_trading_day_continuity(
             raise TradingCalendarUnsupportedError(year)
 
     expected = expected_trading_sessions(first_bar_date, end_date)
-    observed_dates = {ts.date() for ts in df.index}
-    missing = sorted(d for d in expected if d not in observed_dates)
+    expected_set = set(expected)
+    observed_dates_in_range = {
+        ts.date() for ts in df.index if first_bar_date <= ts.date() <= end_date
+    }
+    missing = sorted(d for d in expected_set if d not in observed_dates_in_range)
+    # HATA 3C commit-öncesi düzeltme (26.08.2026): hafta sonu için özel bir
+    # istisna YOK — authoritative kural kesindir: gözlemlenen bir tarih
+    # `expected_trading_sessions` içinde değilse (Cumartesi/Pazar dahil)
+    # `UNEXPECTED_TRADING_SESSION`'dır. Bilinen `BIST_CANCELLED_SESSIONS`
+    # tarihleri bu fonksiyon çağrılmadan ÖNCE authoritative olarak
+    # düşürüldüğü için (bkz. `drop_cancelled_sessions`) tek istisna BUDUR —
+    # başka hiçbir "muhtemelen zararsızdır" gerekçesiyle yumuşatma YAPILMAZ.
+    unexpected = sorted(d for d in observed_dates_in_range if d not in expected_set)
 
-    if missing:
+    if missing or unexpected:
         raise TradingDayContinuityError(
             symbol=symbol,
             missing_dates=missing,
+            unexpected_dates=unexpected,
             checked_period=(first_bar_date, end_date),
             provider=provider,
         )

@@ -1,4 +1,5 @@
-"""Backtest'e özel completed-session-only veri hazırlama katmanı — HATA 3B (26.08.2026).
+"""Backtest'e özel completed-session-only + continuity veri hazırlama
+katmanı — HATA 3B (26.08.2026), genişletildi HATA 3C/3C-EX (26.08.2026).
 
 HATA 3B denetiminde kanıtlandı: `BacktestEngine`/`WalkForwardOptimizer`,
 `self._provider.get_history(symbol, period=period)`'i HİÇBİR filtre
@@ -19,26 +20,85 @@ YAPILMADAN) backtest'e hiç girmez. Bilinçli olarak REDDEDİLEN alternatif:
 hibrit modeli — bu, historical backtest ile live/paper execution'ı
 karıştırır; live/paper portföy ayrı, gelecekteki bir özelliktir.
 
-Bu modül, `filter_completed_daily_bars()` (HATA 2A, `completed_bars.py`)
-ve `check_data_quality()` (`data_quality.py`) çağrılarını TEK bir yerde
-birleştirir — üç ayrı canlı giriş noktasının (`BacktestEngine.run()`,
-`BacktestEngine.compare_strategies()`, `WalkForwardOptimizer.run()`)
-aynı mantığı kopyala-yapıştır ile birbirinden bağımsız (ve zamanla
-birbirinden sapabilecek) şekilde tekrarlamasını önler.
+HATA 3C (26.08.2026) — TRADING_SESSION_CONTINUITY: "Bugünü kullanma"
+(HATA 3B) yeterli değil — GEÇMİŞTE olması gereken bir completed session
+gerçekten mevcut mu sorusu AYRI bir denetim gerektiriyor. BIST'in resmi
+takvimine göre beklenen ama provider'da bulunmayan bir işlem günü
+(`MISSING_TRADING_SESSION`) VEYA takvime göre "expected" OLMAYAN bir günde
+provider'ın açıklanamayan bir bar döndürmesi (`UNEXPECTED_TRADING_SESSION`)
+varsa backtest HİÇ ÜRETİLMEZ (HARD VETO) — interpolasyon, önceki kapanışla
+doldurma, "bir sonraki gözlemlenen satırı T+1 say" gibi hiçbir sessiz
+düzeltme YAPILMAZ (bkz. `data_quality.check_trading_day_continuity`).
 
-ÖNEMLİ: `check_data_quality`'nin `min_history_days` kontrolü RAW history
-üzerinde DEĞİL, FİLTRELENMİŞ (completed-only) history üzerinde çalışır —
-piyasa açıkken bugünün partial barı "eksik geçmiş" şartını sahte şekilde
-karşılayamaz (ör. raw=60 bar, 1'i partial → completed=59 → INSUFFICIENT_HISTORY).
+HATA 3C-EX (26.08.2026) — CANCELLED/EXTRAORDINARY SESSION: Planlı resmi
+tatiller (`BIST_FULL_DAY_CLOSURES`) ve olağanüstü Borsa kararıyla tam gün
+kapatılan günler (`BIST_EXTRAORDINARY_CLOSURES`) zaten "expected" sayılmaz.
+Ayrı bir üçüncü durum: seans FİİLEN AÇILDI ama o güne ait TÜM işlemler
+Borsa'nın kendi kararıyla RESMİ OLARAK İPTAL edildi (`BIST_CANCELLED_
+SESSIONS`) — örnek: **08.02.2023**, 6 Şubat 2023 depremi sonrası devre
+kesiciler tetiklenip piyasa saat 11:00'de durduruldu VE o gün gerçekleşen
+TÜM işlemler Borsa İstanbul A.Ş. Yönetmeliği'nin "Emir ve İşlemlerin
+İptali" başlıklı 33. maddesi uyarınca iptal edildi (kaynak: Anadolu
+Ajansı, KAP duyurusunu doğrudan aktarıyor — 26.08.2026'da bağımsız
+araştırmayla doğrulandı). Yahoo bu tarih için hâlâ bir bar döndürüyor
+(Open=High=Low=Close, ihmal edilebilir hacim — THYAO/GARAN/ASELS/SISE/
+KCHOL'de doğrudan gözlemlendi) — bu bar GERÇEK bir finalized session
+DEĞİLDİR; `trading_calendar.drop_cancelled_sessions()` ile authoritative
+olarak DÜŞÜRÜLÜR (RSI/MACD/EMA/execution'a asla girmez). Bu, GENEL bir
+"anomali gördüm, sil" mekanizması DEĞİLDİR — yalnızca `BIST_CANCELLED_
+SESSIONS`'ta AÇIKÇA, kaynak gösterilerek tanımlanmış tarihler için
+çalışır; bilinmeyen/belgelenmemiş herhangi bir başka anomalik bar
+`UNEXPECTED_TRADING_SESSION` ile HARD VETO edilir, asla sessizce
+düşürülmez veya normalize edilmez.
+
+Normalizasyon sırası (her biri kendi HATA numarasıyla etiketli):
+    raw provider history
+    ↓
+    completed-session filter          [HATA 3B — filter_completed_daily_bars]
+    ↓
+    known CANCELLED_SESSION removal   [HATA 3C-EX — drop_cancelled_sessions]
+    ↓
+    session continuity validation     [HATA 3C — check_trading_day_continuity]
+    ↓
+    check_data_quality                [MIN_HISTORY_DAYS dahil, NORMALIZE EDİLMİŞ seri üzerinde]
+    ↓
+    technical_score_series / simulate NEXT_SESSION_OPEN   [HATA 3A]
+
+Bu modül, yukarıdaki TÜM adımları TEK bir yerde birleştirir — üç ayrı
+canlı giriş noktasının (`BacktestEngine.run()`, `BacktestEngine.
+compare_strategies()`, `WalkForwardOptimizer.run()`) aynı mantığı
+kopyala-yapıştır ile birbirinden bağımsız (ve zamanla birbirinden
+sapabilecek) şekilde tekrarlamasını önler. `MIN_HISTORY_DAYS` kontrolü
+RAW history üzerinde DEĞİL, TAM NORMALİZE EDİLMİŞ seri üzerinde çalışır.
+
+Period sözleşmesi (HATA 3C, madde 1): `SUPPORTED_BACKTEST_PERIODS` tek,
+paylaşılan bir sabittir — API katmanına AYRI bir whitelist eklenmedi;
+`prepare_backtest_history()` bu tek sabite karşı doğrular ve desteklenmeyen
+bir `period` için düz bir `ValueError` fırlatır — mevcut proje-geneli
+`except ValueError as exc: raise HTTPException(422, str(exc))` deseni
+(bkz. `api/backtest.py`) bunu otomatik olarak 422'ye çevirir, API
+route'larında hiçbir değişiklik GEREKMEDİ. Üç motor da (`BacktestEngine.
+run/compare_strategies`, `WalkForwardOptimizer.run`) bu tek fonksiyonu
+çağırdığından, doğrudan bir script'ten API'yi atlayarak çağrılsalar bile
+aynı korumaya (defense-in-depth) tabidirler.
 """
 
 from datetime import date, datetime
 
 import pandas as pd
 
-from app.engines.technical.data_quality import check_data_quality
+from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.completed_bars import filter_completed_daily_bars
+from app.services.market_data.trading_calendar import drop_cancelled_sessions
+
+# HATA 3C (26.08.2026): koddaki TEK gerçek period sözleşmesi. Gerçek
+# caller'ların (Flutter Strategy Lab: 6mo/1y/2y/3y/5y; ana Backtest sekmesi:
+# her zaman 2y; WalkForwardOptimizer varsayılanı: 3y — dormant, Flutter
+# çağıranı yok) hiçbiri bu setin dışına çıkmıyor (denetimde doğrulandı).
+# `max`/`10y`/`ytd`/arbitrary bir değer artık API'den yfinance'e sessizce
+# iletilmez.
+SUPPORTED_BACKTEST_PERIODS = frozenset({"6mo", "1y", "2y", "3y", "5y"})
 
 
 def prepare_backtest_history(
@@ -48,15 +108,34 @@ def prepare_backtest_history(
     min_history_days: int,
     now: datetime | None = None,
 ) -> tuple[pd.DataFrame, date]:
-    """Ham geçmişi çeker, TAMAMLANMAMIŞ ("bugünkü") günlük barı çıkarır,
-    kalite kontrolünü FİLTRELENMİŞ seri üzerinde yapar.
+    """Ham geçmişi çeker; TAMAMLANMAMIŞ ("bugünkü") barı çıkarır; bilinen,
+    resmi olarak iptal edilmiş seansları düşürür; BIST işlem-günü
+    sürekliliğini doğrular; kalite kontrolünü NORMALİZE EDİLMİŞ seri
+    üzerinde yapar.
 
-    Döner: `(completed_history, backtest_data_as_of)` — ikincisi,
+    Döner: `(normalized_history, backtest_data_as_of)` — ikincisi,
     backtest'in fiilen hesaba kattığı EN SON tamamlanmış günün tarihidir
     (sonuçlara `backtest_data_as_of` alanı olarak şeffaf şekilde eklenir).
+
+    Raises:
+        ValueError: `period`, `SUPPORTED_BACKTEST_PERIODS` içinde değilse.
+        DataQualityError (`TradingDayContinuityError` dahil): eksik/
+            beklenmeyen işlem günü veya diğer kalite kontrolleri başarısız
+            olursa.
+        TradingCalendarUnsupportedError: kontrol aralığındaki bir yıl
+            için resmi takvim tanımlı değilse (ör. 2027 ve sonrası, henüz
+            eklenmedi).
     """
+    if period not in SUPPORTED_BACKTEST_PERIODS:
+        raise ValueError(
+            f"Desteklenmeyen backtest period'u: '{period}' — desteklenenler: "
+            f"{sorted(SUPPORTED_BACKTEST_PERIODS)}"
+        )
+
     raw_history = provider.get_history(symbol, period=period)
     completed_history = filter_completed_daily_bars(raw_history, now=now)
-    check_data_quality(completed_history, symbol, min_history_days=min_history_days, now=now)
-    backtest_data_as_of = completed_history.index[-1].date()
-    return completed_history, backtest_data_as_of
+    normalized_history = drop_cancelled_sessions(completed_history)
+    check_trading_day_continuity(normalized_history, symbol, now=now)
+    check_data_quality(normalized_history, symbol, min_history_days=min_history_days, now=now)
+    backtest_data_as_of = normalized_history.index[-1].date()
+    return normalized_history, backtest_data_as_of

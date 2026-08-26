@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -8,8 +8,22 @@ import pytest
 from app.engines.technical import indicators as ind
 from app.engines.technical.engine import TECHNICAL_CACHE_TTL_SECONDS, TechnicalAnalysisEngine
 from app.models.technical_analysis import TechnicalAnalysis
+from app.services.market_data.trading_calendar import expected_trading_sessions
 
 TZ = ZoneInfo("Europe/Istanbul")
+
+
+def _bist_trading_days(end: date, n: int) -> list[date]:
+    """HATA 3C (26.08.2026): gerçek BIST takvimine göre `end` (dahil) ile
+    biten SON `n` işlem gününü döner — naif `pd.date_range(freq='D')`/
+    `pd.bdate_range()` artık kullanılmıyor, çünkü ikisi de hafta içi resmi
+    tatilleri BİLMEZ ve genişletilmiş takvimle (2021-2026) artık
+    `check_trading_day_continuity`'nin `UNEXPECTED_TRADING_SESSION`
+    kontrolüne takılıyordu."""
+    search_start = end - timedelta(days=n * 2 + 10)  # bol pay (tatil/haftasonu için)
+    sessions = expected_trading_sessions(search_start, end)
+    assert sessions is not None and len(sessions) >= n, "test penceresi desteklenmeyen bir yila mi tasiyor?"
+    return sessions[-n:]
 
 
 class _FakeConfigRepo:
@@ -76,10 +90,14 @@ def _real_history_df(rows: int = 120) -> pd.DataFrame:
     # okunduğu ana göre (filter_completed_daily_bars piyasa açık mı kapalı mı
     # sanıp son barı atıp atmayacağına göre) FLAKY hale getirirdi — "dün"
     # kullanmak, gerçek çalıştırma saatinden bağımsız, deterministik bir
-    # şekilde her zaman "zaten tamamlanmış" sayılmasını garanti eder.
+    # şekilde her zaman "zaten tamamlanmış" sayılmasını garanti eder. HATA 3C
+    # (26.08.2026): tarihler artık gerçek BIST takviminden (`_bist_trading_days`)
+    # geliyor — naif ardışık takvim günü üretimi resmi tatillere rastlayıp
+    # `UNEXPECTED_TRADING_SESSION` ile veto edilebiliyordu.
     rng = np.random.default_rng(42)
     closes = 100 + np.cumsum(rng.normal(0, 1, rows))
-    end = pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)
+    end = (pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).date()
+    trading_days = _bist_trading_days(end, rows)
     return pd.DataFrame(
         {
             "Open": closes,
@@ -88,7 +106,7 @@ def _real_history_df(rows: int = 120) -> pd.DataFrame:
             "Close": closes,
             "Volume": rng.integers(1000, 5000, rows),
         },
-        index=pd.date_range(end=end, periods=rows, freq="D"),
+        index=pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days]),
     )
 
 
@@ -254,8 +272,12 @@ def _breakout_scenario_df() -> pd.DataFrame:
     closes = np.concatenate([up, down])  # 79 gun, son (D-1) = 105
 
     n_history = len(closes)
-    end_d1 = pd.Timestamp(_D1_DATE, tz=TZ)
-    history_index = pd.date_range(end=end_d1, periods=n_history, freq="D")
+    # HATA 3C (26.08.2026): naif ardışık takvim günü yerine gerçek BIST
+    # işlem günleri kullanılıyor (bkz. `_bist_trading_days`) — 79 takvim
+    # günü 2026-07-15 (Demokrasi ve Milli Birlik Günü) gibi resmi tatilleri
+    # içerebiliyordu, bu da `UNEXPECTED_TRADING_SESSION` ile veto ediyordu.
+    trading_days = _bist_trading_days(date(2026, 8, 25), n_history)
+    history_index = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days])
 
     df = pd.DataFrame(
         {
@@ -272,7 +294,7 @@ def _breakout_scenario_df() -> pd.DataFrame:
 
     today_row = pd.DataFrame(
         {"Open": [135.0], "High": [140.0], "Low": [130.0], "Close": [135.05], "Volume": [50.0]},
-        index=[end_d1 + pd.Timedelta(days=1)],
+        index=[pd.Timestamp(_TODAY_DATE, tz=TZ)],
     )
     return pd.concat([df, today_row])
 
@@ -381,8 +403,13 @@ def test_completed_history_technical_score_is_deterministic(fake_provider):
 
 
 def _history_with_trading_day_gap(missing_date: str) -> pd.DataFrame:
-    dates = pd.bdate_range(start="2026-04-01", end="2026-08-24", freq="B")
-    dates = dates[dates != pd.Timestamp(missing_date)]
+    # HATA 3C (26.08.2026): naif `pd.bdate_range` yerine gerçek BIST işlem
+    # günleri (`expected_trading_sessions`) kullanılıyor — 2026-04-01/08-24
+    # aralığı 04-23/05-01/05-19/05-27-29/07-15 resmi tatillerini içeriyor,
+    # `pd.bdate_range` bunları BİLMEDİĞİNDEN `UNEXPECTED_TRADING_SESSION`
+    # ile veto ediliyordu.
+    sessions = expected_trading_sessions(date(2026, 4, 1), date(2026, 8, 24))
+    dates = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in sessions if d.isoformat() != missing_date])
     rng = np.random.default_rng(3)
     closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
     return pd.DataFrame(
@@ -419,19 +446,9 @@ def test_analyze_with_id_raises_and_does_not_persist_on_trading_day_gap(fake_pro
 
 
 def test_analyze_with_id_passes_when_no_trading_day_gap(fake_provider):
-    dates = pd.bdate_range(start="2026-04-01", end="2026-08-24", freq="B")
-    rng = np.random.default_rng(3)
-    closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
-    df = pd.DataFrame(
-        {
-            "Open": closes - 0.2,
-            "High": closes + 0.5,
-            "Low": closes - 0.5,
-            "Close": closes,
-            "Volume": rng.integers(1000, 5000, len(dates)),
-        },
-        index=dates,
-    )
+    # "" hiçbir gerçek tarihle eşleşmediğinden hiçbir gün çıkarılmaz — tam,
+    # boşluksuz bir BIST işlem günleri serisi.
+    df = _history_with_trading_day_gap("")
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
     provider = fake_provider(history_df=df)
     engine = TechnicalAnalysisEngine(
@@ -465,7 +482,13 @@ _BOUNDARY_2C = pd.Timestamp("2026-08-24").date()
 
 
 def _bday_df(start: str, end: str, base_price: float = 100.0, seed: int = 7) -> pd.DataFrame:
-    dates = pd.bdate_range(start=start, end=end, freq="B")
+    # HATA 3C (26.08.2026): naif `pd.bdate_range` yerine gerçek BIST işlem
+    # günleri (`expected_trading_sessions`) — bu aralık birden fazla 2026
+    # resmi tatilini (03-20, 04-23, 05-01, 05-19, 05-27/28/29, 07-15) kapsıyor,
+    # `pd.bdate_range` bunları BİLMEDİĞİNDEN `UNEXPECTED_TRADING_SESSION`
+    # ile veto ediliyordu.
+    sessions = expected_trading_sessions(pd.Timestamp(start).date(), pd.Timestamp(end).date())
+    dates = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in sessions])
     rng = np.random.default_rng(seed)
     closes = base_price + np.cumsum(rng.normal(0, 1, len(dates)))
     return pd.DataFrame(
@@ -507,7 +530,7 @@ def test_established_symbol_gap_after_analysis_start_still_hard_vetoes(fake_prov
     from app.engines.technical.data_quality import TradingDayContinuityError
 
     df = _bday_df("2025-09-01", "2026-08-24")
-    df = df.drop(pd.Timestamp("2026-06-17"))  # analysis_start'tan SONRA bir boşluk
+    df = df.drop(pd.Timestamp("2026-06-17", tz=TZ))  # analysis_start'tan SONRA bir boşluk
 
     with pytest.raises(TradingDayContinuityError) as exc_info:
         _run_2c_scenario(fake_provider, df)
@@ -520,7 +543,7 @@ def test_pre_roll_internal_gap_before_analysis_start_is_not_a_veto(fake_provider
     # barları hiçbir zaman continuity kontrolüne dahil edilmez, sadece "kanıt
     # var mı" sorusuna cevap verir (bkz. resolve_expected_start).
     df = _bday_df("2025-09-01", "2026-08-24")
-    df = df.drop(pd.Timestamp("2025-10-15"))  # analysis_start'tan ONCE bir boşluk
+    df = df.drop(pd.Timestamp("2025-10-15", tz=TZ))  # analysis_start'tan ONCE bir boşluk
 
     (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
 
@@ -545,7 +568,7 @@ def test_new_listing_with_middle_gap_still_hard_vetoes(fake_provider):
     from app.engines.technical.data_quality import TradingDayContinuityError
 
     df = _bday_df("2026-05-01", "2026-08-24")
-    df = df.drop(pd.Timestamp("2026-06-17"))  # gözlemlenen ilk bardan SONRAKİ bir boşluk
+    df = df.drop(pd.Timestamp("2026-06-17", tz=TZ))  # gözlemlenen ilk bardan SONRAKİ bir boşluk
 
     with pytest.raises(TradingDayContinuityError) as exc_info:
         _run_2c_scenario(fake_provider, df)
@@ -575,7 +598,7 @@ def test_pre_roll_content_never_leaks_into_score_or_enrichment(fake_provider):
     # verdiği doğrudan kanıtlanır.
     tail = _bday_df(_ANALYSIS_START_2C.isoformat(), _BOUNDARY_2C.isoformat(), base_price=100.0, seed=99)
 
-    pre_roll_index = pd.bdate_range(start="2025-09-01", end="2026-02-24")
+    pre_roll_index = pd.bdate_range(start="2025-09-01", end="2026-02-24", tz=TZ)
     n_pre_roll = len(pre_roll_index)
     calm_pre_roll = pd.DataFrame(
         {"Open": 50.0, "High": 50.5, "Low": 49.5, "Close": 50.0, "Volume": 1000},
