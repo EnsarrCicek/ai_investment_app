@@ -97,6 +97,15 @@ durumda `None` döner, çağıran taraf (`data_quality.py`) bunu açık bir
 `TradingCalendarUnsupportedError`'a çevirir. 2027 ve sonrası BİLİNÇLİ
 OLARAK henüz eklenmedi (şu an hiçbir gerçek backtest period'u gerektirmiyor,
 bkz. `completed_history.SUPPORTED_BACKTEST_PERIODS`).
+
+HATA 3E (26.08.2026, commit-öncesi düzeltme): "hangi yıllar destekleniyor"
+sorusunun TEK cevabı artık AÇIK bir liste olan `SUPPORTED_BIST_CALENDAR_
+YEARS`'tır — `BIST_FULL_DAY_CLOSURES.keys()` gibi bir veri tablosunun
+KENDİSİNDEN türetilmez (iki farklı kavramın yanlışlıkla birbirine
+bağımlı/karışık kalmasını önlemek için). Yeni bir yıl eklerken HEM ilgili
+veri tablolarına HEM `SUPPORTED_BIST_CALENDAR_YEARS`'a girmek gerekir —
+`test_trading_calendar.py`'deki deterministik testler bu ikisinin
+SAPMADIĞINI (her yıl/tarih tek tek, min/max kısayolu OLMADAN) doğrular.
 """
 
 import logging
@@ -273,8 +282,30 @@ BIST_HALF_DAY_SESSIONS: dict[int, frozenset[date]] = {
 }
 
 
+# HATA 3E (26.08.2026, commit-öncesi düzeltme): tek, EXPLICIT authoritative
+# source-of-truth — "bu yıl authoritative takvim tarafından destekleniyor mu"
+# sorusunun cevabı, `BIST_FULL_DAY_CLOSURES.keys()` gibi bir VERİ TABLOSUNUN
+# KENDİSİNDEN türetilmez (bu iki farklı kavramı birbirine bağımlı kılardı —
+# ör. bir yıl için tabloya yanlışlıkla boş bir `frozenset()` girilirse, o yıl
+# "destekleniyor" görünürdü, oysa hiçbir resmi veri girilmemiş demektir).
+# `is_year_supported()`, `EARLIEST_SUPPORTED_CALENDAR_DATE` ve `data_quality.
+# validate_calendar_coverage()` YALNIZCA bu açık listeden türer. Veri
+# tablolarının (`BIST_FULL_DAY_CLOSURES`/`BIST_HALF_DAY_SESSIONS`/
+# `BIST_EXTRAORDINARY_CLOSURES`/`BIST_CANCELLED_SESSIONS`) bu listeden
+# SAPMADIĞI (ör. desteklenen bir yıl için planlı takvim girilmemiş, ya da
+# desteklenmeyen bir yılda bir tarih unutulmuş) `test_trading_calendar.py`'de
+# deterministik testlerle (min/max KISAYOLU KULLANILMADAN, her yıl/tarih
+# tek tek) ayrıca kilitlenmiştir.
+SUPPORTED_BIST_CALENDAR_YEARS: frozenset[int] = frozenset({2021, 2022, 2023, 2024, 2025, 2026})
+
+# HATA 3E: backtest'in pre-roll (evidence-only) isteğinin asla desteklenmeyen
+# bir yıla taşmaması için alt sınır — `SUPPORTED_BIST_CALENDAR_YEARS`'tan
+# türetilir, ayrı bir hardcoded tarih DEĞİLDİR (bkz. modül docstring'i, bakım).
+EARLIEST_SUPPORTED_CALENDAR_DATE: date = date(min(SUPPORTED_BIST_CALENDAR_YEARS), 1, 1)
+
+
 def is_year_supported(year: int) -> bool:
-    return year in BIST_FULL_DAY_CLOSURES
+    return year in SUPPORTED_BIST_CALENDAR_YEARS
 
 
 def is_cancelled_session(day: date) -> bool:

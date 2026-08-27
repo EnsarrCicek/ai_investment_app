@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from app.engines.backtest.completed_history import prepare_backtest_history
-from app.engines.backtest.engine import BacktestEngine, simulate
+from app.engines.backtest.engine import MIN_HISTORY_DAYS, BacktestEngine, simulate
 from app.engines.backtest.strategy_presets import STRATEGY_PRESETS
 from app.engines.backtest.walk_forward import WalkForwardOptimizer
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
@@ -160,9 +160,8 @@ def test_cancelled_session_bar_is_never_used_for_execution(fake_provider):
     raw = _feb_2023_earthquake_df()
     provider = fake_provider(history_df=raw)
 
-    normalized_df, backtest_data_as_of, _norm = prepare_backtest_history(
-        provider, "THYAO", "1y", min_history_days=2, now=now
-    )
+    prepared = prepare_backtest_history(provider, "THYAO", "1y", min_history_days=2, now=now)
+    normalized_df = prepared.history
     assert list(normalized_df.index.date) == [
         pd.Timestamp("2023-02-07").date(),
         pd.Timestamp("2023-02-15").date(),
@@ -229,9 +228,9 @@ def test_planned_holiday_phantom_bars_never_used_for_execution(fake_provider):
     raw = _may_2026_bayram_phantom_df()
     provider = fake_provider(history_df=raw)
 
-    normalized_df, backtest_data_as_of, normalization_result = prepare_backtest_history(
-        provider, "TEST", "1y", min_history_days=2, now=now
-    )
+    prepared = prepare_backtest_history(provider, "TEST", "1y", min_history_days=2, now=now)
+    normalized_df = prepared.history
+    normalization_result = prepared.normalization
 
     assert pd.Timestamp("2026-05-26").date() in normalized_df.index.date
     for phantom_date in ("2026-05-27", "2026-05-28", "2026-05-29"):
@@ -303,3 +302,113 @@ def test_walk_forward_optimizer_rejects_unsupported_period_directly(fake_provide
     optimizer = WalkForwardOptimizer(provider=fake_provider(history_df=pd.DataFrame()), config_repo=_FakeConfigRepo())
     with pytest.raises(ValueError):
         optimizer.run("TEST", period=period)
+
+
+# ---------------------------------------------------------------------------
+# HATA 3E (26.08.2026) — BACKTEST LEADING-EDGE / EXPLICIT WINDOW: uçtan uca
+# (BacktestEngine/WalkForwardOptimizer) regresyonlar.
+# ---------------------------------------------------------------------------
+
+
+class _CountingProvider:
+    def __init__(self, history_df: pd.DataFrame):
+        self._history_df = history_df
+        self.call_count = 0
+
+    def get_history(self, symbol: str, **kwargs):
+        self.call_count += 1
+        return self._history_df
+
+
+def test_compare_strategies_fetches_history_exactly_once_for_all_presets():
+    # HATA 3E madde 17: tek fetch, tek normalization, tek leading-edge
+    # çözümü, tek analysis_history — preset sayısından (STRATEGY_PRESETS'te
+    # 5 tane var) BAĞIMSIZ olarak provider TAM OLARAK bir kez çağrılmalı.
+    completed = _bday_df(periods=120, end="2026-08-26")
+    provider = _CountingProvider(completed)
+    engine = BacktestEngine(provider=provider, config_repo=_FakeConfigRepo())
+
+    engine.compare_strategies("TEST", STRATEGY_PRESETS, period="1y", now=datetime(2026, 8, 26, 18, 45, tzinfo=TZ))
+
+    assert provider.call_count == 1
+
+
+def _sessions_df(start: str, end: str, seed: int = 5) -> pd.DataFrame:
+    sessions = expected_trading_sessions(pd.Timestamp(start).date(), pd.Timestamp(end).date())
+    dates = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in sessions])
+    rng = np.random.default_rng(seed)
+    closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
+    return pd.DataFrame(
+        {
+            "Open": closes - 0.2,
+            "High": closes + 0.5,
+            "Low": closes - 0.5,
+            "Close": closes,
+            "Volume": rng.integers(1000, 5000, len(dates)),
+        },
+        index=dates,
+    )
+
+
+def test_walk_forward_windows_are_identical_with_and_without_pre_roll_evidence():
+    # HATA 3E madde 16: pre-roll (evidence-only) barlarının VARLIĞI/YOKLUĞU
+    # walk-forward'ın train/test pencere sınırlarını (`train_from`/`test_from`
+    # vb.) HİÇ ETKİLEMEMELİDİR — ikisi de AYNI `analysis_history`'ye
+    # (target_start'tan itibaren) crop edilir.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> target_start(1y)=2025-08-26
+    main_window = _sessions_df("2025-08-26", "2026-08-26")  # target_start'IN KENDİSİNDEN başlıyor
+
+    with_pre_roll = pd.concat([_sessions_df("2025-06-01", "2025-08-25", seed=9), main_window]).sort_index()
+
+    optimizer_no_evidence = WalkForwardOptimizer(
+        provider=_CountingProvider(main_window), config_repo=_FakeConfigRepo()
+    )
+    optimizer_with_evidence = WalkForwardOptimizer(
+        provider=_CountingProvider(with_pre_roll), config_repo=_FakeConfigRepo()
+    )
+
+    result_no_evidence = optimizer_no_evidence.run("TEST", period="1y", train_days=60, test_days=20, now=now)
+    result_with_evidence = optimizer_with_evidence.run("TEST", period="1y", train_days=60, test_days=20, now=now)
+
+    assert result_no_evidence["history_validation_status"] == "LEADING_EDGE_UNVERIFIED"
+    assert result_with_evidence["history_validation_status"] == "VERIFIED_PRE_WINDOW"
+    assert result_no_evidence["windows"] == result_with_evidence["windows"]
+    assert result_no_evidence["requested_window_start"] == result_with_evidence["requested_window_start"] == "2025-08-26"
+    assert result_no_evidence["actual_history_start"] == result_with_evidence["actual_history_start"] == "2025-08-26"
+
+
+def test_backtest_engine_run_warm_up_boundary_is_identical_with_and_without_pre_roll_evidence():
+    # HATA 3E madde 3 (commit-öncesi ek talep): walk-forward'ın YANINDA,
+    # normal `BacktestEngine.run()` seviyesinde de AYNI garanti kilitlenir --
+    # pre-roll bar sayısı `from_date`/`to_date`/`backtest_data_as_of`'u VEYA
+    # indicator warm-up sınırını (`iloc[MIN_HISTORY_DAYS:]`) DEĞİŞTİRMEMELİDİR.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> target_start(1y)=2025-08-26
+    main_window = _sessions_df("2025-08-26", "2026-08-26")  # target_start'IN KENDİSİNDEN başlıyor -- crop sonrası
+    # analysis_history her iki senaryoda da BİREBİR bu DataFrame'in kendisi olmalı.
+    with_pre_roll = pd.concat([_sessions_df("2025-06-01", "2025-08-25", seed=9), main_window]).sort_index()
+
+    result_no_evidence = BacktestEngine(
+        provider=_CountingProvider(main_window), config_repo=_FakeConfigRepo()
+    ).run("TEST", period="1y", now=now)
+    result_with_evidence = BacktestEngine(
+        provider=_CountingProvider(with_pre_roll), config_repo=_FakeConfigRepo()
+    ).run("TEST", period="1y", now=now)
+
+    assert result_no_evidence["history_validation_status"] == "LEADING_EDGE_UNVERIFIED"
+    assert result_with_evidence["history_validation_status"] == "VERIFIED_PRE_WINDOW"
+
+    assert result_no_evidence["from_date"] == result_with_evidence["from_date"]
+    assert result_no_evidence["to_date"] == result_with_evidence["to_date"]
+    assert result_no_evidence["backtest_data_as_of"] == result_with_evidence["backtest_data_as_of"]
+
+    # from_date, analysis_history'nin (pre-roll HARİÇ, `main_window`'un kendisi)
+    # MIN_HISTORY_DAYS'INCİ satırının tarihidir -- pre-roll bar sayısından
+    # (with_pre_roll'da ~60 EK satır var) BAĞIMSIZ.
+    expected_from_date = str(main_window.index[MIN_HISTORY_DAYS].date())
+    assert result_no_evidence["from_date"] == expected_from_date
+    assert result_with_evidence["from_date"] == expected_from_date
+
+    # Trade timeline'ı (equity_curve üzerinden) da birebir aynı olmalı.
+    assert result_no_evidence["total_return_pct"] == result_with_evidence["total_return_pct"]
+    assert result_no_evidence["trade_count"] == result_with_evidence["trade_count"]
+    assert result_no_evidence["equity_curve"] == result_with_evidence["equity_curve"]

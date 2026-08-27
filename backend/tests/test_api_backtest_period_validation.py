@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from app.api import backtest as backtest_api
 from app.engines.backtest.engine import BacktestEngine
 from app.engines.backtest.walk_forward import WalkForwardOptimizer
+from app.engines.technical.data_quality import TradingCalendarUnsupportedError
 
 app = FastAPI()
 app.include_router(backtest_api.router)
@@ -75,3 +76,23 @@ def test_walk_forward_accepts_a_supported_period(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["period"] == "3y"
+
+
+# ---------------------------------------------------------------------------
+# HATA 3E (26.08.2026): requested window (`target_start`/`target_end`)
+# desteklenmeyen bir yıla değerse motor `TradingCalendarUnsupportedError`
+# fırlatır — bu, `DataQualityError` → `ValueError`'dan türediği için, route
+# kodu DEĞİŞTİRİLMEDEN aynı `except ValueError` zinciriyle 422'ye döner.
+# Gerçek ağ isteği yapılmaz — motor metodu monkeypatch'lenir.
+# ---------------------------------------------------------------------------
+
+
+def test_run_backtest_converts_calendar_unsupported_year_to_422(monkeypatch):
+    def _raise(self, symbol, period="2y", **kwargs):
+        raise TradingCalendarUnsupportedError(2020)
+
+    monkeypatch.setattr(BacktestEngine, "run", _raise)
+
+    response = client.get("/backtest/THYAO?period=5y")
+
+    assert response.status_code == 422

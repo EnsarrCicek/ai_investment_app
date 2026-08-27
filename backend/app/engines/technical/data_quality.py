@@ -56,6 +56,32 @@ class TradingCalendarUnsupportedError(DataQualityError):
         )
 
 
+def validate_calendar_coverage(start: date, end: date) -> None:
+    """HATA 3E (26.08.2026) — `[start, end]` (dahil) aralığındaki HER yılın
+    authoritative takvimde tanımlı olup olmadığını, tek tek, side-effect'siz
+    kontrol eder. Herhangi bir DataFrame/provider görmez; yalnızca iki
+    tarihten hesaplanır.
+
+    Min/max-yıl KISAYOLU KASITLI OLARAK KULLANILMAZ — desteklenen yıllar
+    ileride contiguous OLMAYABİLİR (ör. `{2021,2022,2024}`, 2023 eksik);
+    `range(start.year, end.year+1)` İÇİNDEKİ HER yıl tek tek doğrulanır,
+    aradaki bir yılın eksik olması yalnızca uç yıllara bakan bir kontrolden
+    KAÇAMAZ.
+
+    HATA 3E denetiminde kanıtlanan kör noktanın DÜZELTMESİDİR: `resolve_
+    expected_start()`'ın `LEADING_EDGE_UNVERIFIED` dalı `expected_start`'ı
+    `max(target_start, first_observed)`'a taşıdığından, yalnızca `expected_
+    start.year`'dan başlayan bir kontrol (`check_trading_day_continuity()`nin
+    KENDİ, defense-in-depth amaçlı taraması) `target_start`'ın desteklenmeyen
+    bir yılda kalmasını GÖRMEZ — bu fonksiyon `target_start`/`target_end`
+    üzerinde, provider'a hiç gidilmeden, evidence çözümlenmeden ÖNCE
+    çağrılmalıdır (bkz. `backtest/completed_history.py`).
+    """
+    for year in range(start.year, end.year + 1):
+        if not is_year_supported(year):
+            raise TradingCalendarUnsupportedError(year)
+
+
 class TradingDayContinuityError(DataQualityError):
     """HATA 2B (25.08.2026) + HATA 3C (26.08.2026): BIST'in resmi takvimine
     göre beklenen bir işlem gününde OHLCV barı YOK (`missing_dates`) VE/VEYA
@@ -251,9 +277,7 @@ def check_trading_day_continuity(
     boundary_date = latest_expected_completed_date(now)
     end_date = max(df.index[-1].date(), boundary_date)
 
-    for year in range(first_bar_date.year, end_date.year + 1):
-        if not is_year_supported(year):
-            raise TradingCalendarUnsupportedError(year)
+    validate_calendar_coverage(first_bar_date, end_date)
 
     expected = expected_trading_sessions(first_bar_date, end_date)
     expected_set = set(expected)

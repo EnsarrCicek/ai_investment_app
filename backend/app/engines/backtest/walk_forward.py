@@ -63,9 +63,10 @@ class WalkForwardOptimizer:
     ) -> dict:
         # HATA 3B (26.08.2026): BacktestEngine ile AYNI completed-session-only
         # sözleşmesi — bkz. completed_history.py, engine.py modül docstring'i.
-        df, backtest_data_as_of, normalization_result = prepare_backtest_history(
-            self._provider, symbol, period, MIN_HISTORY_DAYS, now=now
-        )
+        # HATA 3E: `prepared.history` pre-roll KESİNLİKLE İÇERMEZ — train/test
+        # pencere sınırları yalnızca fiili analiz penceresinden hesaplanır.
+        prepared = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
+        df = prepared.history
         if len(df) < MIN_HISTORY_DAYS + train_days + test_days:
             raise ValueError(
                 f"'{symbol}' için walk-forward optimizasyona yetecek geçmiş veri yok "
@@ -130,9 +131,12 @@ class WalkForwardOptimizer:
             "train_days": train_days,
             "test_days": test_days,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "backtest_data_as_of": str(backtest_data_as_of),
+            "backtest_data_as_of": str(prepared.backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
-            **session_normalization_to_dict(normalization_result),
+            "requested_window_start": str(prepared.requested_window_start),
+            "actual_history_start": str(prepared.actual_history_start),
+            "history_validation_status": prepared.history_validation_status,
+            **session_normalization_to_dict(prepared.normalization),
             "window_count": len(windows),
             "window_win_rate_pct": window_win_rate_pct,
             "aggregate_out_of_sample_return_pct": aggregate_out_of_sample_return_pct,

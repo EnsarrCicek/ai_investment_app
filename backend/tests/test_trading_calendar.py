@@ -15,6 +15,7 @@ from app.services.market_data.trading_calendar import (
     BIST_EXTRAORDINARY_CLOSURES,
     BIST_FULL_DAY_CLOSURES,
     BIST_HALF_DAY_SESSIONS,
+    SUPPORTED_BIST_CALENDAR_YEARS,
     DroppedSession,
     NonSessionClassification,
     SessionNormalizationResult,
@@ -571,3 +572,48 @@ def test_normalization_removes_phantom_rows_from_indicator_input():
     #    (26.05) Close'undan türer -- momentum/roc bunu doğrudan kanıtlar.
     last_real_close = normalized_close.iloc[-1]
     assert last_real_close == raw_close.loc[pd.Timestamp("2026-05-26", tz=TZ)]
+
+
+# ---------------------------------------------------------------------------
+# HATA 3E (26.08.2026, commit-öncesi düzeltme) — `SUPPORTED_BIST_CALENDAR_
+# YEARS` artık AÇIK bir liste, veri tablolarından TÜRETİLMİYOR. Bu testler,
+# veri tablolarının bu açık listeden SAPMADIĞINI (eksik/fazla yıl)
+# deterministik olarak, min/max KISAYOLU KULLANMADAN (her yıl/tarih tek tek)
+# kilitler.
+# ---------------------------------------------------------------------------
+
+
+def test_every_supported_year_has_a_planned_calendar_entry():
+    # Desteklenen HER yıl için BIST_FULL_DAY_CLOSURES'ta bir entry (key)
+    # bulunmalı -- yani planlı takvim konfigürasyonu o yıl için GİRİLMİŞ
+    # olmalı. Ancak "yıl destekleniyor" iddiası, "o yıl en az bir tam-gün
+    # kapanışı VARDIR" anlamına gelmez -- SUPPORTED_BIST_CALENDAR_YEARS
+    # tek otoritedir, dolu/boş olma durumu bu otoriteyi etkilemez.
+    for year in sorted(SUPPORTED_BIST_CALENDAR_YEARS):
+        assert year in BIST_FULL_DAY_CLOSURES, f"{year} desteklenen bir yıl ama BIST_FULL_DAY_CLOSURES'ta YOK"
+
+
+def test_full_day_closures_do_not_contain_years_outside_supported_set():
+    for year in BIST_FULL_DAY_CLOSURES:
+        assert year in SUPPORTED_BIST_CALENDAR_YEARS, f"{year}, BIST_FULL_DAY_CLOSURES'ta ama desteklenen listede YOK"
+
+
+def test_half_day_extraordinary_cancelled_years_are_all_within_supported_set():
+    # Her yarım gün/olağanüstü kapanış/iptal edilmiş seans tarihinin YILI
+    # desteklenen küme İÇİNDE olmalı -- tek tek, min/max karşılaştırması
+    # YAPMADAN (ör. {2021,2022,2024} gibi non-contiguous bir küme olsaydı
+    # min/max kontrolü 2023'ü yanlışlıkla "aralıkta" sayardı).
+    for table in (BIST_HALF_DAY_SESSIONS, BIST_EXTRAORDINARY_CLOSURES, BIST_CANCELLED_SESSIONS):
+        for year, dates in table.items():
+            assert year in SUPPORTED_BIST_CALENDAR_YEARS, f"{year} desteklenmiyor ama {table} içinde tarih var"
+            for d in dates:
+                assert d.year == year, f"{d} tarihi {table}'nin {year} anahtarı altında ama d.year uyuşmuyor"
+                assert d.year in SUPPORTED_BIST_CALENDAR_YEARS
+
+
+def test_is_year_supported_matches_explicit_set_not_data_tables():
+    # 2027 -- desteklenmeyen, veri tablolarında da hiç yer almayan bir yıl.
+    assert not is_year_supported(2027)
+    assert 2027 not in BIST_FULL_DAY_CLOSURES
+    for year in SUPPORTED_BIST_CALENDAR_YEARS:
+        assert is_year_supported(year)

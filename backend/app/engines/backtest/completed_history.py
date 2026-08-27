@@ -1,115 +1,159 @@
-"""Backtest'e özel completed-session-only + continuity veri hazırlama
-katmanı — HATA 3B (26.08.2026), genişletildi HATA 3C/3C-EX (26.08.2026).
+"""Backtest'e özel explicit-window veri hazırlama katmanı — HATA 3B/3C/3C-EX/
+3D (26.08.2026), HATA 3E ile (26.08.2026) baştan tasarlandı.
 
 HATA 3B denetiminde kanıtlandı: `BacktestEngine`/`WalkForwardOptimizer`,
 `self._provider.get_history(symbol, period=period)`'i HİÇBİR filtre
 uygulamadan doğrudan `technical_score_series()`/`simulate()`'e veriyordu.
-Piyasa açıkken bu, Yahoo'nun hâlâ oluşmakta olan ("partial"/developing)
-bugünkü günlük barının hem skor hesaplamasına HEM DE (HATA 3A'nın
-execution modeli sayesinde) potansiyel olarak execution/terminal
-mark-to-market'e sızmasına yol açıyordu — canlı ölçümle kanıtlandı
-(GARAN/ASELS'te açık pozisyonun `unrealized_return_pct`'i dakikalar
-içinde işaret bile değiştirebiliyordu).
+KESİN SÖZLEŞME: Backtest, canlı/paper-trading DEĞİLDİR — yalnızca
+TAMAMLANMIŞ günlük seanslar üzerinde çalışır ("COMPLETED_DAILY_ONLY").
 
-KESİN SÖZLEŞME (kullanıcı kararı, 26.08.2026): Backtest, canlı/paper-trading
-DEĞİLDİR — yalnızca TAMAMLANMIŞ günlük seanslar üzerinde çalışır
-("COMPLETED_DAILY_ONLY"). Piyasa açıkken bugünün satırı (Open/High/Low/
-Close/Volume — HİÇBİR alanı, "Open zaten sabit" gibi bir istisna dahi
-YAPILMADAN) backtest'e hiç girmez. Bilinçli olarak REDDEDİLEN alternatif:
-"partial günün Close'unu skordan çıkar ama Open'ını execution için kullan"
-hibrit modeli — bu, historical backtest ile live/paper execution'ı
-karıştırır; live/paper portföy ayrı, gelecekteki bir özelliktir.
+HATA 3C/3C-EX/3D: BIST'in resmi takvimine göre beklenen ama provider'da
+bulunmayan bir işlem günü VEYA takvime göre "expected" OLMAYAN bir günde
+(hafta sonu/planlı tatil/olağanüstü kapanış/iptal edilmiş seans) provider'ın
+açıklanamayan bir bar döndürmesi durumları — bkz. `data_quality.py`,
+`trading_calendar.py`.
 
-HATA 3C (26.08.2026) — TRADING_SESSION_CONTINUITY: "Bugünü kullanma"
-(HATA 3B) yeterli değil — GEÇMİŞTE olması gereken bir completed session
-gerçekten mevcut mu sorusu AYRI bir denetim gerektiriyor. BIST'in resmi
-takvimine göre beklenen ama provider'da bulunmayan bir işlem günü
-(`MISSING_TRADING_SESSION`) VEYA takvime göre "expected" OLMAYAN bir günde
-provider'ın açıklanamayan bir bar döndürmesi (`UNEXPECTED_TRADING_SESSION`)
-varsa backtest HİÇ ÜRETİLMEZ (HARD VETO) — interpolasyon, önceki kapanışla
-doldurma, "bir sonraki gözlemlenen satırı T+1 say" gibi hiçbir sessiz
-düzeltme YAPILMAZ (bkz. `data_quality.check_trading_day_continuity`).
+HATA 3E (26.08.2026) — BACKTEST LEADING-EDGE / EXPLICIT WINDOW: Önceki
+sürüm `provider.get_history(symbol, period=period)` çağırıyordu — Yahoo'nun
+`period=` string'i SUNUCU TARAFINDA opak şekilde yorumlanıyor (yfinance
+kaynağı: `params={"range": period}`, istemci tarafında `relativedelta`/sabit
+gün sayısıyla YENİDEN HESAPLANMIYOR) VE `check_trading_day_continuity()`
+`expected_start` PARAMETRESİ HİÇ VERİLMEDEN çağrılıyordu — bu ikisinin
+BİRLEŞİMİ, sentetik kanıtla doğrulandı: provider'ın istenen pencerenin TAM
+BAŞINDAKİ günleri (T0, T1) sessizce düşürmesi durumunda `prepare_backtest_
+history()` PASS veriyordu (canlı motorun HATA 2B/2C ile çözdüğü kör noktanın
+BİREBİR AYNISI, backtest'e hiç taşınmamıştı).
 
-HATA 3C-EX (26.08.2026) — CANCELLED/EXTRAORDINARY SESSION: Planlı resmi
-tatiller (`BIST_FULL_DAY_CLOSURES`) ve olağanüstü Borsa kararıyla tam gün
-kapatılan günler (`BIST_EXTRAORDINARY_CLOSURES`) zaten "expected" sayılmaz.
-Ayrı bir üçüncü durum: seans FİİLEN AÇILDI ama o güne ait TÜM işlemler
-Borsa'nın kendi kararıyla RESMİ OLARAK İPTAL edildi (`BIST_CANCELLED_
-SESSIONS`) — örnek: **08.02.2023**, 6 Şubat 2023 depremi sonrası devre
-kesiciler tetiklenip piyasa saat 11:00'de durduruldu VE o gün gerçekleşen
-TÜM işlemler Borsa İstanbul A.Ş. Yönetmeliği'nin "Emir ve İşlemlerin
-İptali" başlıklı 33. maddesi uyarınca iptal edildi (kaynak: Anadolu
-Ajansı, KAP duyurusunu doğrudan aktarıyor — 26.08.2026'da bağımsız
-araştırmayla doğrulandı).
+Çözüm — canlı `history_window.py`/`resolve_expected_start()` (HATA 2C) ile
+AYNI evidence semantiği, backtest'in KENDİ period sözleşmesine (`period` →
+`target_start`/`target_end`) uyarlanarak:
 
-HATA 3D (26.08.2026) — AUTHORITATIVE NON-SESSION NORMALIZATION: HATA 3C-EX'in
-`drop_cancelled_sessions()`'ı yalnızca CANCELLED_SESSION'ı kapsıyordu VE
-yalnızca bu modülden (backtest) çağrılıyordu — canlı `TechnicalAnalysisEngine`
-KAPSAM DIŞIYDI. Kanıtlandı ki Yahoo, PLANLI tam-gün kapanışlarda (yıllık
-tatil tablosunda olan günler) da ARA SIRA phantom bar döndürebiliyor —
-en şiddetli örnek: 27-28-29 Mayıs 2026 (Kurban Bayramı), BIST100'ün
-TAMAMINDA (`Open=High=Low=Close=`önceki kapanış, `Volume=0`). Bu YÜZDEN
-`drop_cancelled_sessions()` YERİNE, dört kategoriyi de (WEEKEND/PLANNED_
-FULL_DAY_CLOSURE/EXTRAORDINARY_CLOSURE/CANCELLED_SESSION) kapsayan TEK,
-PAYLAŞILAN `trading_calendar.normalize_bist_daily_sessions()` kullanılıyor
-— hem bu modül (backtest) HEM `TechnicalAnalysisEngine` (canlı) AYNI
-fonksiyonu çağırır. Karar YALNIZCA authoritative takvime dayanır — OHLC/
-Volume değerlerine bakılarak "phantom'a benziyor" çıkarımı YAPILMAZ.
-Düşürülen her tarihin provenance'ı (`SessionNormalizationResult.
-dropped_sessions`) sonuca şeffaf şekilde eklenir — bkz. `backtest_data_as_of`
-yanındaki `session_normalization_policy`/`normalized_dropped_sessions`.
-
-Normalizasyon sırası (her biri kendi HATA numarasıyla etiketli):
-    raw provider history
+    period validation (SUPPORTED_BACKTEST_PERIODS = frozenset(BACKTEST_PERIOD_DELTAS))
     ↓
-    completed-session filter              [HATA 3B — filter_completed_daily_bars]
+    target_end = latest_expected_completed_date(now)          [COMPLETED_DAILY_ONLY'nin KENDİ as-of'u]
     ↓
-    authoritative non-session drop        [HATA 3D — normalize_bist_daily_sessions, WEEKEND/PLANNED/EXTRAORDINARY/CANCELLED hepsi]
+    target_start = target_end - BACKTEST_PERIOD_DELTAS[period]
     ↓
-    session continuity validation         [HATA 3C — check_trading_day_continuity, defense-in-depth]
+    validate_calendar_coverage(target_start, target_end)       [HATA 3E — FAIL-FAST, provider'a gitmeden ÖNCE]
     ↓
-    check_data_quality                    [MIN_HISTORY_DAYS dahil, NORMALIZE EDİLMİŞ seri üzerinde]
+    provider_start = max(target_start - PRE_ROLL_DAYS, EARLIEST_SUPPORTED_CALENDAR_DATE)   [advisory clip]
     ↓
-    technical_score_series / simulate NEXT_SESSION_OPEN   [HATA 3A]
+    provider_end = target_end + 1 gün                          [Yahoo end EXCLUSIVE]
+    ↓
+    provider.get_history(symbol, start=provider_start, end=provider_end)   [explicit — period= YOK]
+    ↓
+    filter_completed_daily_bars                                [3B, defense-in-depth]
+    ↓
+    normalize_bist_daily_sessions                               [3D — pre-roll DAHİL tüm seri üzerinde]
+    ↓
+    resolve_expected_start(normalized, target_start)            [2C parity — AYNI, kopyalanmamış fonksiyon]
+    ↓
+    crop: analysis_history = normalized[index.date >= expected_start]   [pre-roll BURADAN SONRA HİÇBİR
+                                                                          şeye — indikatöre, warm-up'a,
+                                                                          walk-forward split'e — GİRMEZ]
+    ↓
+    check_trading_day_continuity(analysis_history, expected_start=expected_start)   [3C, defense-in-depth]
+    ↓
+    check_data_quality(analysis_history, min_history_days=...)
+    ↓
+    technical_score_series / simulate NEXT_SESSION_OPEN         [3A]
 
-Bu modül, yukarıdaki TÜM adımları TEK bir yerde birleştirir — üç ayrı
-canlı giriş noktasının (`BacktestEngine.run()`, `BacktestEngine.
-compare_strategies()`, `WalkForwardOptimizer.run()`) aynı mantığı
-kopyala-yapıştır ile birbirinden bağımsız (ve zamanla birbirinden
-sapabilecek) şekilde tekrarlamasını önler. `MIN_HISTORY_DAYS` kontrolü
-RAW history üzerinde DEĞİL, TAM NORMALİZE EDİLMİŞ seri üzerinde çalışır.
-`check_trading_day_continuity`'nin `missing`/`unexpected` kontrolleri
-normalizasyondan SONRA da HÂLÂ çalışır (defense-in-depth — normalizasyonu
-atlayan varsayımsal bir gelecekteki caller'a karşı, bkz. HATA 3C).
+**"target_end = now.date()" DEĞİL, "target_end = latest_expected_completed_
+date(now)" olması KASITLI (HATA 3E, "window anchor" denetimi):** `COMPLETED_
+DAILY_ONLY` sözleşmesi zaten veri as-of'unu bu fonksiyonla tanımlıyor —
+window'un END'i başka bir referans (wall-clock "bugün") kullanırsa, cutoff
+(18:30 TSİ) öncesi/sonrası aynı istek 1 gün kayan bir pencere üretirdi. Cutoff
+SONRASINDA `target_end`'in bir gün ilerlemesi (yeni bir completed session
+mevcut olduğunda) bir hata DEĞİLDİR — BEKLENEN, istenen rolling-window
+davranışıdır.
 
-Period sözleşmesi (HATA 3C, madde 1): `SUPPORTED_BACKTEST_PERIODS` tek,
-paylaşılan bir sabittir — API katmanına AYRI bir whitelist eklenmedi;
-`prepare_backtest_history()` bu tek sabite karşı doğrular ve desteklenmeyen
-bir `period` için düz bir `ValueError` fırlatır — mevcut proje-geneli
-`except ValueError as exc: raise HTTPException(422, str(exc))` deseni
-(bkz. `api/backtest.py`) bunu otomatik olarak 422'ye çevirir, API
-route'larında hiçbir değişiklik GEREKMEDİ. Üç motor da (`BacktestEngine.
-run/compare_strategies`, `WalkForwardOptimizer.run`) bu tek fonksiyonu
-çağırdığından, doğrudan bir script'ten API'yi atlayarak çağrılsalar bile
-aynı korumaya (defense-in-depth) tabidirler.
+**Requested window calendar coverage (`validate_calendar_coverage`) İLE
+pre-roll calendar coverage AYRI, KASITLI OLARAK FARKLI davranır:**
+`[target_start, target_end]` (fiilen istenen, skorlanacak analiz penceresi)
+desteklenmeyen bir yıla değerse **FAIL-CLOSED** (`TradingCalendarUnsupportedError`,
+provider'a HİÇ gidilmez) — bu, kullanıcının/sistemin AÇIKÇA istediği bir
+şeyin doğrulanamamasıdır. Pre-roll ise yalnızca ADVISORY bir evidence
+bölgesidir (`resolve_expected_start`, "bu sembol target_start'tan önce zaten
+işlem görüyor muydu?") — desteklenmeyen bir yıla taşarsa authoritative
+takvimin sınırına KIRPILIR (`EARLIEST_SUPPORTED_CALENDAR_DATE`), kırpılmış
+bölgede kanıt bulunamazsa mevcut `LEADING_EDGE_UNVERIFIED` yoluna (YENİ bir
+hata tipi İCAT EDİLMEDEN) doğal olarak düşer — advisory bir "kanıt arayamadık"
+durumu, authoritative bir "bilmediğimiz bir aralığı doğru kabul ettik"
+durumundan EPİSTEMİK OLARAK FARKLIDIR.
+
+**Yeni-listing tahmini YAPILMAZ:** `resolve_expected_start()`'ın `LEADING_
+EDGE_UNVERIFIED` dalı hiçbir gün-farkı eşiği (60 gün vb.) KULLANMAZ — yalnızca
+pre-roll'da GERÇEK bir bar bulunup bulunmadığına bakar. `Yahoo firstTradeDate`
+kullanılmaz, `Asset.listing_date` migration'ı yapılmaz (önceki denetimlerde
+zaten kesinleşmişti).
+
+Provenance/şeffaflık: `PreparedBacktestHistory.requested_window_start`
+(`target_start`), `.actual_history_start` (fiili analiz penceresine giren
+İLK barın tarihi) ve `.history_validation_status` (`VERIFIED_PRE_WINDOW` |
+`LEADING_EDGE_UNVERIFIED`, live'la AYNI string'ler) — "5y istendi ama elimizde
+gerçekte yalnızca 17 aylık gözlemlenen history var" gibi bir durum sessizce
+KAYBOLMAZ; `period` alanı (kullanıcının GERÇEKTEN istediği) asla geriye
+yazılmaz.
+
+`PreparedBacktestHistory` (tuple değil, typed dataclass): önceki 3-tuple
+(`df, backtest_data_as_of, normalization_result`) HATA 3E ile 6 alana çıktığı
+için pozisyonel tuple okunaksız/hataya açık hale gelirdi — küçük, frozen bir
+dataclass her caller'da isimle erişim sağlar.
 """
 
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
 import pandas as pd
+from dateutil.relativedelta import relativedelta
 
-from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
+from app.engines.technical.data_quality import (
+    check_data_quality,
+    check_trading_day_continuity,
+    validate_calendar_coverage,
+)
+from app.engines.technical.history_window import PRE_ROLL_DAYS, resolve_expected_start
 from app.services.market_data.base import MarketDataProvider
-from app.services.market_data.completed_bars import filter_completed_daily_bars
-from app.services.market_data.trading_calendar import SessionNormalizationResult, normalize_bist_daily_sessions
+from app.services.market_data.completed_bars import filter_completed_daily_bars, latest_expected_completed_date
+from app.services.market_data.trading_calendar import (
+    EARLIEST_SUPPORTED_CALENDAR_DATE,
+    SessionNormalizationResult,
+    normalize_bist_daily_sessions,
+)
 
-# HATA 3C (26.08.2026): koddaki TEK gerçek period sözleşmesi. Gerçek
-# caller'ların (Flutter Strategy Lab: 6mo/1y/2y/3y/5y; ana Backtest sekmesi:
-# her zaman 2y; WalkForwardOptimizer varsayılanı: 3y — dormant, Flutter
-# çağıranı yok) hiçbiri bu setin dışına çıkmıyor (denetimde doğrulandı).
-# `max`/`10y`/`ytd`/arbitrary bir değer artık API'den yfinance'e sessizce
-# iletilmez.
-SUPPORTED_BACKTEST_PERIODS = frozenset({"6mo", "1y", "2y", "3y", "5y"})
+# HATA 3E (26.08.2026): TEK source-of-truth — `SUPPORTED_BACKTEST_PERIODS`
+# bu mapping'in key'lerinden TÜRETİLİR, ayrı elle-bakımlı bir set OLARAK
+# TUTULMAZ. Bir period'un delta'ya eklenip whitelist'e eklenmemesi (veya
+# tersi) artık yapısal olarak İMKANSIZDIR. Gerçek caller'ların (Flutter
+# Strategy Lab: 6mo/1y/2y/3y/5y; ana Backtest sekmesi: her zaman 2y;
+# WalkForwardOptimizer varsayılanı: 3y — dormant, Flutter çağıranı yok)
+# hiçbiri bu setin dışına çıkmıyor (denetimde doğrulandı).
+BACKTEST_PERIOD_DELTAS: dict[str, relativedelta] = {
+    "6mo": relativedelta(months=6),
+    "1y": relativedelta(years=1),
+    "2y": relativedelta(years=2),
+    "3y": relativedelta(years=3),
+    "5y": relativedelta(years=5),
+}
+SUPPORTED_BACKTEST_PERIODS = frozenset(BACKTEST_PERIOD_DELTAS)
+
+
+@dataclass(frozen=True)
+class PreparedBacktestHistory:
+    """`prepare_backtest_history()`'nin dönüş sözleşmesi (HATA 3E).
+
+    `history`: pre-roll KESİNLİKLE İÇERMEZ — `expected_start`'tan itibaren
+    crop edilmiş, normalize edilmiş, continuity/kalite kontrolünden geçmiş
+    "analysis history"nin KENDİSİ. `BacktestEngine`/`WalkForwardOptimizer`
+    yalnızca bunu görür.
+    """
+
+    history: pd.DataFrame
+    backtest_data_as_of: date
+    normalization: SessionNormalizationResult
+    requested_window_start: date
+    actual_history_start: date
+    history_validation_status: str
 
 
 def prepare_backtest_history(
@@ -118,27 +162,24 @@ def prepare_backtest_history(
     period: str,
     min_history_days: int,
     now: datetime | None = None,
-) -> tuple[pd.DataFrame, date, SessionNormalizationResult]:
-    """Ham geçmişi çeker; TAMAMLANMAMIŞ ("bugünkü") barı çıkarır; authoritative
-    takvime göre expected OLMAYAN (hafta sonu/planlı tatil/olağanüstü kapanış/
-    iptal edilmiş seans) hiçbir tarihteki bar'ı — içeriğine bakmadan — düşürür;
-    BIST işlem-günü sürekliliğini doğrular; kalite kontrolünü NORMALİZE
-    EDİLMİŞ seri üzerinde yapar.
-
-    Döner: `(normalized_history, backtest_data_as_of, normalization_result)`
-    — `backtest_data_as_of`, backtest'in fiilen hesaba kattığı EN SON
-    tamamlanmış günün tarihidir; `normalization_result.dropped_sessions`
-    düşürülen her tarihin provenance'ını (`classification`) taşır — boşsa
-    `[]` (hiçbir şey düşürülmediyse).
+) -> PreparedBacktestHistory:
+    """Explicit `start`/`end` ile ham geçmişi çeker (Yahoo `period=` ARTIK
+    KULLANILMAZ); TAMAMLANMAMIŞ ("bugünkü") barı çıkarır; authoritative
+    takvime göre expected OLMAYAN hiçbir tarihteki bar'ı düşürür; canlı HATA
+    2C ile AYNI `resolve_expected_start()` ile pre-roll evidence'ını
+    çözümler; BIST işlem-günü sürekliliğini VE kalite kontrolünü yalnızca
+    fiili analiz penceresi (`expected_start` sonrası) üzerinde yapar.
 
     Raises:
         ValueError: `period`, `SUPPORTED_BACKTEST_PERIODS` içinde değilse.
+        TradingCalendarUnsupportedError: İSTENEN pencere (`[target_start,
+            target_end]`) desteklenmeyen bir yıla değerse (FAIL-FAST, provider
+            çağrılmadan ÖNCE) VEYA fiili analiz penceresinde (defense-in-depth)
+            bir yıl desteklenmiyorsa.
         DataQualityError (`TradingDayContinuityError` dahil): eksik/
-            beklenmeyen işlem günü veya diğer kalite kontrolleri başarısız
-            olursa.
-        TradingCalendarUnsupportedError: kontrol aralığındaki bir yıl
-            için resmi takvim tanımlı değilse (ör. 2027 ve sonrası, henüz
-            eklenmedi).
+            beklenmeyen işlem günü veya diğer kalite kontrolleri (ör.
+            `INSUFFICIENT_HISTORY` — boş/çok kısa analiz penceresi dahil)
+            başarısız olursa.
     """
     if period not in SUPPORTED_BACKTEST_PERIODS:
         raise ValueError(
@@ -146,12 +187,55 @@ def prepare_backtest_history(
             f"{sorted(SUPPORTED_BACKTEST_PERIODS)}"
         )
 
-    raw_history = provider.get_history(symbol, period=period)
+    target_end = latest_expected_completed_date(now)
+    target_start = target_end - BACKTEST_PERIOD_DELTAS[period]
+
+    # HATA 3E — REQUESTED WINDOW CALENDAR COVERAGE: provider'a hiç gidilmeden,
+    # yalnızca [target_start, target_end] üzerinde fail-fast doğrulama.
+    # Bilerek `resolve_expected_start`'tan/observed history'den BAĞIMSIZ —
+    # aksi halde `LEADING_EDGE_UNVERIFIED` dalı `expected_start`'ı ileri
+    # taşıyıp `target_start`'ın desteklenmeyen bir yılda kaldığını
+    # GİZLEYEBİLİRDİ (HATA 3E final audit'inde sentetik olarak kanıtlandı).
+    validate_calendar_coverage(target_start, target_end)
+
+    # Pre-roll YALNIZCA advisory bir evidence bölgesidir — desteklenmeyen bir
+    # yıla taşarsa authoritative takvimin ilk desteklenen gününe KIRPILIR
+    # (yeni bir hata tipi İCAT EDİLMEZ; kırpılmış bölgede kanıt bulunamazsa
+    # zaten mevcut LEADING_EDGE_UNVERIFIED yoluna düşer).
+    provider_start = max(target_start - timedelta(days=PRE_ROLL_DAYS), EARLIEST_SUPPORTED_CALENDAR_DATE)
+    provider_end = target_end + timedelta(days=1)  # Yahoo `end` EXCLUSIVE — target_end'i dahil etmek için +1
+
+    raw_history = provider.get_history(
+        symbol, start=provider_start.isoformat(), end=provider_end.isoformat(), interval="1d"
+    )
     completed_history = filter_completed_daily_bars(raw_history, now=now)
     normalized_history, normalization_result = normalize_bist_daily_sessions(
         completed_history, symbol=symbol, provider="yahoo_finance"
     )
-    check_trading_day_continuity(normalized_history, symbol, now=now)
-    check_data_quality(normalized_history, symbol, min_history_days=min_history_days, now=now)
-    backtest_data_as_of = normalized_history.index[-1].date()
-    return normalized_history, backtest_data_as_of, normalization_result
+
+    # HATA 2C parity: backtest, live'ın KULLANDIĞI AYNI fonksiyonu çağırır —
+    # backtest'e özel bir kopyası YAZILMADI. Phantom bir pre-roll barı (HATA
+    # 3D) normalizasyondan SONRA geldiği için evidence olarak SAYILAMAZ.
+    expected_start, validation_status = resolve_expected_start(normalized_history, target_start)
+
+    # Pre-roll barları BURADAN SONRA hiçbir hesaplamaya (continuity, kalite,
+    # skor, warm-up, walk-forward split) GİRMEZ.
+    # NOT: `.index.date` (vektörize) YERİNE liste comprehension kullanılır —
+    # `resolve_expected_start()` ile AYNI desen (`history_window.py`):
+    # tz-karışık/`object` dtype bir index (ör. testlerde tz-naive bir partial
+    # satırın tz-aware bir seriyle `pd.concat` edilmesi) `.index.date`'i
+    # `AttributeError` ile KIRABİLİR, `ts.date()` her koşulda güvenlidir.
+    keep_mask = [ts.date() >= expected_start for ts in normalized_history.index]
+    analysis_history = normalized_history[keep_mask]
+
+    check_trading_day_continuity(analysis_history, symbol, now=now, expected_start=expected_start)
+    check_data_quality(analysis_history, symbol, min_history_days=min_history_days, now=now)
+
+    return PreparedBacktestHistory(
+        history=analysis_history,
+        backtest_data_as_of=analysis_history.index[-1].date(),
+        normalization=normalization_result,
+        requested_window_start=target_start,
+        actual_history_start=analysis_history.index[0].date(),
+        history_validation_status=validation_status.value,
+    )
