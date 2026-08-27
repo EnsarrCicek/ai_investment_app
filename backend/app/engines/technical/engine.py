@@ -69,7 +69,8 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from app.engines.technical import indicators as ind
-from app.engines.technical.breakout import BreakoutEvent, check_retest, confirm_breakout, detect_breakout
+from app.engines.technical.breakout import BreakoutEvent
+from app.engines.technical.breakout_timeline import build_breakout_timeline, select_live_breakout_event, to_legacy_breakout_event
 from app.engines.technical.narrative import build_narrative
 from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
 from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
@@ -157,7 +158,22 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # (`session_normalization_policy`/`normalized_dropped_sessions`) yeni,
 # backward-compatible alanlarla sonuca şeffaf şekilde eklendi. Eski kayıtlar
 # değiştirilmedi/silinmedi.
-ENGINE_VERSION = "1.5.0"
+#
+# 27.08.2026: 1.5.0 -> 1.6.0 — HATA 4B: `breakout` artık her çağrıda "bugün"e
+# yeniden ankorlanan tek-anlık bir `detect_breakout()` kontrolü DEĞİL,
+# stateless bir zaman çizelgesinden (`breakout_timeline.build_breakout_
+# timeline()`) seçilen, `event_at`'ından itibaren en fazla 15 tamamlanmış
+# seans boyunca "yaşayan" bir event'tir (bkz. breakout_timeline.py modül
+# docstring'i). Kanıtlanan kök neden: eski çağrı deseni `confirm_breakout()`
+# için gereken gelecek barları hiçbir zaman "bugün"ün ötesinde bulamadığından
+# `breakout.confirmed` DAİMA `None` kalıyor, dolayısıyla `STRONG_BULLISH_
+# INITIATION`/`notify_if_new_opportunity()` production'da asla erişilemiyordu
+# (look-ahead LEAK değil, event lifecycle/state persistence eksikliği). Yeni
+# alan: `breakout_event_id` (bildirim dedupe'u için, bkz. fcm_sender.py).
+# `technical_score`/`components`/DecisionEngine hiç etkilenmedi (breakout
+# hiçbir zaman skora girmiyordu, bkz. HATA 4A audit'i). Eski kayıtlar
+# değiştirilmedi/silinmedi.
+ENGINE_VERSION = "1.6.0"
 
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
@@ -208,6 +224,7 @@ def _breakout_to_dict(event: BreakoutEvent | None) -> dict | None:
 
 def _compute_enrichment(
     df: pd.DataFrame,
+    symbol: str,
     atr_val: float,
     close_val: float,
     final_score: float,
@@ -220,6 +237,18 @@ def _compute_enrichment(
     zaten çekmiş olduğu AYNI df üzerinden hesaplanır (ek bir yfinance isteği
     YOK). relative_strength ise önbelleklenmiş, paylaşılan bir XU100 serisi
     kullanır (bkz. modül docstring'i, AŞAMA 48/17).
+
+    HATA 4B (27.08.2026): breakout artık `detect_breakout()`'un HER GÜN
+    "bugün"e yeniden ankorladığı tek-anlık bir kontrol DEĞİL, stateless bir
+    `build_breakout_timeline()` zaman çizelgesinden `select_live_breakout_event()`
+    ile seçilen TEK event'tir — bu event, `event_at`'ından itibaren en fazla
+    `MAX_EVENT_AGE_SESSIONS` boyunca (confirmation/retest lifecycle'ı boyunca)
+    "bugün"ün breakout'u olarak yaşamaya devam eder (bkz. breakout_timeline.py
+    modül docstring'i). Support/Resistance DISPLAY zone'ları (aşağıdaki
+    `zones`/`support`/`resistance`/`chart_zones`) bundan ETKİLENMEZ — onlar
+    hâlâ "bugün itibarıyla bilinen her şeyi" (ATR[T] dahil) kullanan bir anlık
+    görüntüdür; yalnız BREAKOUT TESPİTİ kendi ayrı, T-1 ile sınırlı nedensel
+    zone/ATR sözleşmesini kullanır.
     """
     close, volume = df["Close"], df["Volume"]
 
@@ -228,13 +257,10 @@ def _compute_enrichment(
     support = nearest_zone(zones, price=close_val, zone_type="SUPPORT")
     resistance = nearest_zone(zones, price=close_val, zone_type="RESISTANCE")
 
-    breakout_event: BreakoutEvent | None = None
-    active_zone = nearest_zone(zones, price=close_val)
-    if active_zone is not None:
-        breakout_event = detect_breakout(close, active_zone, index=len(df) - 1, atr=atr_val)
-        if breakout_event is not None:
-            breakout_event = confirm_breakout(close, breakout_event)
-            breakout_event = check_retest(close, breakout_event)
+    timeline = build_breakout_timeline(df, symbol)
+    live_event = select_live_breakout_event(timeline, today_index=len(df) - 1)
+    breakout_event: BreakoutEvent | None = to_legacy_breakout_event(live_event)
+    breakout_event_id = live_event.event_id if live_event is not None else None
 
     rv_series = relative_volume_series(volume)
     rv_ratio = rv_series.iloc[-1]
@@ -307,6 +333,7 @@ def _compute_enrichment(
         "nearest_support": nearest_support_dict,
         "nearest_resistance": nearest_resistance_dict,
         "breakout": breakout_dict,
+        "breakout_event_id": breakout_event_id,
         "all_zones": [_zone_to_dict(z) for z in chart_zones],
         "narrative": build_narrative(nearest_support_dict, nearest_resistance_dict, breakout_dict),
         "mtf_aligned": alignment["aligned"],
@@ -442,6 +469,7 @@ class TechnicalAnalysisEngine:
 
         enrichment = _compute_enrichment(
             df,
+            symbol,
             atr_val,
             close_val,
             final_score,

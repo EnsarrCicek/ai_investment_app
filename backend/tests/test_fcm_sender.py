@@ -214,7 +214,10 @@ class _FakeSettingsConfigRepo:
         return self._settings if self._settings is not None else defaults
 
 
-def _strong_analysis(signal_class: str = "STRONG_BULLISH_INITIATION") -> TechnicalAnalysis:
+def _strong_analysis(
+    signal_class: str = "STRONG_BULLISH_INITIATION",
+    breakout_event_id: str | None = "THYAO:BULLISH:2026-08-20",
+) -> TechnicalAnalysis:
     return TechnicalAnalysis(
         asset="THYAO",
         technical_score=50.0,
@@ -224,7 +227,50 @@ def _strong_analysis(signal_class: str = "STRONG_BULLISH_INITIATION") -> Technic
         indicators={},
         created_at=datetime.now(timezone.utc),
         signal_class=signal_class,
+        breakout_event_id=breakout_event_id,
     )
+
+
+class _FakeNewOpportunityLogRepo:
+    """HATA 4B: gerçek `NewOpportunityNotificationRepository`'nin atomic
+    claim/mark/release sözleşmesini (her (user,asset,event_id) ÜÇLÜSÜ için
+    AYRI bir doküman, `PENDING`/`SENT` durumu, `claim_token` eşleşmesi
+    zorunlu) in-memory olarak birebir taklit eden sahte -- gerçek Firestore'a
+    dokunmadan davranışı doğrulamak için."""
+
+    def __init__(self):
+        self._docs: dict[tuple, dict] = {}
+        self.claim_calls = []
+        self.sent_calls = []
+        self.release_calls = []
+
+    def _key(self, user_id, asset, event_id):
+        return (user_id, asset, event_id)
+
+    def claim_new_opportunity(self, user_id, asset, event_id):
+        import uuid
+
+        self.claim_calls.append((user_id, asset, event_id))
+        key = self._key(user_id, asset, event_id)
+        if key in self._docs:
+            return None  # AlreadyExists eşdeğeri
+        token = uuid.uuid4().hex
+        self._docs[key] = {"status": "PENDING", "claim_token": token}
+        return token
+
+    def mark_new_opportunity_sent(self, user_id, asset, event_id, claim_token):
+        self.sent_calls.append((user_id, asset, event_id, claim_token))
+        key = self._key(user_id, asset, event_id)
+        doc = self._docs.get(key)
+        if doc is not None and doc["status"] == "PENDING" and doc["claim_token"] == claim_token:
+            doc["status"] = "SENT"
+
+    def release_new_opportunity_claim(self, user_id, asset, event_id, claim_token):
+        self.release_calls.append((user_id, asset, event_id, claim_token))
+        key = self._key(user_id, asset, event_id)
+        doc = self._docs.get(key)
+        if doc is not None and doc["status"] == "PENDING" and doc["claim_token"] == claim_token:
+            del self._docs[key]
 
 
 def test_new_opportunity_skipped_when_decision_is_not_buy():
@@ -247,12 +293,24 @@ def test_new_opportunity_skipped_when_signal_class_not_strong():
     assert sent is False
 
 
+def test_new_opportunity_skipped_when_no_breakout_event_id():
+    # HATA 4B: STRONG sinyal ama breakout_event_id yok (savunmacı kontrol) --
+    # normalde oluşmaz (STRONG_BULLISH_INITIATION zaten confirmed breakout
+    # gerektirir) ama event_id'siz dedupe imkansız olacağından açıkça bloklanır.
+    analysis = _strong_analysis(breakout_event_id=None)
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY"), analysis_repo=_FakeAnalysisRepo(analysis)
+    )
+    assert sent is False
+
+
 def test_new_opportunity_skipped_when_quote_unavailable():
     sent = fcm_sender.notify_if_new_opportunity(
         "u1",
         _decision(decision="BUY"),
         analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
         provider=_FakeQuoteProvider(raise_error=True),
+        new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
     )
     assert sent is False
 
@@ -268,7 +326,7 @@ def test_new_opportunity_sends_with_computed_quantity(monkeypatch):
         provider=_FakeQuoteProvider(last_price=200.0),
         config_repo=_FakeSettingsConfigRepo({"default_trade_budget_tl": 1000.0}),
         token_repo=_FakeTokenRepo("tok"),
-        log_repo=_FakeLogRepo(),
+        new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
     )
 
     assert sent is True
@@ -288,11 +346,238 @@ def test_new_opportunity_uses_default_budget_when_not_configured(monkeypatch):
         provider=_FakeQuoteProvider(last_price=100.0),
         config_repo=_FakeSettingsConfigRepo(None),
         token_repo=_FakeTokenRepo("tok"),
-        log_repo=_FakeLogRepo(),
+        new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
     )
 
     body = sent_messages[0].notification.body
     assert "50 adet" in body  # varsayılan 5000 TL / 100 TL = 50 adet
+
+
+# ---------------------------------------------------------------------------
+# HATA 4B (27.08.2026) — event-specific dedupe. Bkz. breakout_timeline.py ve
+# NewOpportunityNotificationRepository docstring'leri: notify_if_new_
+# opportunity() artık notify_if_strong_decision()'ın PAYLAŞILAN
+# (user,asset)->last_decision dedupe'unu KULLANMIYOR, kendi AYRI
+# breakout_event_id bazlı dedupe'unu kullanıyor.
+# ---------------------------------------------------------------------------
+
+
+def test_new_opportunity_same_event_id_is_not_renotified(monkeypatch):
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    log_repo = _FakeNewOpportunityLogRepo()
+    event_id = "THYAO:BULLISH:2026-08-20"
+    token = log_repo.claim_new_opportunity("u1", "THYAO", event_id)
+    log_repo.mark_new_opportunity_sent("u1", "THYAO", event_id, token)  # önceden zaten SENT
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis(breakout_event_id=event_id)),
+        provider=_FakeQuoteProvider(),
+        config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"),
+        new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent is False
+
+
+def test_new_opportunity_new_event_id_sends_again(monkeypatch):
+    # AYNI symbol/decision, ama event_id FARKLI (event1 çözüldü, event2 yeni
+    # confirmed oldu) -- eski decision-bazlı dedupe bunu yanlışlıkla
+    # bastırırdı (decision hâlâ "BUY"), event-specific dedupe göndermeli.
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+    log_repo = _FakeNewOpportunityLogRepo()
+    old_event_id = "THYAO:BULLISH:2026-06-01"
+    token = log_repo.claim_new_opportunity("u1", "THYAO", old_event_id)
+    log_repo.mark_new_opportunity_sent("u1", "THYAO", old_event_id, token)  # event1 zaten SENT
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis(breakout_event_id="THYAO:BULLISH:2026-08-20")),
+        provider=_FakeQuoteProvider(),
+        config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"),
+        new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent is True
+    assert len(sent_messages) == 1
+    assert log_repo._docs[("u1", "THYAO", "THYAO:BULLISH:2026-08-20")]["status"] == "SENT"
+
+
+def test_new_opportunity_event1_then_event2_then_event1_fallback_is_suppressed(monkeypatch):
+    # HATA 4B pre-commit audit'inde kanıtlanan asıl bug: event1 SENT, sonra
+    # event2 SENT, sonra live selector (event2 INVALIDATED olup düştüğü için)
+    # event1'e GERİ DÖNER (breakout_timeline'da ayrıca kilitlenen davranış) --
+    # event1 zaten bir kez bildirilmiş olduğundan İKİNCİ KEZ GÖNDERİLMEMELİ.
+    # Eski last-only repository bunu YANLIŞ yapıyordu (event2'nin kaydı
+    # event1'inkini overwrite ettiği için); yeni per-event doküman modeli bunu
+    # yapısal olarak engeller.
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+    log_repo = _FakeNewOpportunityLogRepo()
+    event1 = "THYAO:BULLISH:2026-08-01"
+    event2 = "THYAO:BULLISH:2026-08-08"
+
+    sent1 = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis(breakout_event_id=event1)),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    sent2 = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis(breakout_event_id=event2)),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    # Live selection event1'e geri döner (breakout_timeline testinde ayrıca kilitlendi) -- aynı event1 tekrar sorulur.
+    sent1_fallback = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis(breakout_event_id=event1)),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent1 is True
+    assert sent2 is True
+    assert sent1_fallback is False  # ZORUNLU: event1 ikinci kez GÖNDERİLMEMELİ
+    assert len(sent_messages) == 2
+
+
+def test_new_opportunity_concurrent_claim_only_one_succeeds():
+    # Aynı (user,asset,event_id) için "eşzamanlı" iki claim -- gerçek
+    # Firestore create() precondition'ının deterministic eşdeğeri: yalnız
+    # BİRİ claim'i kazanabilir, ikincisi FCM gönderim aşamasına HİÇ geçemez.
+    log_repo = _FakeNewOpportunityLogRepo()
+    event_id = "THYAO:BULLISH:2026-08-20"
+
+    token_a = log_repo.claim_new_opportunity("u1", "THYAO", event_id)
+    token_b = log_repo.claim_new_opportunity("u1", "THYAO", event_id)  # "eşzamanlı" ikinci çağrı
+
+    assert token_a is not None
+    assert token_b is None  # ikinci caller FCM'e HİÇ ilerleyemez
+
+
+def test_new_opportunity_send_failure_releases_claim_for_retry(monkeypatch):
+    from firebase_admin import exceptions as firebase_exceptions
+
+    def _raise(message):
+        raise firebase_exceptions.UnavailableError("gecici hata")
+
+    monkeypatch.setattr(fcm_sender.messaging, "send", _raise)
+    log_repo = _FakeNewOpportunityLogRepo()
+    event_id = "THYAO:BULLISH:2026-08-20"
+    analysis = _strong_analysis(breakout_event_id=event_id)
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    assert sent is False
+    assert ("u1", "THYAO", event_id) not in log_repo._docs  # claim RELEASE edildi -- sonsuza dek kilitlenmedi
+
+    # Gerçek FCM gönderimi bu kez BAŞARILI olsun -- retry başarıyla gönderebilmeli.
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    sent_retry = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    assert sent_retry is True
+
+
+def test_new_opportunity_sent_document_is_never_released():
+    # Yanlışlıkla (ör. eski/gecikmiş bir çağrı) AYNI token'la release
+    # çağrılsa bile, zaten SENT olmuş bir doküman SİLİNMEMELİ.
+    log_repo = _FakeNewOpportunityLogRepo()
+    event_id = "THYAO:BULLISH:2026-08-20"
+    token = log_repo.claim_new_opportunity("u1", "THYAO", event_id)
+    log_repo.mark_new_opportunity_sent("u1", "THYAO", event_id, token)
+    assert log_repo._docs[("u1", "THYAO", event_id)]["status"] == "SENT"
+
+    log_repo.release_new_opportunity_claim("u1", "THYAO", event_id, token)  # yanlışlıkla çağrıldı
+
+    assert ("u1", "THYAO", event_id) in log_repo._docs
+    assert log_repo._docs[("u1", "THYAO", event_id)]["status"] == "SENT"
+
+
+def test_new_opportunity_buy_sell_buy_same_event_id_suppressed_second_time(monkeypatch):
+    # HATA 4B audit'inde kanıtlanan köşe durum: decision BUY->SELL->BUY
+    # dalgalansa bile, AYNI breakout_event_id için new-opportunity ikinci kez
+    # gönderilmemeli (regular notify_if_strong_decision dedupe'undan TAMAMEN
+    # bağımsız çalışır).
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    log_repo = _FakeNewOpportunityLogRepo()
+    analysis = _strong_analysis(breakout_event_id="THYAO:BULLISH:2026-08-20")
+
+    sent1 = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    # Regular strong-decision dedupe SELL/BUY döngüsü -- notify_if_new_opportunity'yi ETKİLEMEMELİ
+    fcm_sender.notify_if_strong_decision(
+        "u1", _decision(decision="SELL", asset="THYAO"), token_repo=_FakeTokenRepo("tok"), log_repo=_FakeLogRepo()
+    )
+    sent2 = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent1 is True
+    assert sent2 is False  # aynı event_id -- ikinci new-opportunity bastırılmalı, SELL arada ne olursa olsun
+
+
+def test_new_opportunity_does_not_touch_regular_decision_log(monkeypatch):
+    # HATA 4B'nin düzelttiği cross-suppression: new-opportunity artık
+    # regular (user,asset)->last_decision kaydına HİÇ YAZMIYOR/OKUMUYOR.
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    regular_log_repo = _FakeLogRepo(last_decision=None)
+
+    fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
+        provider=_FakeQuoteProvider(),
+        config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"),
+        new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
+    )
+
+    assert regular_log_repo.set_calls == []
+    assert regular_log_repo._last is None
+
+
+def test_prior_regular_strong_decision_no_longer_suppresses_new_opportunity(monkeypatch):
+    # HATA 4B'nin düzelttiği asıl bug: önceden notify_if_strong_decision()'ın
+    # AYNI (user,asset) için "BUY" yazması, sonraki new-opportunity
+    # bildirimini SESSİZCE bastırıyordu (shared dedupe key). Artık AYRI
+    # dedupe'lar sayesinde bu olmamalı.
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    regular_sent = fcm_sender.notify_if_strong_decision(
+        "u1", _decision(decision="BUY", asset="THYAO"), token_repo=_FakeTokenRepo("tok"), log_repo=_FakeLogRepo()
+    )
+    opportunity_sent = fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
+        provider=_FakeQuoteProvider(),
+        config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"),
+        new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
+    )
+
+    assert regular_sent is True
+    assert opportunity_sent is True  # ARTIK bastırılmıyor
+    assert len(sent_messages) == 2
 
 
 def test_notify_if_strong_decision_persists_notification_record(monkeypatch):

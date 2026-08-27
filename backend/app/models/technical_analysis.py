@@ -58,6 +58,15 @@ class TechnicalAnalysis(BaseModel):
     nearest_support: dict | None = None
     nearest_resistance: dict | None = None
     breakout: dict | None = None
+
+    # HATA 4B (27.08.2026): `notify_if_new_opportunity()`'nin AYNI breakout
+    # event'i için tekrar tekrar bildirim göndermemesi amacıyla (event-specific
+    # dedupe) — `breakout_timeline.BreakoutTimelineEvent.event_id` (stateless,
+    # yalnız bir kimlik string'i; tam timeline modeli Firestore'a HİÇ
+    # PERSIST EDİLMEZ, bkz. breakout_timeline.py). Eski kayıtlarda yoktur;
+    # `None` bunu geriye dönük uyumlu şekilde ifade eder.
+    breakout_event_id: str | None = None
+
     mtf_aligned: bool | None = None
     mtf_consensus: str | None = None
 

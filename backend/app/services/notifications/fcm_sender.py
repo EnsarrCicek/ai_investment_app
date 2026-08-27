@@ -46,6 +46,7 @@ from firebase_admin import messaging
 from app.models.ai_decision import AIDecision
 from app.models.notification_record import NotificationRecord
 from app.repositories.fcm_token_repository import FcmTokenRepository
+from app.repositories.new_opportunity_notification_repository import NewOpportunityNotificationRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
 from app.repositories.notification_record_repository import NotificationRecordRepository
 from app.repositories.system_config_repository import SystemConfigRepository
@@ -60,33 +61,23 @@ STRONG_NEW_OPPORTUNITY_SIGNAL_CLASS = "STRONG_BULLISH_INITIATION"
 DEFAULT_NOTIFICATION_SETTINGS = {"default_trade_budget_tl": 5000.0}
 
 
-def notify_if_strong_decision(
+def _compose_and_send(
     user_id: str,
     decision: AIDecision,
-    token_repo: FcmTokenRepository | None = None,
-    log_repo: NotificationLogRepository | None = None,
-    quantity_held: float | None = None,
-    suggested_buy_quantity: float | None = None,
-    budget_tl: float | None = None,
-    record_repo: NotificationRecordRepository | None = None,
+    token_repo: FcmTokenRepository,
+    record_repo: NotificationRecordRepository | None,
+    quantity_held: float | None,
+    suggested_buy_quantity: float | None,
+    budget_tl: float | None,
 ) -> bool:
-    """Koşullar sağlanıp bildirim gönderilirse True döner (testte doğrulamak için).
-
-    `quantity_held` verilirse (çağıran taraf bu varlığın portföyde olduğunu
-    zaten biliyorsa) SAT bildirimi "elinizdeki X adeti satın" şeklinde somut
-    bir eylem önerir. `suggested_buy_quantity`/`budget_tl` verilirse AL
-    bildirimi "yaklaşık X adet (~Y TL) alın" şeklinde somut bir eylem önerir
-    — miktar hesaplaması bu fonksiyon içinde YAPILMAZ, çağıran taraf sağlar
-    (bkz. notify_if_new_opportunity).
+    """Mesajı oluşturup gönderir ve gönderim geçmişine yazar — HİÇBİR dedupe
+    KONTROLÜ YAPMAZ (bkz. HATA 4B: `notify_if_strong_decision()` ve
+    `notify_if_new_opportunity()` artık BİLİNÇLİ OLARAK AYRI dedupe
+    mekanizmaları kullanıyor; bu yüzden dedupe kararı ÇAĞIRANA bırakıldı, tek
+    bir yerde kopyalanmasın diye yalnızca mesaj oluşturma/gönderme/kayıt
+    ortak bir yardımcıya taşındı — davranış AŞAMA 48/19'daki orijinal
+    `notify_if_strong_decision()` gövdesiyle BİREBİR AYNI).
     """
-    if decision.decision not in STRONG_DECISIONS:
-        return False
-
-    log_repo = log_repo or NotificationLogRepository()
-    if log_repo.get_last_decision(user_id, decision.asset) == decision.decision:
-        return False  # Bu karar zaten bildirildi, tekrar gönderme
-
-    token_repo = token_repo or FcmTokenRepository()
     token = token_repo.get(user_id)
     if not token:
         return False
@@ -125,7 +116,6 @@ def notify_if_strong_decision(
     except firebase_exceptions.FirebaseError:
         return False
 
-    log_repo.set_last_decision(user_id, decision.asset, decision.decision)
     record_repo = record_repo or NotificationRecordRepository()
     record_repo.add(
         NotificationRecord(
@@ -140,6 +130,48 @@ def notify_if_strong_decision(
     return True
 
 
+def notify_if_strong_decision(
+    user_id: str,
+    decision: AIDecision,
+    token_repo: FcmTokenRepository | None = None,
+    log_repo: NotificationLogRepository | None = None,
+    quantity_held: float | None = None,
+    suggested_buy_quantity: float | None = None,
+    budget_tl: float | None = None,
+    record_repo: NotificationRecordRepository | None = None,
+) -> bool:
+    """Koşullar sağlanıp bildirim gönderilirse True döner (testte doğrulamak için).
+
+    `quantity_held` verilirse (çağıran taraf bu varlığın portföyde olduğunu
+    zaten biliyorsa) SAT bildirimi "elinizdeki X adeti satın" şeklinde somut
+    bir eylem önerir. `suggested_buy_quantity`/`budget_tl` verilirse AL
+    bildirimi "yaklaşık X adet (~Y TL) alın" şeklinde somut bir eylem önerir
+    — miktar hesaplaması bu fonksiyon içinde YAPILMAZ, çağıran taraf sağlar
+    (bkz. notify_if_new_opportunity).
+
+    Dedupe contract'ı HATA 4B'de DEĞİŞMEDİ: `(user_id, asset) -> son bildirilen
+    karar` (`NotificationLogRepository`/`notification_log`) — bu fonksiyonun
+    var olan davranışı, `notify_if_new_opportunity()` artık kendi AYRI
+    event-specific dedupe'unu kullandığı için burada bilinçli olarak
+    korundu (bkz. o fonksiyonun docstring'i).
+    """
+    if decision.decision not in STRONG_DECISIONS:
+        return False
+
+    log_repo = log_repo or NotificationLogRepository()
+    if log_repo.get_last_decision(user_id, decision.asset) == decision.decision:
+        return False  # Bu karar zaten bildirildi, tekrar gönderme
+
+    token_repo = token_repo or FcmTokenRepository()
+    sent = _compose_and_send(
+        user_id, decision, token_repo, record_repo,
+        quantity_held=quantity_held, suggested_buy_quantity=suggested_buy_quantity, budget_tl=budget_tl,
+    )
+    if sent:
+        log_repo.set_last_decision(user_id, decision.asset, decision.decision)
+    return sent
+
+
 def notify_if_new_opportunity(
     user_id: str,
     decision: AIDecision,
@@ -147,7 +179,7 @@ def notify_if_new_opportunity(
     provider: MarketDataProvider | None = None,
     config_repo: SystemConfigRepository | None = None,
     token_repo: FcmTokenRepository | None = None,
-    log_repo: NotificationLogRepository | None = None,
+    new_opportunity_log_repo: NewOpportunityNotificationRepository | None = None,
     record_repo: NotificationRecordRepository | None = None,
 ) -> bool:
     """Elde TUTULMAYAN bir varlık için "yeni AL fırsatı" bildirimi — yalnızca
@@ -162,6 +194,31 @@ def notify_if_new_opportunity(
     otomatik alım-satıma geçilince (kullanıcının kendi ifadesiyle "sonra
     otomatiğe geçeriz") gerçek bir pozisyon büyüklüğü stratejisiyle
     değiştirilmesi gerekecek.
+
+    HATA 4B (27.08.2026) — EVENT-SPECIFIC, ATOMIC-CLAIM DEDUPE: bu fonksiyon
+    eskiden `notify_if_strong_decision()`'ı DOĞRUDAN çağırıp onun
+    `(user_id, asset) -> son bildirilen karar` dedupe'unu PAYLAŞIYORDU —
+    audit'te kanıtlandı ki bu, iki kavramsal olarak ayrı bildirimin
+    (portföy-bazlı SAT/AL ile elde tutulmayan bir varlıktaki "yeni fırsat")
+    birbirini SESSİZCE bastırmasına yol açabiliyordu.
+
+    Sonraki sürüm (`get_last_notified_event_id`/`set_last_notified_event_id`,
+    TEK `(user,asset)` dokümanı) de HATA 4B pre-commit audit'inde BUG
+    ÇIKTI: "son event" overwrite edildiğinden, event2 bildirildikten SONRA
+    `select_live_breakout_event()` (event2 INVALIDATED olup düştüğünde)
+    event1'e GERİ DÖNERSE, event1 zaten bir kez bildirilmiş olmasına RAĞMEN
+    tekrar gönderiliyordu — gerçek repository sınıfıyla kanıtlandı. Ayrıca bu
+    "check sonra write" deseni ATOMIK DEĞİLDİ (`GET /decisions/{symbol}` ile
+    günlük job aynı event için yakın zamanda çalışırsa duplicate riski vardı).
+
+    Artık `NewOpportunityNotificationRepository`'nin ATOMİK CLAIM/SENT/RELEASE
+    üçlüsü kullanılıyor (her event kendi Firestore dokümanına sahip, `create()`
+    precondition'ı ile atomik "kontrol et VE claim et") — bkz. o sınıfın
+    docstring'i, DUPLICATE-AVERSE/AT-MOST-ONCE delivery semantiği dahil. Claim
+    BİLEREK en son adımda (BUY/STRONG-sinyal/event_id/quote/bütçe kontrollerinin
+    HEPSİ geçtikten SONRA, FCM'den HEMEN ÖNCE) alınır — aksi halde ör. geçici
+    bir fiyat hatası yüzünden erken alınmış bir claim hiç release edilmeden
+    kalıp o event'i sonsuza dek "bildirilecekmiş gibi kilitli" bırakabilirdi.
     """
     if decision.decision != "BUY":
         return False
@@ -170,6 +227,8 @@ def notify_if_new_opportunity(
     analysis = analysis_repo.get_latest(decision.asset)
     if analysis is None or analysis.signal_class != STRONG_NEW_OPPORTUNITY_SIGNAL_CLASS:
         return False
+    if not analysis.breakout_event_id:
+        return False  # STRONG sinyal ama event_id yok -- savunmacı, normalde oluşmamalı
 
     provider = provider or BistProvider()
     try:
@@ -186,15 +245,21 @@ def notify_if_new_opportunity(
     if suggested_quantity <= 0:
         return False
 
-    return notify_if_strong_decision(
-        user_id,
-        decision,
-        token_repo=token_repo,
-        log_repo=log_repo,
-        suggested_buy_quantity=suggested_quantity,
-        budget_tl=budget_tl,
-        record_repo=record_repo,
+    new_opportunity_log_repo = new_opportunity_log_repo or NewOpportunityNotificationRepository()
+    claim_token = new_opportunity_log_repo.claim_new_opportunity(user_id, decision.asset, analysis.breakout_event_id)
+    if claim_token is None:
+        return False  # Bu SPESİFİK breakout event için zaten claim edilmiş/bildirilmiş
+
+    token_repo = token_repo or FcmTokenRepository()
+    sent = _compose_and_send(
+        user_id, decision, token_repo, record_repo,
+        quantity_held=None, suggested_buy_quantity=suggested_quantity, budget_tl=budget_tl,
     )
+    if sent:
+        new_opportunity_log_repo.mark_new_opportunity_sent(user_id, decision.asset, analysis.breakout_event_id, claim_token)
+    else:
+        new_opportunity_log_repo.release_new_opportunity_claim(user_id, decision.asset, analysis.breakout_event_id, claim_token)
+    return sent
 
 
 def send_test_notification(
