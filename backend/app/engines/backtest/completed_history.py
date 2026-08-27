@@ -1,5 +1,30 @@
 """Backtest'e özel explicit-window veri hazırlama katmanı — HATA 3B/3C/3C-EX/
-3D (26.08.2026), HATA 3E ile (26.08.2026) baştan tasarlandı.
+3D (26.08.2026), HATA 3E ile (26.08.2026) baştan tasarlandı, HATA 5A
+(27.08.2026) ile üç-bölgeli (evidence/warm-up/simulation) modele geçirildi.
+
+HATA 5A ÖZET — EXTERNAL 60-SESSION WARM-UP: Önceki sürüm, indicator warm-up'ı
+(RSI/MACD/EMA/.../ROC göstergeleri için ayrılmış 60 geçmiş barlık proje
+warm-up contract/buffer'ı, `INDICATOR_WARMUP_SESSIONS` — bu 60 değeri
+"matematiksel minimum"/"bilimsel olarak gerekli" bir sayı DEĞİLDİR, bkz.
+TEKNIK_ANALIZ_METODOLOJISI.md HATA 5A bölümü, "60'ın anlamı" notu) İSTENEN
+BACKTEST PENCERESİNİN KENDİ İLK 60 SATIRINDAN
+kesiyordu (`BacktestEngine`'de eski `df.iloc[MIN_HISTORY_DAYS:]`) — kullanıcı
+"1y" istediğinde gerçek simülasyon, istenen pencerenin ilk ~3 ayını (60 işlem
+günü) HİÇ görmeden başlıyordu. Gerçek 5-sembol/3-periyot ölçümle kanıtlandı:
+bu, `total_return_pct`'in İŞARETİNİ BİLE değiştirebiliyordu. Çözüm: warm-up
+artık `prepare_backtest_history()` içinde AYRICA, pencerenin DIŞINDAN fetch
+edilir (`indicator_history` = warmup+simulation, `simulation_history` =
+yalnız simulation) — bkz. `PreparedBacktestHistory`/`prepare_backtest_
+history()` docstring'leri ve TEKNIK_ANALIZ_METODOLOJISI.md, HATA 5A bölümü.
+
+**KRİTİK FINAL-BLOCKER DÜZELTMESİ** (pre-commit audit'te gerçek kodla
+kanıtlandı): mandatory 60-session warm-up'ın continuity kontrolü, evidence
+durumundan (`resolve_expected_start()`'ın döndürdüğü tarih) TAMAMEN
+BAĞIMSIZ, HER ZAMAN `warmup_history_start`'a anchor edilir. Aksi halde
+(`resolve_expected_start()`'ın döndürdüğü tarih hem crop hem continuity
+anchor'ı için kullanılsaydı), warm-up'ın TAM BAŞINDAKİ bir gerçek boşluk,
+evidence yoksa "muhtemelen kanıtsız" sanılıp SESSİZCE MASKELENİRDİ — gerçek
+kodla (W1 eksik senaryosu) kanıtlandı.
 
 HATA 3B denetiminde kanıtlandı: `BacktestEngine`/`WalkForwardOptimizer`,
 `self._provider.get_history(symbol, period=period)`'i HİÇBİR filtre
@@ -108,8 +133,10 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 from app.engines.technical.data_quality import (
+    DataQualityError,
     check_data_quality,
     check_trading_day_continuity,
+    previous_expected_sessions,
     validate_calendar_coverage,
 )
 from app.engines.technical.history_window import PRE_ROLL_DAYS, resolve_expected_start
@@ -118,6 +145,7 @@ from app.services.market_data.completed_bars import filter_completed_daily_bars,
 from app.services.market_data.trading_calendar import (
     EARLIEST_SUPPORTED_CALENDAR_DATE,
     SessionNormalizationResult,
+    first_expected_session_on_or_after,
     normalize_bist_daily_sessions,
 )
 
@@ -137,49 +165,89 @@ BACKTEST_PERIOD_DELTAS: dict[str, relativedelta] = {
 }
 SUPPORTED_BACKTEST_PERIODS = frozenset(BACKTEST_PERIOD_DELTAS)
 
+# HATA 5A (27.08.2026) — EXTERNAL 60-SESSION WARM-UP: önceki sürüm, indicator
+# warm-up'ı (RSI/MACD/EMA/.../ROC göstergeleri için ayrılmış proje warm-up
+# contract/buffer'ı — bilimsel/matematiksel bir minimum DEĞİL, bkz. aşağıdaki
+# INDICATOR_WARMUP_SESSIONS tanımı) İSTENEN BACKTEST PENCERESİNİN KENDİ İLK
+# 60 SATIRINI KESEREK elde ediyordu
+# (`BacktestEngine`'de `df.iloc[MIN_HISTORY_DAYS:]`) — yani kullanıcı "1y"
+# istediğinde gerçek simülasyon, istenen pencerenin İLK ~3 AYINI (60 işlem
+# günü) hiç görmeden, o kadar geriden başlıyordu. Gerçek 5-sembol/3-periyot
+# ölçümle kanıtlandı: bu, `total_return_pct`'in İŞARETİNİ BİLE
+# DEĞİŞTİREBİLİYOR (bkz. TEKNIK_ANALIZ_METODOLOJISI.md, HATA 5A bölümü).
+#
+# Çözüm: warm-up, istenen pencerenin İÇİNDEN değil, DIŞINDAN (ayrıca fetch
+# edilerek) sağlanır — üç AYRI bölge:
+#   1. evidence   — yalnız leading-edge doğrulaması (advisory, PRE_ROLL_DAYS).
+#   2. warm-up    — `warmup_history_start .. simulation_start-1`, YALNIZ
+#                   `technical_score_series()`'e girer, P/L'e ASLA girmez.
+#   3. simulation — `simulation_start .. target_end`, indicator+score+trade+
+#                   P/L+equity+benchmark.
+#
+# `INDICATOR_WARMUP_SESSIONS` DEĞERİ (60) DEĞİŞMEDİ — yalnızca KONUMU
+# (pencere içi → pencere dışı) düzeltildi.
+INDICATOR_WARMUP_SESSIONS = 60
+
 
 @dataclass(frozen=True)
 class PreparedBacktestHistory:
-    """`prepare_backtest_history()`'nin dönüş sözleşmesi (HATA 3E).
+    """`prepare_backtest_history()`'nin dönüş sözleşmesi (HATA 3E, HATA 5A ile genişletildi).
 
-    `history`: pre-roll KESİNLİKLE İÇERMEZ — `expected_start`'tan itibaren
-    crop edilmiş, normalize edilmiş, continuity/kalite kontrolünden geçmiş
-    "analysis history"nin KENDİSİ. `BacktestEngine`/`WalkForwardOptimizer`
-    yalnızca bunu görür.
+    `indicator_history`: `warmup_history_start .. target_end` — pre-roll
+    KESİNLİKLE İÇERMEZ, ama mandatory 60-session warm-up'ı İÇERİR.
+    `technical_score_series()`'in TEK girdisi budur.
+
+    `simulation_history`: `simulation_start .. target_end` — `indicator_
+    history`'nin bir ALT KÜMESİ (ayrı bir DataFrame, memory-view garantisi
+    YOKTUR). `simulate()`'in TEK girdisi budur; warm-up satırları buraya
+    HİÇBİR ZAMAN girmez.
     """
 
-    history: pd.DataFrame
+    indicator_history: pd.DataFrame
+    simulation_history: pd.DataFrame
+
+    requested_window_start: date
+    simulation_start: date
+    warmup_history_start: date
+    indicator_warmup_sessions: int
+
+    # Geriye dönük uyumluluk (HATA 3E'den): `actual_history_start` ANLAMI
+    # DEĞİŞMEDİ — hâlâ "fiili analiz penceresinin ilk barı" demektir; o
+    # pencere artık `simulation_history`'dir (HATA 5A'dan önce `history`
+    # olan alandı). Mevcut API tüketicileri (Flutter) kırılmaz.
+    actual_history_start: date
+    actual_indicator_history_start: date
+
+    history_validation_status: str
     backtest_data_as_of: date
     normalization: SessionNormalizationResult
-    requested_window_start: date
-    actual_history_start: date
-    history_validation_status: str
 
 
 def prepare_backtest_history(
     provider: MarketDataProvider,
     symbol: str,
     period: str,
-    min_history_days: int,
     now: datetime | None = None,
 ) -> PreparedBacktestHistory:
     """Explicit `start`/`end` ile ham geçmişi çeker (Yahoo `period=` ARTIK
     KULLANILMAZ); TAMAMLANMAMIŞ ("bugünkü") barı çıkarır; authoritative
-    takvime göre expected OLMAYAN hiçbir tarihteki bar'ı düşürür; canlı HATA
-    2C ile AYNI `resolve_expected_start()` ile pre-roll evidence'ını
-    çözümler; BIST işlem-günü sürekliliğini VE kalite kontrolünü yalnızca
-    fiili analiz penceresi (`expected_start` sonrası) üzerinde yapar.
+    takvime göre expected OLMAYAN hiçbir tarihteki bar'ı düşürür; mandatory
+    60-session indicator warm-up'ını istenen simülasyon penceresinin
+    DIŞINDA, ayrıca sağlar (HATA 5A).
 
     Raises:
         ValueError: `period`, `SUPPORTED_BACKTEST_PERIODS` içinde değilse.
         TradingCalendarUnsupportedError: İSTENEN pencere (`[target_start,
-            target_end]`) desteklenmeyen bir yıla değerse (FAIL-FAST, provider
-            çağrılmadan ÖNCE) VEYA fiili analiz penceresinde (defense-in-depth)
-            bir yıl desteklenmiyorsa.
-        DataQualityError (`TradingDayContinuityError` dahil): eksik/
-            beklenmeyen işlem günü veya diğer kalite kontrolleri (ör.
-            `INSUFFICIENT_HISTORY` — boş/çok kısa analiz penceresi dahil)
-            başarısız olursa.
+            target_end]`) VEYA mandatory warm-up aralığı (`[warmup_history_
+            start, target_end]`) desteklenmeyen bir yıla değerse (FAIL-FAST,
+            provider çağrılmadan ÖNCE — HİÇBİR ZAMAN authoritative takvimin
+            sınırına KIRPILMAZ, evidence pre-roll'un aksine).
+        DataQualityError (`TradingDayContinuityError` dahil): mandatory
+            warm-up aralığındaki (`warmup_history_start .. target_end`) TEK
+            bir eksik/beklenmeyen işlem günü bile HARD VETO'ya yol açar —
+            evidence durumundan (`VERIFIED_PRE_WINDOW`/`LEADING_EDGE_
+            UNVERIFIED`) TAMAMEN BAĞIMSIZ (bkz. aşağıdaki HATA 5A final
+            blocker notu).
     """
     if period not in SUPPORTED_BACKTEST_PERIODS:
         raise ValueError(
@@ -190,19 +258,44 @@ def prepare_backtest_history(
     target_end = latest_expected_completed_date(now)
     target_start = target_end - BACKTEST_PERIOD_DELTAS[period]
 
-    # HATA 3E — REQUESTED WINDOW CALENDAR COVERAGE: provider'a hiç gidilmeden,
-    # yalnızca [target_start, target_end] üzerinde fail-fast doğrulama.
-    # Bilerek `resolve_expected_start`'tan/observed history'den BAĞIMSIZ —
-    # aksi halde `LEADING_EDGE_UNVERIFIED` dalı `expected_start`'ı ileri
-    # taşıyıp `target_start`'ın desteklenmeyen bir yılda kaldığını
-    # GİZLEYEBİLİRDİ (HATA 3E final audit'inde sentetik olarak kanıtlandı).
+    # HATA 3E — REQUESTED WINDOW CALENDAR COVERAGE (değişmedi): provider'a
+    # hiç gidilmeden, yalnızca [target_start, target_end] üzerinde fail-fast
+    # doğrulama.
     validate_calendar_coverage(target_start, target_end)
 
-    # Pre-roll YALNIZCA advisory bir evidence bölgesidir — desteklenmeyen bir
-    # yıla taşarsa authoritative takvimin ilk desteklenen gününe KIRPILIR
-    # (yeni bir hata tipi İCAT EDİLMEZ; kırpılmış bölgede kanıt bulunamazsa
-    # zaten mevcut LEADING_EDGE_UNVERIFIED yoluna düşer).
-    provider_start = max(target_start - timedelta(days=PRE_ROLL_DAYS), EARLIEST_SUPPORTED_CALENDAR_DATE)
+    # `simulation_start`: target_start'ın KENDİSİ zaten bir expected session
+    # değilse (hafta sonu/planlı tatil), ondan SONRAKİ ilk expected session.
+    # FINAL PRE-COMMIT CLEANUP (27.08.2026): arama üst sınırı artık ARBITRARY
+    # bir sabit (eski "14 gün yeter" correctness varsayımı) DEĞİL, isteğin
+    # KENDİ authoritative-doğrulanmış (`validate_calendar_coverage` az önce
+    # geçti) üst sınırı olan `target_end`'dir — `[target_start, target_end]`
+    # zaten TAMAMEN desteklenen yıllarda olduğundan bu çağrı asla `None`
+    # dönmeyi BEKLEMEZ (yalnızca teorik/defense-in-depth durum aşağıda ele alınır).
+    simulation_start = first_expected_session_on_or_after(target_start, target_end)
+    if simulation_start is None:
+        raise DataQualityError(
+            "NO_EXPECTED_SESSION_IN_REQUESTED_WINDOW",
+            f"'{symbol}' için istenen pencerede ([{target_start.isoformat()}, "
+            f"{target_end.isoformat()}]) hiç beklenen BIST işlem günü yok.",
+        )
+
+    # HATA 5A — EXACT 60-SESSION MANDATORY WARM-UP: calendar-day yaklaşık
+    # DEĞİL, authoritative takvim üzerinden `simulation_start`'tan HEMEN
+    # ÖNCEki tam 60 expected session. `simulation_start`'ın KENDİSİ bu 60'a
+    # DAHİL DEĞİLDİR (off-by-one, `previous_expected_sessions` docstring'i).
+    # Desteklenmeyen bir yıla taşarsa CLIP YAPILMAZ — deterministic failure
+    # (`TradingCalendarUnsupportedError`), pre-roll'un aksine.
+    warmup_history_start = previous_expected_sessions(simulation_start, INDICATOR_WARMUP_SESSIONS)[0]
+
+    # Mandatory warm-up aralığı da (target_start'tan daha geriye taşıyabilir)
+    # fail-fast kontrol edilir — provider'a gitmeden ÖNCE.
+    validate_calendar_coverage(warmup_history_start, target_end)
+
+    # Evidence pre-roll artık `warmup_history_start`'ın (target_start'ın
+    # DEĞİL) öncesine anchor edilir — advisory, 15 takvim günü, desteklenmeyen
+    # bir yıla taşarsa authoritative takvimin sınırına KIRPILIR (mandatory
+    # warm-up'ın aksine).
+    provider_start = max(warmup_history_start - timedelta(days=PRE_ROLL_DAYS), EARLIEST_SUPPORTED_CALENDAR_DATE)
     provider_end = target_end + timedelta(days=1)  # Yahoo `end` EXCLUSIVE — target_end'i dahil etmek için +1
 
     raw_history = provider.get_history(
@@ -213,29 +306,45 @@ def prepare_backtest_history(
         completed_history, symbol=symbol, provider="yahoo_finance"
     )
 
-    # HATA 2C parity: backtest, live'ın KULLANDIĞI AYNI fonksiyonu çağırır —
-    # backtest'e özel bir kopyası YAZILMADI. Phantom bir pre-roll barı (HATA
-    # 3D) normalizasyondan SONRA geldiği için evidence olarak SAYILAMAZ.
-    expected_start, validation_status = resolve_expected_start(normalized_history, target_start)
+    # HATA 5A FINAL BLOCKER FIX: evidence/status belirlemesi (VERIFIED_PRE_
+    # WINDOW / LEADING_EDGE_UNVERIFIED) artık YALNIZCA `history_validation_
+    # status` METADATA'sı içindir — mandatory warm-up continuity kontrolünün
+    # alt sınırını ASLA belirlemez. Önceki tasarım hatası (pre-commit audit'te
+    # gerçek kodla kanıtlandı): `resolve_expected_start()`'ın döndürdüğü
+    # tarih, evidence yoksa `first_observed`'a kayabilir — bu tarih hem crop
+    # hem continuity anchor'ı için kullanılırsa, mandatory warm-up'ın TAM
+    # BAŞINDAKİ bir gerçek boşluk (ör. warmup_history_start'ın kendisi
+    # provider'da yoksa) "muhtemelen kanıtsız" sanılıp SESSİZCE MASKELENİR.
+    _, validation_status = resolve_expected_start(normalized_history, warmup_history_start)
 
-    # Pre-roll barları BURADAN SONRA hiçbir hesaplamaya (continuity, kalite,
-    # skor, warm-up, walk-forward split) GİRMEZ.
-    # NOT: `.index.date` (vektörize) YERİNE liste comprehension kullanılır —
-    # `resolve_expected_start()` ile AYNI desen (`history_window.py`):
-    # tz-karışık/`object` dtype bir index (ör. testlerde tz-naive bir partial
-    # satırın tz-aware bir seriyle `pd.concat` edilmesi) `.index.date`'i
-    # `AttributeError` ile KIRABİLİR, `ts.date()` her koşulda güvenlidir.
-    keep_mask = [ts.date() >= expected_start for ts in normalized_history.index]
-    analysis_history = normalized_history[keep_mask]
+    # `indicator_history` HER ZAMAN `warmup_history_start`'ta kırpılır —
+    # evidence durumundan BAĞIMSIZ, asla ileri taşınmaz (mandatory, HATA 2C'nin
+    # OPSİYONEL pre-roll'undan farklı). NOT: `.index.date` (vektörize) YERİNE
+    # liste comprehension — tz-karışık/`object` dtype index'lerde güvenli
+    # (`resolve_expected_start()` ile aynı desen).
+    keep_mask = [ts.date() >= warmup_history_start for ts in normalized_history.index]
+    indicator_history = normalized_history[keep_mask]
 
-    check_trading_day_continuity(analysis_history, symbol, now=now, expected_start=expected_start)
-    check_data_quality(analysis_history, symbol, min_history_days=min_history_days, now=now)
+    # Continuity HER ZAMAN `warmup_history_start`'a anchor edilir — evidence
+    # status'undan TAMAMEN BAĞIMSIZ. Mandatory warm-up aralığındaki (ki bu
+    # aralık `[warmup_history_start, target_end]`'dir) TEK bir eksik/
+    # beklenmeyen gün bile HARD VETO'dur.
+    check_trading_day_continuity(indicator_history, symbol, now=now, expected_start=warmup_history_start)
+    check_data_quality(indicator_history, symbol, min_history_days=INDICATOR_WARMUP_SESSIONS, now=now)
+
+    sim_mask = [ts.date() >= simulation_start for ts in indicator_history.index]
+    simulation_history = indicator_history[sim_mask]
 
     return PreparedBacktestHistory(
-        history=analysis_history,
-        backtest_data_as_of=analysis_history.index[-1].date(),
-        normalization=normalization_result,
+        indicator_history=indicator_history,
+        simulation_history=simulation_history,
         requested_window_start=target_start,
-        actual_history_start=analysis_history.index[0].date(),
+        simulation_start=simulation_start,
+        warmup_history_start=warmup_history_start,
+        indicator_warmup_sessions=INDICATOR_WARMUP_SESSIONS,
+        actual_history_start=simulation_history.index[0].date(),
+        actual_indicator_history_start=indicator_history.index[0].date(),
         history_validation_status=validation_status.value,
+        backtest_data_as_of=indicator_history.index[-1].date(),
+        normalization=normalization_result,
     )

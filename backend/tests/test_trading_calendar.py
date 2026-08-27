@@ -21,6 +21,7 @@ from app.services.market_data.trading_calendar import (
     SessionNormalizationResult,
     classify_non_session_day,
     expected_trading_sessions,
+    first_expected_session_on_or_after,
     is_cancelled_session,
     is_full_day_closure,
     is_year_supported,
@@ -617,3 +618,41 @@ def test_is_year_supported_matches_explicit_set_not_data_tables():
     assert 2027 not in BIST_FULL_DAY_CLOSURES
     for year in SUPPORTED_BIST_CALENDAR_YEARS:
         assert is_year_supported(year)
+
+
+# ---------------------------------------------------------------------------
+# `first_expected_session_on_or_after` — HATA 5A FINAL PRE-COMMIT CLEANUP
+# (27.08.2026): arbitrary/magic 14-günlük arama ufku KALDIRILDI, `search_end`
+# artık çağırandan gelir. Weekend/holiday davranışı ve deterministic `None`
+# (arama aralığında hiç expected session yoksa) burada ayrıca kilitlenir.
+# ---------------------------------------------------------------------------
+
+
+def test_first_expected_session_on_or_after_returns_day_itself_when_already_a_session():
+    ordinary_day = date(2026, 8, 18)  # Salı -- expected session
+    assert first_expected_session_on_or_after(ordinary_day, date(2026, 8, 31)) == ordinary_day
+
+
+def test_first_expected_session_on_or_after_rolls_forward_past_weekend():
+    saturday = date(2026, 8, 22)
+    expected_next_session = date(2026, 8, 24)  # Pazartesi
+    assert first_expected_session_on_or_after(saturday, date(2026, 8, 31)) == expected_next_session
+
+
+def test_first_expected_session_on_or_after_rolls_forward_past_planned_holiday():
+    # 2026-05-01 (1 Mayıs) -- tam gün resmi tatil, ondan SONRAKİ ilk expected
+    # session'a taşınmalı.
+    holiday = date(2026, 5, 1)
+    assert is_full_day_closure(holiday) is True
+    result = first_expected_session_on_or_after(holiday, date(2026, 5, 10))
+    assert result is not None
+    assert result > holiday
+    assert is_full_day_closure(result) is False
+
+
+def test_first_expected_session_on_or_after_returns_none_when_range_has_no_session():
+    # `day > search_end` -- arama aralığı BOŞ, hiçbir expected session
+    # OLAMAZ. Bu, arama ufkunun artık ARBITRARY bir sabitle değil, çağıranın
+    # kendi (authoritative-doğrulanmış) üst sınırıyla sınırlı olduğunun
+    # deterministic kanıtı -- tahmin YÜRÜTÜLMEZ, sessizce `None` döner.
+    assert first_expected_session_on_or_after(date(2026, 8, 20), date(2026, 8, 19)) is None

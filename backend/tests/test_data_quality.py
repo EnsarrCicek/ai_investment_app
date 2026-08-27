@@ -11,7 +11,9 @@ from app.engines.technical.data_quality import (
     TradingDayContinuityError,
     check_data_quality,
     check_trading_day_continuity,
+    previous_expected_sessions,
 )
+from app.services.market_data.trading_calendar import expected_trading_sessions
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -174,3 +176,43 @@ def test_continuity_raises_for_unsupported_calendar_year():
 def test_continuity_empty_dataframe_is_noop():
     df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
     check_trading_day_continuity(df, "TEST")  # exception atmamali
+
+
+# ---------------------------------------------------------------------------
+# HATA 5A REQUIRED TEST TRACE MATRIX, madde A/B: `previous_expected_sessions()`
+# -- mandatory indicator warm-up'ın alt sınırının EXACT 60 expected session
+# olduğu ve off-by-one'ın (simulation_start'ın KENDİSİ 60'a DAHİL DEĞİL)
+# doğrudan, izole bir birim testle kilitlenmesi.
+# ---------------------------------------------------------------------------
+
+
+def test_previous_expected_sessions_returns_exactly_n_sessions_in_order():
+    before = date(2026, 8, 26)
+    result = previous_expected_sessions(before, 60)
+    assert len(result) == 60
+    assert result == sorted(result)  # kronolojik sıra
+    # doğrudan authoritative takvimle çapraz doğrulama: `before`'dan önceki
+    # tam 60 expected session'ın KENDİSİ.
+    all_sessions = expected_trading_sessions(date(2026, 1, 1), before - timedelta(days=1))
+    assert result == all_sessions[-60:]
+
+
+def test_previous_expected_sessions_excludes_the_before_date_itself_off_by_one():
+    # `before` (simulation_start) authoritative takvimde expected bir session
+    # OLSA BİLE (2026-08-26 bir Çarşamba, expected), dönen 60'ın İÇİNE ASLA
+    # girmemeli -- yalnızca ONDAN ÖNCEki seanslar sayılır.
+    before = date(2026, 8, 26)
+    assert before in expected_trading_sessions(date(2026, 8, 24), before)  # önkoşul: before expected bir session
+    result = previous_expected_sessions(before, 60)
+    assert before not in result
+    assert result[-1] < before
+
+
+def test_previous_expected_sessions_raises_for_unsupported_year_without_clipping():
+    # Mandatory warm-up, evidence pre-roll'un aksine CLIP YAPILMAZ -- 60
+    # session'a ulaşmadan desteklenmeyen bir yıla (2020) çarpılırsa
+    # deterministic TradingCalendarUnsupportedError.
+    before = date(2021, 1, 15)  # 2021'in başı -- geriye 60 session gitmek 2020'ye taşar
+    with pytest.raises(TradingCalendarUnsupportedError) as exc_info:
+        previous_expected_sessions(before, 60)
+    assert exc_info.value.year == 2020

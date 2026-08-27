@@ -14,7 +14,7 @@ gap gibi ek veto koşulları ileride ayrı aşamalarda eklenecek (bkz. rapor
 madde 7 — geliştirme sırası).
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -80,6 +80,32 @@ def validate_calendar_coverage(start: date, end: date) -> None:
     for year in range(start.year, end.year + 1):
         if not is_year_supported(year):
             raise TradingCalendarUnsupportedError(year)
+
+
+def previous_expected_sessions(before: date, n: int) -> list[date]:
+    """HATA 5A (27.08.2026) — backtest'in mandatory indicator warm-up alt
+    sınırı: `before` (HARİÇ) öncesindeki tam `n` expected BIST session'ını,
+    calendar-day YAKLAŞIK DEĞİL, authoritative takvim üzerinden EN GEÇ
+    tarihten geriye doğru döner (`result[-1]` = `before`'dan hemen önceki
+    session, `result[0]` = warm-up'ın başladığı session).
+
+    Geriye doğru, YIL YIL genişleyerek arar — her adımda yalnızca o an
+    ihtiyaç duyulan yılın desteklenip desteklenmediğini kontrol eder
+    (`is_year_supported`), gereğinden fazla geriye taşıp OLMASI GEREKENDEN
+    daha erken bir desteklenmeyen yıla çarpma riskini önler. Aranan `n`
+    session'a ulaşmadan desteklenmeyen bir yıla ulaşılırsa
+    `TradingCalendarUnsupportedError` fırlatılır — CLIP YAPILMAZ (mandatory
+    warm-up, HATA 2C'nin pre-roll'u gibi advisory DEĞİLDİR).
+    """
+    year_cursor = before.year
+    while True:
+        if not is_year_supported(year_cursor):
+            raise TradingCalendarUnsupportedError(year_cursor)
+        candidate_start = date(year_cursor, 1, 1)
+        sessions = expected_trading_sessions(candidate_start, before - timedelta(days=1))
+        if sessions is not None and len(sessions) >= n:
+            return sessions[-n:]
+        year_cursor -= 1
 
 
 class TradingDayContinuityError(DataQualityError):

@@ -459,3 +459,32 @@ def expected_trading_sessions(start: date, end: date) -> list[date] | None:
             sessions.append(current)
         current += one_day
     return sessions
+
+
+def first_expected_session_on_or_after(day: date, search_end: date) -> date | None:
+    """HATA 5A (27.08.2026), FINAL PRE-COMMIT CLEANUP (27.08.2026) ile
+    arbitrary/magic bir arama ufkundan (eski "14 gün yeter" correctness
+    varsayımı) arındırıldı: `day`'in KENDİSİ zaten bir expected session ise
+    `day`'in kendisini, değilse (hafta sonu/planlı tatil) `[day, search_end]`
+    (dahil) aralığındaki SONRAKİ ilk expected session'ı döner. `day` bir
+    takvim (ör. `relativedelta` ile hesaplanmış "requested_window_start")
+    olabilir, gerçek bir işlem günü olmak ZORUNDA DEĞİLDİR.
+
+    `search_end` ÇAĞIRAN TARAFTAN gelir — bu fonksiyon "ne kadar ileri
+    aramalıyım" sorusuna kendi başına, keyfi bir sabitle CEVAP VERMEZ.
+    `completed_history.py`'deki tek çağıran, zaten `validate_calendar_
+    coverage(target_start, target_end)`'den GEÇMİŞ `target_end`'i geçirir —
+    yani arama sınırı, isteğin KENDİ authoritative-doğrulanmış üst sınırıdır,
+    "bilinen en uzun kapanış bloğu N gün" gibi bir correctness varsayımı
+    DEĞİLDİR. `[day, search_end]` aralığındaki bir yıl desteklenmiyorsa
+    (`expected_trading_sessions` `None` döner) çağıran tarafın bunu zaten
+    `validate_calendar_coverage()` ile ÖNCEDEN doğrulamış olması beklenir;
+    aralıkta HİÇ expected session yoksa (`day > search_end` veya aralığın
+    tamamı non-session ise — pratikte desteklenen backtest period'ları için
+    ulaşılamaz, yalnızca defense-in-depth) bu fonksiyon `None` döner, tahmin
+    YÜRÜTMEZ — çağıran taraf bunu deterministik bir hataya çevirir.
+    """
+    sessions = expected_trading_sessions(day, search_end)
+    if not sessions:
+        return None
+    return sessions[0]

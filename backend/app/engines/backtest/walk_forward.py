@@ -20,6 +20,18 @@ karşılık gelir.
 veri sözleşmesi burada da kullanılır (bkz. `completed_history.py`) — bu
 sınıf kendi BAĞIMSIZ `get_history()` çağrısını yaptığından, o düzeltmeyi
 otomatik devralmıyordu; HATA 3B denetiminde bu ayrıca tespit edildi.
+
+27.08.2026 (HATA 5A): eski `start = MIN_HISTORY_DAYS` — ilk train fold'u da
+istenen pencerenin (o zamanki `prepared.history`) 60. satırından başlatıyordu,
+yani warm-up burada da istenen pencerenin İÇİNDEN kesiliyordu. Artık
+`prepare_backtest_history()`'nin döndürdüğü `simulation_history` warm-up
+HİÇ İÇERMEDİĞİNDEN, ilk fold `start = 0`'dan (yani `simulation_start`'ın
+KENDİSİNDEN) başlar. `full_score_series` HÂLÂ (değişmedi) `indicator_history`
+(warmup+simulation) üzerinde TEK SEFERDE, causal olarak hesaplanır — her
+fold'un KENDİ lokal warm-up'ına ihtiyacı YOKTUR (HATA 4A prefix invariance:
+RSI/MACD/EMA rolling/EWM, hiç negatif shift yok — bir satırın skoru yalnız
+`<=o satır` verisine bağlı). `train_days`/`test_days` (optimizer'ın KENDİ,
+warm-up'tan bağımsız ayrı kavramı) DEĞİŞMEDİ.
 """
 
 from datetime import datetime, timezone
@@ -27,7 +39,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from app.engines.backtest.completed_history import prepare_backtest_history
-from app.engines.backtest.engine import MIN_HISTORY_DAYS, simulate, technical_score_series
+from app.engines.backtest.engine import simulate, technical_score_series
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
 from app.repositories.system_config_repository import SystemConfigRepository
@@ -63,24 +75,29 @@ class WalkForwardOptimizer:
     ) -> dict:
         # HATA 3B (26.08.2026): BacktestEngine ile AYNI completed-session-only
         # sözleşmesi — bkz. completed_history.py, engine.py modül docstring'i.
-        # HATA 3E: `prepared.history` pre-roll KESİNLİKLE İÇERMEZ — train/test
-        # pencere sınırları yalnızca fiili analiz penceresinden hesaplanır.
-        prepared = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
-        df = prepared.history
-        if len(df) < MIN_HISTORY_DAYS + train_days + test_days:
+        # HATA 3E: pre-roll KESİNLİKLE İÇERMEZ. HATA 5A: `simulation_history`
+        # warm-up da İÇERMEZ — train/test pencere sınırları YALNIZ istenen
+        # simülasyon penceresinden hesaplanır.
+        prepared = prepare_backtest_history(self._provider, symbol, period, now=now)
+        simulation_history = prepared.simulation_history
+        if len(simulation_history) < train_days + test_days:
             raise ValueError(
                 f"'{symbol}' için walk-forward optimizasyona yetecek geçmiş veri yok "
-                f"({len(df)} gün, en az {MIN_HISTORY_DAYS + train_days + test_days} gerekli)"
+                f"({len(simulation_history)} gün, en az {train_days + test_days} gerekli)"
             )
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
         candidates = candidate_thresholds or DEFAULT_CANDIDATE_THRESHOLDS
 
-        full_score_series = technical_score_series(df, weights)
+        # HATA 5A: skor TÜM indicator_history (warm-up dahil) üzerinden TEK
+        # SEFERDE hesaplanır, sonra simulation_history'nin tarihlerine
+        # kırpılır — her fold'un kendi lokal warm-up'ına gerek YOKTUR.
+        full_score_series = technical_score_series(prepared.indicator_history, weights)
+        simulation_scores = full_score_series.loc[simulation_history.index]
 
         windows = []
-        start = MIN_HISTORY_DAYS
-        while start + train_days + test_days <= len(df):
+        start = 0  # HATA 5A: artık MIN_HISTORY_DAYS DEĞİL — simulation_history zaten warm-up içermiyor
+        while start + train_days + test_days <= len(simulation_history):
             train_slice = slice(start, start + train_days)
             test_slice = slice(start + train_days, start + train_days + test_days)
 
@@ -88,22 +105,22 @@ class WalkForwardOptimizer:
             best_train_return = None
             for candidate in candidates:
                 train_result = simulate(
-                    df.iloc[train_slice], full_score_series.iloc[train_slice], candidate, initial_capital
+                    simulation_history.iloc[train_slice], simulation_scores.iloc[train_slice], candidate, initial_capital
                 )
                 if best_train_return is None or train_result["total_return_pct"] > best_train_return:
                     best_train_return = train_result["total_return_pct"]
                     best_candidate = candidate
 
             test_result = simulate(
-                df.iloc[test_slice], full_score_series.iloc[test_slice], best_candidate, initial_capital
+                simulation_history.iloc[test_slice], simulation_scores.iloc[test_slice], best_candidate, initial_capital
             )
 
             windows.append(
                 {
-                    "train_from": str(df.index[train_slice.start].date()),
-                    "train_to": str(df.index[train_slice.stop - 1].date()),
-                    "test_from": str(df.index[test_slice.start].date()),
-                    "test_to": str(df.index[test_slice.stop - 1].date()),
+                    "train_from": str(simulation_history.index[train_slice.start].date()),
+                    "train_to": str(simulation_history.index[train_slice.stop - 1].date()),
+                    "test_from": str(simulation_history.index[test_slice.start].date()),
+                    "test_to": str(simulation_history.index[test_slice.stop - 1].date()),
                     "chosen_thresholds": best_candidate,
                     "train_return_pct": best_train_return,
                     "test_return_pct": test_result["total_return_pct"],
@@ -134,7 +151,11 @@ class WalkForwardOptimizer:
             "backtest_data_as_of": str(prepared.backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
             "requested_window_start": str(prepared.requested_window_start),
+            "simulation_start": str(prepared.simulation_start),
+            "warmup_history_start": str(prepared.warmup_history_start),
+            "indicator_warmup_sessions": prepared.indicator_warmup_sessions,
             "actual_history_start": str(prepared.actual_history_start),
+            "actual_indicator_history_start": str(prepared.actual_indicator_history_start),
             "history_validation_status": prepared.history_validation_status,
             **session_normalization_to_dict(prepared.normalization),
             "window_count": len(windows),

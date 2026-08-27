@@ -5,13 +5,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.engines.backtest.completed_history import prepare_backtest_history
-from app.engines.backtest.engine import MIN_HISTORY_DAYS, BacktestEngine, simulate
+from app.engines.backtest.completed_history import INDICATOR_WARMUP_SESSIONS, prepare_backtest_history
+from app.engines.backtest.engine import BacktestEngine, simulate
 from app.engines.backtest.strategy_presets import STRATEGY_PRESETS
 from app.engines.backtest.walk_forward import WalkForwardOptimizer
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.data_quality import TradingDayContinuityError
-from app.services.market_data.trading_calendar import NonSessionClassification, expected_trading_sessions
+from app.services.market_data.completed_bars import filter_completed_daily_bars
+from app.services.market_data.trading_calendar import (
+    NonSessionClassification,
+    expected_trading_sessions,
+    normalize_bist_daily_sessions,
+)
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -56,7 +61,7 @@ _NOW_MARKET_OPEN = datetime(2026, 8, 26, 10, 44, tzinfo=TZ)
 
 
 def test_backtest_engine_run_excludes_partial_bar_and_reports_as_of(fake_provider):
-    completed = _bday_df(periods=120, end="2026-08-25")
+    completed = _bday_df(periods=340, end="2026-08-25")
     raw = _append_partial_row(completed, "2026-08-26")
     provider = fake_provider(history_df=raw)
     engine = BacktestEngine(provider=provider, config_repo=_FakeConfigRepo())
@@ -69,7 +74,7 @@ def test_backtest_engine_run_excludes_partial_bar_and_reports_as_of(fake_provide
 
 
 def test_backtest_engine_compare_strategies_excludes_partial_bar_and_reports_as_of(fake_provider):
-    completed = _bday_df(periods=120, end="2026-08-25")
+    completed = _bday_df(periods=340, end="2026-08-25")
     raw = _append_partial_row(completed, "2026-08-26")
     provider = fake_provider(history_df=raw)
     engine = BacktestEngine(provider=provider, config_repo=_FakeConfigRepo())
@@ -82,7 +87,7 @@ def test_backtest_engine_compare_strategies_excludes_partial_bar_and_reports_as_
 
 
 def test_walk_forward_optimizer_excludes_partial_bar_and_reports_as_of(fake_provider):
-    completed = _bday_df(periods=200, end="2026-08-25")
+    completed = _bday_df(periods=340, end="2026-08-25")
     raw = _append_partial_row(completed, "2026-08-26")
     provider = fake_provider(history_df=raw)
     optimizer = WalkForwardOptimizer(provider=provider, config_repo=_FakeConfigRepo())
@@ -91,14 +96,20 @@ def test_walk_forward_optimizer_excludes_partial_bar_and_reports_as_of(fake_prov
 
     assert result["backtest_data_as_of"] == "2026-08-25"
     assert result["data_policy"] == "COMPLETED_DAILY_ONLY"
+    # HATA 5A: fixture genişledi (340 session, mandatory 60-session warm-up
+    # için), bu yüzden son fold'un test_to'su artık fold aritmetiğine göre
+    # (60+20*k) tam 2026-08-25'e denk gelmeyebilir -- asıl garanti, partial
+    # (26.08) barının HİÇBİR pencereye asla girmemesidir.
+    all_window_dates = [d for w in result["windows"] for d in (w["train_from"], w["train_to"], w["test_from"], w["test_to"])]
+    assert "2026-08-26" not in all_window_dates
     last_window = result["windows"][-1]
-    assert last_window["test_to"] == "2026-08-25"  # partial (26.08) hicbir pencereye girmedi
+    assert last_window["test_to"] <= "2026-08-25"
 
 
 def test_backtest_engine_run_partial_row_content_never_changes_result(fake_provider):
     # HATA 3B ana regresyon kilidi (ucdan uca): iki AYRI partial satir --
     # sonuc BIREBIR ayni olmali.
-    completed = _bday_df(periods=120, end="2026-08-25")
+    completed = _bday_df(periods=340, end="2026-08-25")
 
     row_calm = pd.DataFrame(
         {"Open": [100.0], "High": [100.5], "Low": [99.5], "Close": [100.0], "Volume": [1000]},
@@ -156,12 +167,19 @@ def test_cancelled_session_bar_is_never_used_for_execution(fake_provider):
     # (08.02 tamamen gitti). 07.02'de manuel bir BUY sinyali kurulup execution'ın
     # 08.02'nin (Open=112.34) DEĞİL, 15.02'nin (Open=132.86) Open'ından
     # gerçekleştiği doğrudan doğrulanıyor.
+    #
+    # HATA 5A NOTU: bu test normalizasyon/execution mekaniğini izole test
+    # eder -- bilinçli olarak `prepare_backtest_history()` (artık mandatory
+    # 60-session warm-up gerektirir) YERİNE alt seviye fonksiyonları
+    # (filter_completed_daily_bars + normalize_bist_daily_sessions) doğrudan
+    # çağırır; bu 4 satırlık sentetik fixture 60 session warm-up sağlayamaz
+    # ve bu testin amacı zaten warm-up sufficiency'yi DEĞİL, normalizasyonu
+    # doğrulamaktır.
     now = datetime(2023, 2, 16, 19, 0, tzinfo=TZ)
     raw = _feb_2023_earthquake_df()
-    provider = fake_provider(history_df=raw)
 
-    prepared = prepare_backtest_history(provider, "THYAO", "1y", min_history_days=2, now=now)
-    normalized_df = prepared.history
+    completed = filter_completed_daily_bars(raw, now=now)
+    normalized_df, _ = normalize_bist_daily_sessions(completed, symbol="THYAO", provider="yahoo_finance")
     assert list(normalized_df.index.date) == [
         pd.Timestamp("2023-02-07").date(),
         pd.Timestamp("2023-02-15").date(),
@@ -224,13 +242,15 @@ def _may_2026_bayram_phantom_df() -> pd.DataFrame:
 
 
 def test_planned_holiday_phantom_bars_never_used_for_execution(fake_provider):
+    # HATA 5A NOTU: `test_cancelled_session_bar_is_never_used_for_execution`
+    # ile aynı gerekçe -- bu, warm-up sufficiency'yi DEĞİL normalizasyonu
+    # test ediyor; `prepare_backtest_history()` YERİNE alt seviye
+    # fonksiyonlar doğrudan çağrılıyor.
     now = datetime(2026, 6, 10, 19, 0, tzinfo=TZ)
     raw = _may_2026_bayram_phantom_df()
-    provider = fake_provider(history_df=raw)
 
-    prepared = prepare_backtest_history(provider, "TEST", "1y", min_history_days=2, now=now)
-    normalized_df = prepared.history
-    normalization_result = prepared.normalization
+    completed = filter_completed_daily_bars(raw, now=now)
+    normalized_df, normalization_result = normalize_bist_daily_sessions(completed, symbol="TEST", provider="yahoo_finance")
 
     assert pd.Timestamp("2026-05-26").date() in normalized_df.index.date
     for phantom_date in ("2026-05-27", "2026-05-28", "2026-05-29"):
@@ -263,8 +283,13 @@ def test_planned_holiday_phantom_bars_never_used_for_execution(fake_provider):
 
 
 def test_walk_forward_optimizer_hard_vetoes_entire_run_no_fold_skip(fake_provider):
+    # HATA 5A: "1y" artık mandatory 60-session warm-up + ~252 simulation
+    # session gerektirdiğinden (indicator_history >= ~312 satır), fixture
+    # eskisinden (200) daha geniş tutuldu -- aksi halde HARD VETO gerçek
+    # (deliberately dropped) boşluktan DEĞİL, warm-up'ın kendisinin
+    # yetersizliğinden tetiklenirdi.
     now = datetime(2026, 8, 27, 19, 0, tzinfo=TZ)
-    df = _bday_df(periods=200, end="2026-08-27")
+    df = _bday_df(periods=340, end="2026-08-27")
     gap_date = df.index[100]  # gercek bir bosluk (tatil DEGIL) ortaya sokuluyor
     df = df.drop(gap_date)
 
@@ -324,7 +349,11 @@ def test_compare_strategies_fetches_history_exactly_once_for_all_presets():
     # HATA 3E madde 17: tek fetch, tek normalization, tek leading-edge
     # çözümü, tek analysis_history — preset sayısından (STRATEGY_PRESETS'te
     # 5 tane var) BAĞIMSIZ olarak provider TAM OLARAK bir kez çağrılmalı.
-    completed = _bday_df(periods=120, end="2026-08-26")
+    # HATA 5A: fixture, mandatory 60-session warm-up + ~252 simulation
+    # session'ı (indicator_history >= ~312 satır) karşılayacak kadar geniş
+    # tutuldu -- aksi halde HARD VETO exception'ı testin assertion'ına
+    # ulaşmadan fırlardı.
+    completed = _bday_df(periods=340, end="2026-08-26")
     provider = _CountingProvider(completed)
     engine = BacktestEngine(provider=provider, config_repo=_FakeConfigRepo())
 
@@ -355,13 +384,19 @@ def test_walk_forward_windows_are_identical_with_and_without_pre_roll_evidence()
     # walk-forward'ın train/test pencere sınırlarını (`train_from`/`test_from`
     # vb.) HİÇ ETKİLEMEMELİDİR — ikisi de AYNI `analysis_history`'ye
     # (target_start'tan itibaren) crop edilir.
-    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> target_start(1y)=2025-08-26
-    main_window = _sessions_df("2025-08-26", "2026-08-26")  # target_start'IN KENDİSİNDEN başlıyor
+    # HATA 5A: fixture artık mandatory 60-session warm-up'ı da İÇERİR --
+    # `warmup_history_start` (2025-05-29, gerçek BIST takviminden, "1y" için
+    # simulation_start=2025-08-26'dan tam 60 seans önce) .. target_end.
+    # Evidence pre-roll artık BUNUN öncesine (target_start'ın DEĞİL) eklenir.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> target_start(1y)=simulation_start=2025-08-26
+    warmup_and_simulation = _sessions_df("2025-05-29", "2026-08-26")  # warmup_history_start..target_end
 
-    with_pre_roll = pd.concat([_sessions_df("2025-06-01", "2025-08-25", seed=9), main_window]).sort_index()
+    with_pre_roll = pd.concat(
+        [_sessions_df("2025-03-01", "2025-05-28", seed=9), warmup_and_simulation]
+    ).sort_index()  # evidence, warmup_history_start'IN ÖNCESİNDE
 
     optimizer_no_evidence = WalkForwardOptimizer(
-        provider=_CountingProvider(main_window), config_repo=_FakeConfigRepo()
+        provider=_CountingProvider(warmup_and_simulation), config_repo=_FakeConfigRepo()
     )
     optimizer_with_evidence = WalkForwardOptimizer(
         provider=_CountingProvider(with_pre_roll), config_repo=_FakeConfigRepo()
@@ -374,21 +409,24 @@ def test_walk_forward_windows_are_identical_with_and_without_pre_roll_evidence()
     assert result_with_evidence["history_validation_status"] == "VERIFIED_PRE_WINDOW"
     assert result_no_evidence["windows"] == result_with_evidence["windows"]
     assert result_no_evidence["requested_window_start"] == result_with_evidence["requested_window_start"] == "2025-08-26"
+    assert result_no_evidence["simulation_start"] == result_with_evidence["simulation_start"] == "2025-08-26"
     assert result_no_evidence["actual_history_start"] == result_with_evidence["actual_history_start"] == "2025-08-26"
 
 
 def test_backtest_engine_run_warm_up_boundary_is_identical_with_and_without_pre_roll_evidence():
-    # HATA 3E madde 3 (commit-öncesi ek talep): walk-forward'ın YANINDA,
-    # normal `BacktestEngine.run()` seviyesinde de AYNI garanti kilitlenir --
-    # pre-roll bar sayısı `from_date`/`to_date`/`backtest_data_as_of`'u VEYA
-    # indicator warm-up sınırını (`iloc[MIN_HISTORY_DAYS:]`) DEĞİŞTİRMEMELİDİR.
-    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> target_start(1y)=2025-08-26
-    main_window = _sessions_df("2025-08-26", "2026-08-26")  # target_start'IN KENDİSİNDEN başlıyor -- crop sonrası
-    # analysis_history her iki senaryoda da BİREBİR bu DataFrame'in kendisi olmalı.
-    with_pre_roll = pd.concat([_sessions_df("2025-06-01", "2025-08-25", seed=9), main_window]).sort_index()
+    # HATA 3E madde 3 + HATA 5A: walk-forward'ın YANINDA, normal
+    # `BacktestEngine.run()` seviyesinde de AYNI garanti kilitlenir -- pre-roll
+    # bar sayısı `from_date`/`to_date`/`backtest_data_as_of`'u VEYA
+    # `simulation_start`'ı DEĞİŞTİRMEMELİDİR. Fixture artık mandatory
+    # 60-session warm-up'ı da İÇERİR.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> target_start(1y)=simulation_start=2025-08-26
+    warmup_and_simulation = _sessions_df("2025-05-29", "2026-08-26")  # warmup_history_start..target_end
+    with_pre_roll = pd.concat(
+        [_sessions_df("2025-03-01", "2025-05-28", seed=9), warmup_and_simulation]
+    ).sort_index()  # evidence, warmup_history_start'IN ÖNCESİNDE
 
     result_no_evidence = BacktestEngine(
-        provider=_CountingProvider(main_window), config_repo=_FakeConfigRepo()
+        provider=_CountingProvider(warmup_and_simulation), config_repo=_FakeConfigRepo()
     ).run("TEST", period="1y", now=now)
     result_with_evidence = BacktestEngine(
         provider=_CountingProvider(with_pre_roll), config_repo=_FakeConfigRepo()
@@ -401,14 +439,136 @@ def test_backtest_engine_run_warm_up_boundary_is_identical_with_and_without_pre_
     assert result_no_evidence["to_date"] == result_with_evidence["to_date"]
     assert result_no_evidence["backtest_data_as_of"] == result_with_evidence["backtest_data_as_of"]
 
-    # from_date, analysis_history'nin (pre-roll HARİÇ, `main_window`'un kendisi)
-    # MIN_HISTORY_DAYS'INCİ satırının tarihidir -- pre-roll bar sayısından
-    # (with_pre_roll'da ~60 EK satır var) BAĞIMSIZ.
-    expected_from_date = str(main_window.index[MIN_HISTORY_DAYS].date())
+    # HATA 5A: from_date artık `simulation_start`'IN KENDİSİDİR -- warm-up
+    # pencere DIŞINDA fetch edildiğinden hiçbir slicing offset'i YOKTUR
+    # (eski `main_window.index[MIN_HISTORY_DAYS]` deseni KALDIRILDI).
+    expected_from_date = "2025-08-26"
     assert result_no_evidence["from_date"] == expected_from_date
     assert result_with_evidence["from_date"] == expected_from_date
+    assert result_no_evidence["simulation_start"] == result_with_evidence["simulation_start"] == expected_from_date
 
     # Trade timeline'ı (equity_curve üzerinden) da birebir aynı olmalı.
     assert result_no_evidence["total_return_pct"] == result_with_evidence["total_return_pct"]
     assert result_no_evidence["trade_count"] == result_with_evidence["trade_count"]
     assert result_no_evidence["equity_curve"] == result_with_evidence["equity_curve"]
+
+
+# ---------------------------------------------------------------------------
+# HATA 5A REQUIRED TEST TRACE MATRIX, madde C/D/E/F/G/H/S: `indicator_history`/
+# `simulation_history` ayrımının uçtan uca (BacktestEngine.run()) garantileri.
+# ---------------------------------------------------------------------------
+
+
+def test_indicator_and_simulation_history_partition_with_no_overlap_no_gap():
+    # C + D: `indicator_history` TAM OLARAK warm-up + simulation'ın BİRLEŞİMİ
+    # (aralarında ne boşluk ne çakışma), `simulation_history` warm-up'ın
+    # HİÇBİR tarihini içermiyor.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> simulation_start(1y)=2025-08-26
+    df = _sessions_df("2025-05-29", "2026-08-26")  # warmup_history_start(=2025-05-29)..target_end
+
+    prepared = prepare_backtest_history(_CountingProvider(df), "TEST", "1y", now=now)
+
+    warmup_dates = [d for d in prepared.indicator_history.index if d.date() < prepared.simulation_start]
+    assert len(warmup_dates) == prepared.indicator_warmup_sessions == 60
+    assert len(prepared.indicator_history) == len(warmup_dates) + len(prepared.simulation_history)
+    assert prepared.indicator_history.index[len(warmup_dates)] == prepared.simulation_history.index[0]
+    assert all(d.date() >= prepared.simulation_start for d in prepared.simulation_history.index)
+    assert not any(d.date() < prepared.simulation_start for d in prepared.simulation_history.index)
+
+
+def test_simulation_start_score_is_finite_valid_after_full_warmup():
+    # E: `technical_score_series(indicator_history)` tam 60 seanslık warm-up
+    # SONRASI hesaplandığından, `simulation_start`'taki (indicator_history'nin
+    # 61. satırı) skor ASLA NaN olmamalı -- RSI/MACD/EMA/.../ROC'un ısınma
+    # payı tamamen `indicator_history`'nin İÇİNDE tüketilir.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)
+    df = _sessions_df("2025-05-29", "2026-08-26")
+    prepared = prepare_backtest_history(_CountingProvider(df), "TEST", "1y", now=now)
+
+    from app.engines.backtest.engine import technical_score_series
+    from app.engines.technical.engine import DEFAULT_WEIGHTS
+
+    scores_all = technical_score_series(prepared.indicator_history, DEFAULT_WEIGHTS)
+    simulation_start_score = scores_all.loc[prepared.simulation_history.index[0]]
+    assert pd.notna(simulation_start_score)
+    assert not (simulation_start_score != simulation_start_score)  # NaN != NaN olurdu
+    assert abs(simulation_start_score) <= 100.0  # _clamp_series garantisi
+
+
+def test_equity_curve_first_date_equals_simulation_start_and_never_predates_it():
+    # F + S: `equity_curve` (ve dolayısıyla trade/mark-to-market) YALNIZ
+    # `simulation_history` üzerinden inşa edilir -- ilk kayıt `simulation_
+    # start`'ın KENDİSİDİR, warm-up'a ait TEK bir tarih bile equity_curve'e
+    # sızmaz.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)
+    df = _sessions_df("2025-05-29", "2026-08-26")
+    engine = BacktestEngine(provider=_CountingProvider(df), config_repo=_FakeConfigRepo())
+
+    result = engine.run("TEST", period="1y", now=now)
+
+    assert result["equity_curve"][0]["date"] == result["simulation_start"] == "2025-08-26"
+    assert len(result["equity_curve"]) == len(_sessions_df("2025-08-26", "2026-08-26"))
+    all_equity_dates = [point["date"] for point in result["equity_curve"]]
+    assert all(d >= result["simulation_start"] for d in all_equity_dates)
+
+
+def test_benchmark_buy_and_hold_uses_simulation_start_close_not_warmup_close():
+    # H: `buy_and_hold_return_pct`, warm-up'ın (çok daha ERKEN, dolayısıyla
+    # FARKLI bir Close'a sahip) ilk barından DEĞİL, `simulation_history`'nin
+    # (yani `simulation_start`'ın) İLK Close'undan hesaplanmalı. İki farklı
+    # (warm-up başlangıcı vs simulation başlangıcı) Close değerinden hangisi
+    # kullanıldığını doğrudan ayırt etmek için beklenen değer, gerçek
+    # `simulation_history` dilimi üzerinden BAĞIMSIZ olarak yeniden hesaplanır.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)
+    df = _sessions_df("2025-05-29", "2026-08-26")
+    engine = BacktestEngine(provider=_CountingProvider(df), config_repo=_FakeConfigRepo())
+
+    result = engine.run("TEST", period="1y", now=now)
+
+    simulation_only = df[[ts.date() >= date(2025, 8, 26) for ts in df.index]]
+    expected_bh = round(
+        (float(simulation_only["Close"].iloc[-1]) - float(simulation_only["Close"].iloc[0]))
+        / float(simulation_only["Close"].iloc[0])
+        * 100,
+        2,
+    )
+    warmup_only_bh = round(
+        (float(simulation_only["Close"].iloc[-1]) - float(df["Close"].iloc[0])) / float(df["Close"].iloc[0]) * 100, 2
+    )
+    assert result["buy_and_hold_return_pct"] == expected_bh
+    assert result["buy_and_hold_return_pct"] != warmup_only_bh  # warm-up'ın Close'u YANLIŞLIKLA kullanılmadı
+
+
+def test_first_bar_of_simulation_signal_still_executes_at_next_session_open():
+    # G: `simulation_start`'IN KENDİSİNDE (simulation_history'nin 0. satırı)
+    # oluşan bir sinyal bile NEXT_SESSION_OPEN kuralına tabidir -- warm-up'a
+    # ait HİÇBİR barın Open'ı execution için kullanılamaz (`simulate()`
+    # yapısal olarak warm-up'ı hiç GÖRMEZ, yalnızca `simulation_history`
+    # alır) çünkü execution zaten yalnızca simulation_history.index[1]'den
+    # itibaren mümkündür.
+    idx = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in ["2026-01-05", "2026-01-06", "2026-01-07"]])
+    df = pd.DataFrame(
+        {"Open": [50.0, 60.0, 70.0], "High": [51, 61, 71], "Low": [49, 59, 69], "Close": [50.0, 60.0, 70.0], "Volume": [1000] * 3},
+        index=idx,
+    )
+    scores = pd.Series([50.0, 0.0, 0.0], index=idx)  # simulation_history'nin İLK barında (idx[0]) güçlü BUY
+
+    result = simulate(df, scores, DEFAULT_THRESHOLDS, initial_capital=1000.0)
+
+    assert result["open_position"]["entry_execution_date"] == "2026-01-06"  # idx[0]'ın DEĞİL, T+1'in Open'ı
+    assert result["open_position"]["entry_execution_price"] == pytest.approx(60.0)
+    assert result["open_position"]["entry_execution_price"] != pytest.approx(50.0)  # idx[0]'ın (T0) Open'ı KULLANILMADI
+
+
+def test_walk_forward_first_train_slice_starts_exactly_at_simulation_start():
+    # Q: eski `start = MIN_HISTORY_DAYS` deseni KALDIRILDIĞINDAN, ilk fold'un
+    # `train_from`'u artık `simulation_history.index[0]`'dır -- yani DOĞRUDAN
+    # `simulation_start`'IN KENDİSİ, warm-up'ın hiçbir ekstra satırı yok.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> simulation_start(1y)=2025-08-26
+    df = _sessions_df("2025-05-29", "2026-08-26")  # warmup_history_start..target_end
+    optimizer = WalkForwardOptimizer(provider=_CountingProvider(df), config_repo=_FakeConfigRepo())
+
+    result = optimizer.run("TEST", period="1y", train_days=60, test_days=20, now=now)
+
+    assert result["simulation_start"] == "2025-08-26"
+    assert result["windows"][0]["train_from"] == result["simulation_start"]

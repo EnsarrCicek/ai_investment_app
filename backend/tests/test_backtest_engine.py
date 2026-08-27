@@ -41,6 +41,28 @@ def test_technical_score_series_matches_input_length_and_bounds():
     assert series.dropna().between(-100, 100).all()
 
 
+def test_technical_score_series_full_history_matches_causal_prefix_computation():
+    # HATA 5A REQUIRED TEST TRACE MATRIX, madde R: `WalkForwardOptimizer`
+    # (ve `BacktestEngine`) `technical_score_series()`'i `indicator_history`
+    # (warm-up+simulation) üzerinde TEK SEFERDE hesaplayıp sonra her fold'un
+    # tarihlerine kırpar — HER fold için AYRICA yerel bir warm-up ile
+    # yeniden hesaplamaz. Bu YALNIZCA göstergelerin causal (HATA 4A prefix
+    # invariance: bir satırın skoru yalnız `<= o satır` verisine bağlı,
+    # hiçbir gelecek barı KULLANMAZ) olması sayesinde GÜVENLİDİR -- bu test
+    # bunu doğrudan kanıtlar: aynı seri, TAM UZUNLUĞU üzerinden hesaplanınca
+    # da, yalnızca bir CAUSAL PREFIX'i (bir walk-forward fold'unun test
+    # sonuna kadarki kısmı) üzerinden hesaplanınca da, o prefix'in İÇİNDEKİ
+    # HER tarih için BİREBİR AYNI skoru üretmelidir.
+    df = _noisy_trending_df(n=150)
+    full_series = technical_score_series(df, DEFAULT_WEIGHTS)
+
+    prefix_end = 100  # bir walk-forward fold'unun test penceresinin sonu gibi düşünülebilir
+    causal_prefix_df = df.iloc[:prefix_end]
+    prefix_series = technical_score_series(causal_prefix_df, DEFAULT_WEIGHTS)
+
+    pd.testing.assert_series_equal(full_series.iloc[:prefix_end], prefix_series, check_names=False)
+
+
 def test_simulate_executes_buy_then_sell_on_signals():
     # HATA 3A: execution artık T+1 Open'da -- Close sadece sinyal uretimi ve
     # mark-to-market icin kullanilir, ASLA execution fiyati olarak degil.
@@ -265,10 +287,33 @@ def test_simulate_sell_gap_up_overnight_gain_owned_by_position():
     assert result["equity_curve"][3]["equity"] == pytest.approx(1100.0)
 
 
+def test_compare_strategies_all_presets_share_the_same_simulation_horizon():
+    # HATA 5A REQUIRED TEST TRACE MATRIX, madde P: her preset KENDİ
+    # ağırlığıyla KENDİ skor serisini hesaplar (bkz. modül docstring'i),
+    # ama HEPSİ AYNI `simulation_history`'yi simüle eder -- warm-up ayrı
+    # (`indicator_history`) verilse bile strateji ufukları FARKLILAŞMAZ.
+    # `buy_and_hold_return_pct` weights/thresholds'tan BAĞIMSIZ, yalnızca
+    # simulation_history'nin ilk/son Close'una bağlı olduğundan, TÜM
+    # preset'lerde BİREBİR AYNI olması bunun doğrudan kanıtıdır -- eğer bir
+    # preset yanlışlıkla farklı bir ufuk (ör. warm-up dahil) simüle etseydi
+    # bu değer preset'ten preset'e FARKLILAŞIRDI.
+    indicator_history = _noisy_trending_df(n=150)  # warm-up dahil, daha geniş
+    simulation_history = indicator_history.iloc[60:]  # yalnız istenen simülasyon penceresi
+
+    results = compare_strategies(indicator_history, simulation_history, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+
+    buy_and_hold_values = {r["buy_and_hold_return_pct"] for r in results}
+    assert len(buy_and_hold_values) == 1  # TÜM preset'lerde birebir aynı
+
+
 def test_compare_strategies_returns_one_result_per_preset_sorted_by_return():
+    # HATA 5A: compare_strategies artık indicator_history (skor context'i)
+    # ile simulation_history'yi (P/L penceresi) AYRI parametreler olarak
+    # alıyor -- bu sentetik fixture'da warm-up ayrımı önemli olmadığından
+    # ikisine de AYNI df veriliyor.
     df = _noisy_trending_df()
 
-    results = compare_strategies(df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+    results = compare_strategies(df, df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
 
     assert len(results) == len(STRATEGY_PRESETS)
     assert {r["preset"] for r in results} == set(STRATEGY_PRESETS.keys())
@@ -279,7 +324,7 @@ def test_compare_strategies_returns_one_result_per_preset_sorted_by_return():
 def test_compare_strategies_each_result_has_expected_metrics():
     df = _noisy_trending_df()
 
-    results = compare_strategies(df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+    results = compare_strategies(df, df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
 
     for r in results:
         assert set(r.keys()) == {

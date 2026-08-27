@@ -84,6 +84,28 @@ sinyal için backtest ufkunda henüz bir T+1 yoksa (piyasa hâlâ açıksa) bu
 zaten mevcut `unexecuted_signal`/`NO_NEXT_BAR` yoluyla doğru şekilde
 yakalanıyor (aynı backtest, T+1 tamamlandıktan sonra yeniden çalıştırılırsa
 o sinyal artık normal şekilde execute edilir).
+
+27.08.2026 (HATA 5A) — EXTERNAL 60-SESSION WARM-UP. Kanıtlandı: `df.iloc[
+MIN_HISTORY_DAYS:]` deseni (eski `run()`/`compare_strategies()`), indicator
+warm-up'ını (60 bar, RSI/MACD/EMA/.../ROC ısınması) İSTENEN BACKTEST
+PENCERESİNİN KENDİ İLK 60 SATIRINDAN kesiyordu — "1y" istendiğinde gerçek
+simülasyon, istenen pencerenin ilk ~3 ayını (60 işlem günü) HİÇ görmeden
+başlıyordu. Gerçek 5-sembol/3-periyot ölçümle kanıtlandı: bu,
+`total_return_pct`'in İŞARETİNİ BİLE değiştirebiliyordu. `MIN_HISTORY_DAYS`
+KALDIRILDI — warm-up artık `completed_history.prepare_backtest_history()`
+içinde AYRICA, istenen pencerenin DIŞINDAN fetch edilir
+(`INDICATOR_WARMUP_SESSIONS=60`, DEĞER AYNI, yalnızca KONUMU düzeltildi):
+`prepared.indicator_history` (warmup+simulation) `technical_score_series()`'e
+girer, sonuç `prepared.simulation_history`'nin (yalnız istenen pencere)
+tarihlerine `.loc[]` ile kırpılır — `simulate()`'e YALNIZ bu kırpılmış seri
+verilir. `technical_score_series()`/`simulate()`'in KENDİ formülleri/
+ağırlıkları HİÇ DEĞİŞMEDİ; `NEXT_SESSION_OPEN` (HATA 3A) sözleşmesi de HİÇ
+DEĞİŞMEDİ. Yeni sonuç alanları: `simulation_start`, `warmup_history_start`,
+`indicator_warmup_sessions`, `actual_indicator_history_start` (bkz.
+`completed_history.PreparedBacktestHistory`). Eski kayıtlar/API tüketicileri
+(`requested_window_start`/`actual_history_start`/`from_date`/`to_date`)
+KIRILMADI — yalnızca `from_date`'in NEYE eşit olduğu düzeldi (artık
+`simulation_start`, `warmup_history_start + 60 session` DEĞİL).
 """
 
 import math
@@ -99,8 +121,6 @@ from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
 from app.services.market_data.trading_calendar import session_normalization_to_dict
-
-MIN_HISTORY_DAYS = 60
 
 
 def _clamp_series(series: pd.Series) -> pd.Series:
@@ -312,7 +332,8 @@ def simulate(
 
 
 def compare_strategies(
-    df: pd.DataFrame,
+    indicator_history: pd.DataFrame,
+    simulation_history: pd.DataFrame,
     presets: dict[str, dict],
     thresholds: dict,
     initial_capital: float = 100_000.0,
@@ -325,12 +346,19 @@ def compare_strategies(
     ayrımıyla overfit'i önlemeye çalışır, bu ise tüm dönem üzerinde basit,
     yorumlanabilir bir karşılaştırma sunar (çok sembollü toplu tarama için
     tasarlandı, bkz. Flutter Strateji Laboratuvarı ekranı).
+
+    HATA 5A (27.08.2026): `indicator_history` (warm-up DAHİL) ve `simulation_
+    history` (yalnız istenen simülasyon penceresi) AYRI parametreler — HER
+    preset AYNI `simulation_history`'yi simüle eder (strateji ufukları warm-up
+    yüzünden FARKLILAŞMAZ), yalnız skor hesaplaması için (kendi ağırlığıyla)
+    `indicator_history`'nin TAMAMI kullanılır, sonra `simulation_history`'nin
+    tarihlerine `.loc[]` ile kırpılır.
     """
-    warm_df = df.iloc[MIN_HISTORY_DAYS:]
     results = []
     for name, weights in presets.items():
-        score_series = technical_score_series(df, weights).iloc[MIN_HISTORY_DAYS:]
-        result = simulate(warm_df, score_series, thresholds, initial_capital)
+        scores_all = technical_score_series(indicator_history, weights)
+        simulation_scores = scores_all.loc[simulation_history.index]
+        result = simulate(simulation_history, simulation_scores, thresholds, initial_capital)
         results.append(
             {
                 "preset": name,
@@ -361,27 +389,35 @@ class BacktestEngine:
         initial_capital: float = 100_000.0,
         now: datetime | None = None,
     ) -> dict:
-        prepared = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
-        df = prepared.history
+        prepared = prepare_backtest_history(self._provider, symbol, period, now=now)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
 
-        warm_df = df.iloc[MIN_HISTORY_DAYS:]
-        score_series = technical_score_series(df, weights).iloc[MIN_HISTORY_DAYS:]
+        # HATA 5A: skor TÜM indicator_history (warm-up dahil) üzerinden
+        # hesaplanır, sonra YALNIZ simulation_history'nin tarihlerine
+        # kırpılır — `df.iloc[MIN_HISTORY_DAYS:]` deseni KALDIRILDI, warm-up
+        # artık istenen pencerenin İÇİNDEN kesilmiyor (bkz. completed_
+        # history.py modül docstring'i).
+        scores_all = technical_score_series(prepared.indicator_history, weights)
+        simulation_scores = scores_all.loc[prepared.simulation_history.index]
 
-        result = simulate(warm_df, score_series, thresholds, initial_capital)
+        result = simulate(prepared.simulation_history, simulation_scores, thresholds, initial_capital)
         return {
             "asset": symbol,
             "period": period,
-            "from_date": str(warm_df.index[0].date()),
-            "to_date": str(warm_df.index[-1].date()),
+            "from_date": str(prepared.simulation_history.index[0].date()),
+            "to_date": str(prepared.simulation_history.index[-1].date()),
             "thresholds": thresholds,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(prepared.backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
             "requested_window_start": str(prepared.requested_window_start),
+            "simulation_start": str(prepared.simulation_start),
+            "warmup_history_start": str(prepared.warmup_history_start),
+            "indicator_warmup_sessions": prepared.indicator_warmup_sessions,
             "actual_history_start": str(prepared.actual_history_start),
+            "actual_indicator_history_start": str(prepared.actual_indicator_history_start),
             "history_validation_status": prepared.history_validation_status,
             **session_normalization_to_dict(prepared.normalization),
             **result,
@@ -395,26 +431,32 @@ class BacktestEngine:
         initial_capital: float = 100_000.0,
         now: datetime | None = None,
     ) -> dict:
-        prepared = prepare_backtest_history(self._provider, symbol, period, MIN_HISTORY_DAYS, now=now)
-        df = prepared.history
+        prepared = prepare_backtest_history(self._provider, symbol, period, now=now)
 
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
-        warm_df = df.iloc[MIN_HISTORY_DAYS:]
         # HATA 3D, madde 14 / HATA 3E: aynı normalize edilmiş, aynı leading-edge
         # çözümlenmiş history TÜM preset'ler için kullanıldığından, provenance
         # TOP-LEVEL tek bir yerde taşınır — her preset sonucuna AYRI AYRI
-        # kopyalanmaz.
-        results = compare_strategies(df, presets, thresholds, initial_capital)
+        # kopyalanmaz. HATA 5A: TÜM preset'ler AYNI `simulation_history`'yi
+        # (warm-up hariç) simüle eder — strateji ufukları warm-up nedeniyle
+        # FARKLILAŞMAZ.
+        results = compare_strategies(
+            prepared.indicator_history, prepared.simulation_history, presets, thresholds, initial_capital
+        )
         return {
             "asset": symbol,
             "period": period,
-            "from_date": str(warm_df.index[0].date()),
-            "to_date": str(warm_df.index[-1].date()),
+            "from_date": str(prepared.simulation_history.index[0].date()),
+            "to_date": str(prepared.simulation_history.index[-1].date()),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(prepared.backtest_data_as_of),
             "data_policy": "COMPLETED_DAILY_ONLY",
             "requested_window_start": str(prepared.requested_window_start),
+            "simulation_start": str(prepared.simulation_start),
+            "warmup_history_start": str(prepared.warmup_history_start),
+            "indicator_warmup_sessions": prepared.indicator_warmup_sessions,
             "actual_history_start": str(prepared.actual_history_start),
+            "actual_indicator_history_start": str(prepared.actual_indicator_history_start),
             "history_validation_status": prepared.history_validation_status,
             **session_normalization_to_dict(prepared.normalization),
             "results": results,
