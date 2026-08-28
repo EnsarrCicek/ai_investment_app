@@ -32,6 +32,30 @@ class TechnicalAnalysis(BaseModel):
     # parametresi yalnızca HİÇ değer verilmediğinde (0.6) varsayılana düşer.
     confidence: float
     components: dict[str, float]
+    # 27.08.2026 (HATA 5B2D): `technical_score` artık iki seviyeli (component
+    # -> family -> technical_score) aggregation'dır (bkz. engines/technical/
+    # scoring.py, `FAMILY_MEMBERSHIP`) -- bu alan ara `family_score`'ları
+    # (trend/oscillator_position/momentum_rate) debugging/explanation/
+    # historical provenance için saklar, `technical_score`'u ETKİLEMEZ.
+    # `components` ile AYNI omit-unavailable/keep-valid-zero sözleşmesi
+    # geçerlidir. Eski (bu alan eklenmeden önceki, flat-weighted) Firestore
+    # kayıtlarında yoktur; `default_factory=dict` bunu geriye dönük uyumlu
+    # şekilde ifade eder — migration YAPILMADI.
+    family_scores: dict[str, float] = Field(default_factory=dict)
+    # 27.08.2026 (HATA 5B2D TRUE FINAL COMMIT GATE): `technical_score` artık
+    # iki Firestore config'ine (`technical_indicator_weights`, `technical_
+    # family_weights`) bağımlı -- bu alan, o an `technical_score`'u ÜRETMİŞ
+    # OLAN resolved config'in deterministik bir parmak izidir (bkz.
+    # `engines/technical/scoring.py::compute_scoring_config_hash`). 15
+    # dakikalık cache, bu hash'i `engine_version` ile BİRLİKTE karşılaştırır
+    # -- AYNI engine_version altında config değişse (veya REQUIRED
+    # `technical_indicator_weights` silinse) bile fresh bir cache kaydının
+    # ARTIK GEÇERSİZ bir config'ten geldiğini fark edebilmek için. Eski (bu
+    # alan eklenmeden önceki) Firestore kayıtlarında yoktur; `None` bunu
+    # geriye dönük uyumlu şekilde ifade eder -- migration YAPILMADI, ve
+    # `None` cache karşılaştırmasında KASITLI OLARAK her zaman "eşleşmez"
+    # (cache MISS) sonucunu verir.
+    scoring_config_hash: str | None = None
     indicators: dict
     created_at: datetime
     engine_version: str = "1.0.0"

@@ -116,27 +116,54 @@ import pandas as pd
 from app.engines.backtest.completed_history import prepare_backtest_history
 from app.engines.decision.engine import DEFAULT_THRESHOLDS, _classify
 from app.engines.technical import indicators as ind
-from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
-from app.engines.technical.scoring import aggregate_available_components_series, clamp_components_df
+from app.engines.technical.engine import ENGINE_VERSION as TECHNICAL_ENGINE_VERSION
+from app.engines.technical.scoring import (
+    FAMILY_MEMBERSHIP,
+    aggregate_available_scores_series,
+    clamp_components_df,
+    resolve_family_weights,
+    resolve_indicator_weights,
+)
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
 from app.services.market_data.trading_calendar import session_normalization_to_dict
 
 
-def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
+def technical_score_series(df: pd.DataFrame, weights: dict, family_weights: dict) -> pd.Series:
     """HATA 5B1 (27.08.2026): bileşen formülleri (RSI/MACD/EMA/Bollinger/
     Momentum/ROC) DEĞİŞMEDİ — yalnızca eksik/tanımsız bir bileşenin nasıl
     ele alındığı değişti. Eskiden `.fillna(0.0)` (5/7 bileşen) bunu SESSİZCE
     "geçerli nötr 0" sayıyordu (weight_sum'da payı KORUNARAK, yani skoru
     seyrelterek); RSI/ROC ise hiç doldurulmuyordu (NaN tüm günü zehirliyordu).
     Artık HİÇBİR component'e `.fillna(0.0)` UYGULANMAZ — ham (unclamped) oran
-    NaN/±inf ise `aggregate_available_components_series()` o günün o
-    bileşenini numerator'dan VE weight denominator'dan ÇIKARIP KALAN mevcut
-    bileşenlerin ağırlığını renormalize eder (bkz. `scoring.py` modül
-    docstring'i). `ATR==0`/`band_width==0` gibi eski `.replace(0, pd.NA)`
-    kısayolları da kaldırıldı — pandas'ın doğal float bölmesi zaten `0/0→NaN`,
-    `x/0→±inf` üretir, ikisi de aynı `is_available()` kontrolünden geçer.
+    NaN/±inf ise aggregation o günün o bileşenini numerator'dan VE weight
+    denominator'dan ÇIKARIP KALAN mevcut bileşenlerin ağırlığını renormalize
+    eder (bkz. `scoring.py` modül docstring'i). `ATR==0`/`band_width==0` gibi
+    eski `.replace(0, pd.NA)` kısayolları da kaldırıldı — pandas'ın doğal
+    float bölmesi zaten `0/0→NaN`, `x/0→±inf` üretir, ikisi de aynı
+    `is_available()` kontrolünden geçer.
+
+    HATA 5B2D (27.08.2026): `technical_score` artık İKİ SEVİYELİ (component
+    -> family -> technical_score) bir aggregation'dır (bkz. `scoring.
+    FAMILY_MEMBERSHIP`) — `weights` (`technical_indicator_weights`) HÂLÂ
+    yalnızca her family İÇİNDEKİ relative oranlardır, `family_weights`
+    (`technical_family_weights`) family'ler ARASINDAKİ ağırlıktır.
+
+    FINAL PRE-COMMIT GATE (27.08.2026, madde 2/3): `family_weights` BİLİNÇLİ
+    OLARAK ZORUNLU bir parametredir (varsayılan YOK) -- bu, düşük seviyeli bu
+    pure fonksiyonun KENDİSİNİN sessizce `DEFAULT_TECHNICAL_FAMILY_WEIGHTS`'e
+    düşüp production'daki GERÇEK `technical_family_weights` config'ini
+    YOKSAYMASINI yapısal olarak İMKANSIZ kılar (bkz. denetimde bulunan
+    `compare_strategies()` bug'ı: `BacktestEngine.run()` config'i doğru
+    okuyordu, `BacktestEngine.compare_strategies()` HİÇ okumuyordu). Her
+    PRODUCTION-ACTIVE çağıran (`BacktestEngine.run/compare_strategies`,
+    `WalkForwardOptimizer.run`) config'i EXPLICIT olarak çözüp geçirir;
+    yalnızca dormant/test araçları (`weight_walk_forward.py`) KENDİ
+    seviyelerinde `DEFAULT_TECHNICAL_FAMILY_WEIGHTS`'e düşebilir. Python
+    row-loop YOK — her iki seviye de `aggregate_available_scores_series()`
+    ile vektörize (bkz. modül docstring'i, HATA 5B1 contract'ının RECURSIVE
+    olarak korunduğu).
     """
     close = df["Close"]
 
@@ -163,7 +190,30 @@ def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
         }
     )
     components_df = clamp_components_df(raw_components)
-    return aggregate_available_components_series(components_df, weights)
+
+    # LEVEL 1 (component -> family), vektörize: her family, KENDİ member
+    # alt-kümesi üzerinde AYNI available-weighted-average contract'ıyla.
+    # FINAL PRE-COMMIT GATE (madde 4/5): `round_digits=None` -- tam
+    # hassasiyet, aksi halde Level 2 YUVARLANMIŞ family değerleri üzerinden
+    # çalışırdı ("double rounding") -- bkz. `scoring.py` docstring'i,
+    # `technical/engine.py`'deki AYNI gerekçe.
+    family_scores_df = pd.DataFrame(
+        {
+            family: aggregate_available_scores_series(
+                components_df[list(members)],
+                {member: weights.get(member, 0.0) for member in members},
+                round_digits=None,
+            )
+            for family, members in FAMILY_MEMBERSHIP.items()
+        }
+    )
+
+    # LEVEL 2 (family -> technical_score), AYNI contract, TAM HASSASİYETLİ
+    # `family_scores_df` üzerinde — unavailable (`NaN`) bir family hem
+    # numerator hem weight-denominator'dan çıkar, kalan available family'lerin
+    # ağırlığı renormalize edilir. EN SON (`round_digits=2`, varsayılan)
+    # yuvarlamanın YAPILDIĞI TEK yer burasıdır.
+    return aggregate_available_scores_series(family_scores_df, family_weights)
 
 
 def _is_valid_execution_price(value: float) -> bool:
@@ -345,6 +395,7 @@ def compare_strategies(
     simulation_history: pd.DataFrame,
     presets: dict[str, dict],
     thresholds: dict,
+    family_weights: dict,
     initial_capital: float = 100_000.0,
 ) -> list[dict]:
     """Aynı fiyat serisi üzerinde birden çok adlandırılmış ağırlık ön ayarını
@@ -362,10 +413,20 @@ def compare_strategies(
     yüzünden FARKLILAŞMAZ), yalnız skor hesaplaması için (kendi ağırlığıyla)
     `indicator_history`'nin TAMAMI kullanılır, sonra `simulation_history`'nin
     tarihlerine `.loc[]` ile kırpılır.
+
+    FINAL PRE-COMMIT GATE (27.08.2026, madde 3): `family_weights` -- HER
+    preset AYNI (çağıranın çözdüğü, gerçek `technical_family_weights`
+    config'inden gelen) family weight'i kullanır; presets yalnızca
+    within-family (`technical_indicator_weights`-şekilli) component
+    ağırlıklarını değiştirir. Önceki sürüm bu parametreyi HİÇ ALMIYORDU --
+    `technical_score_series()`'in KENDİ (o zamanki) varsayılanına sessizce
+    düşüyordu, yani `BacktestEngine.compare_strategies()` gerçek Firestore
+    `technical_family_weights` config'ini YOKSAYIYORDU (`BacktestEngine.run()`
+    ise doğru okuyordu) -- bu denetimde bulunup düzeltildi.
     """
     results = []
     for name, weights in presets.items():
-        scores_all = technical_score_series(indicator_history, weights)
+        scores_all = technical_score_series(indicator_history, weights, family_weights)
         simulation_scores = scores_all.loc[simulation_history.index]
         result = simulate(simulation_history, simulation_scores, thresholds, initial_capital)
         results.append(
@@ -400,15 +461,23 @@ class BacktestEngine:
     ) -> dict:
         prepared = prepare_backtest_history(self._provider, symbol, period, now=now)
 
-        weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
+        # FINAL COMMIT GATE (madde 1-4): `get()` (auto-seed + sessiz
+        # partial-merge/missing-fallback) DEĞİL `get_raw()` + `resolve_
+        # indicator_weights()` (fail-fast, doküman eksikse DE ValueError) --
+        # bkz. `technical/engine.py`'deki AYNI gerekçe.
+        weights = resolve_indicator_weights(self._config_repo.get_raw("technical_indicator_weights"))
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
+        # HATA 5B2D: `technical_family_weights` HATA 5B2C'nin kök nedenini
+        # (sessiz partial-merge) tekrarlamamak için `get()` DEĞİL `get_raw()`
+        # + `resolve_family_weights()` (fail-fast) ile okunur.
+        family_weights = resolve_family_weights(self._config_repo.get_raw("technical_family_weights"))
 
         # HATA 5A: skor TÜM indicator_history (warm-up dahil) üzerinden
         # hesaplanır, sonra YALNIZ simulation_history'nin tarihlerine
         # kırpılır — `df.iloc[MIN_HISTORY_DAYS:]` deseni KALDIRILDI, warm-up
         # artık istenen pencerenin İÇİNDEN kesilmiyor (bkz. completed_
         # history.py modül docstring'i).
-        scores_all = technical_score_series(prepared.indicator_history, weights)
+        scores_all = technical_score_series(prepared.indicator_history, weights, family_weights)
         simulation_scores = scores_all.loc[prepared.simulation_history.index]
 
         result = simulate(prepared.simulation_history, simulation_scores, thresholds, initial_capital)
@@ -420,6 +489,12 @@ class BacktestEngine:
             "thresholds": thresholds,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(prepared.backtest_data_as_of),
+            # HATA 5B2D, madde 24: backtest sonucunun HANGİ technical scoring
+            # semantics'iyle (flat 7-component vs family-level aggregation)
+            # üretildiği geriye dönük tespit edilebilsin diye -- mevcut
+            # `data_policy`/`execution_model` provenance alanlarıyla AYNI
+            # konvansiyon.
+            "technical_engine_version": TECHNICAL_ENGINE_VERSION,
             "data_policy": "COMPLETED_DAILY_ONLY",
             "requested_window_start": str(prepared.requested_window_start),
             "simulation_start": str(prepared.simulation_start),
@@ -443,6 +518,13 @@ class BacktestEngine:
         prepared = prepare_backtest_history(self._provider, symbol, period, now=now)
 
         thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
+        # FINAL PRE-COMMIT GATE (madde 3): `BacktestEngine.run()` ile AYNI
+        # config semantics -- önceki sürüm bu satırı HİÇ İÇERMİYORDU, modül
+        # seviyesi `compare_strategies()` de `family_weights` almadığından
+        # `technical_score_series()`'in (o zamanki) varsayılanına sessizce
+        # düşüyordu; yani `run()` gerçek `technical_family_weights` config'ini
+        # kullanırken `compare_strategies()` YOKSAYIYORDU. Düzeltildi.
+        family_weights = resolve_family_weights(self._config_repo.get_raw("technical_family_weights"))
         # HATA 3D, madde 14 / HATA 3E: aynı normalize edilmiş, aynı leading-edge
         # çözümlenmiş history TÜM preset'ler için kullanıldığından, provenance
         # TOP-LEVEL tek bir yerde taşınır — her preset sonucuna AYRI AYRI
@@ -450,7 +532,12 @@ class BacktestEngine:
         # (warm-up hariç) simüle eder — strateji ufukları warm-up nedeniyle
         # FARKLILAŞMAZ.
         results = compare_strategies(
-            prepared.indicator_history, prepared.simulation_history, presets, thresholds, initial_capital
+            prepared.indicator_history,
+            prepared.simulation_history,
+            presets,
+            thresholds,
+            family_weights,
+            initial_capital,
         )
         return {
             "asset": symbol,
@@ -459,6 +546,7 @@ class BacktestEngine:
             "to_date": str(prepared.simulation_history.index[-1].date()),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "backtest_data_as_of": str(prepared.backtest_data_as_of),
+            "technical_engine_version": TECHNICAL_ENGINE_VERSION,
             "data_policy": "COMPLETED_DAILY_ONLY",
             "requested_window_start": str(prepared.requested_window_start),
             "simulation_start": str(prepared.simulation_start),

@@ -59,6 +59,13 @@ class TechnicalAnalysisDetail {
   final String? trend;
   final double confidence;
   final Map<String, double> components;
+  // 27.08.2026 (HATA 5B2D): backend artık iki seviyeli (component -> family
+  // -> technicalScore) aggregation kullanıyor (trend/oscillator_position/
+  // momentum_rate) -- bu alan ara family skorlarını debugging/provenance
+  // için taşır, `technicalScore`'u ETKİLEMEZ. Eski (bu alan eklenmeden
+  // önceki) kayıtlarda yoktur; boş map bunu geriye dönük uyumlu şekilde
+  // ifade eder.
+  final Map<String, double> familyScores;
   final Map<String, dynamic> indicators;
 
   // 25.08.2026 (HATA 2A): analizde kullanılan SON TAMAMLANMIŞ günlük barın
@@ -100,6 +107,7 @@ class TechnicalAnalysisDetail {
     required this.trend,
     required this.confidence,
     required this.components,
+    this.familyScores = const {},
     required this.indicators,
     this.marketDataAsOf,
     this.marketStructure,
@@ -130,6 +138,10 @@ class TechnicalAnalysisDetail {
       components: (json['components'] as Map<String, dynamic>).map(
         (key, value) => MapEntry(key, (value as num).toDouble()),
       ),
+      familyScores: (json['family_scores'] as Map<String, dynamic>?)?.map(
+            (key, value) => MapEntry(key, (value as num).toDouble()),
+          ) ??
+          const {},
       indicators: json['indicators'] as Map<String, dynamic>,
       marketDataAsOf: json['market_data_as_of'] == null ? null : DateTime.parse(json['market_data_as_of'] as String),
       marketStructure: json['market_structure'] as String?,

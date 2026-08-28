@@ -41,7 +41,7 @@ import pandas as pd
 from app.engines.backtest.completed_history import prepare_backtest_history
 from app.engines.backtest.engine import simulate, technical_score_series
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
-from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
+from app.engines.technical.scoring import resolve_family_weights, resolve_indicator_weights
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
@@ -86,13 +86,19 @@ class WalkForwardOptimizer:
                 f"({len(simulation_history)} gün, en az {train_days + test_days} gerekli)"
             )
 
-        weights = self._config_repo.get("technical_indicator_weights", DEFAULT_TECHNICAL_WEIGHTS)
+        # FINAL COMMIT GATE (madde 1-4): bkz. `BacktestEngine.run()`'daki
+        # AYNI gerekçe -- fail-fast okuma, doküman eksikse DE ValueError
+        # (sessiz `DEFAULT_WEIGHTS` fallback YOK).
+        weights = resolve_indicator_weights(self._config_repo.get_raw("technical_indicator_weights"))
+        # HATA 5B2D: bkz. `BacktestEngine.run()`'daki AYNI gerekçe -- fail-fast
+        # okuma, sessiz partial-merge YOK.
+        family_weights = resolve_family_weights(self._config_repo.get_raw("technical_family_weights"))
         candidates = candidate_thresholds or DEFAULT_CANDIDATE_THRESHOLDS
 
         # HATA 5A: skor TÜM indicator_history (warm-up dahil) üzerinden TEK
         # SEFERDE hesaplanır, sonra simulation_history'nin tarihlerine
         # kırpılır — her fold'un kendi lokal warm-up'ına gerek YOKTUR.
-        full_score_series = technical_score_series(prepared.indicator_history, weights)
+        full_score_series = technical_score_series(prepared.indicator_history, weights, family_weights)
         simulation_scores = full_score_series.loc[simulation_history.index]
 
         windows = []

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.engines.technical.engine import TechnicalAnalysisEngine
+from app.engines.technical.engine import DEFAULT_WEIGHTS, TechnicalAnalysisEngine
 from app.models.ai_decision import AIDecision
 from app.models.market_data import Quote
 from app.models.technical_analysis import TechnicalAnalysis
@@ -59,6 +59,13 @@ class _FakeProvider(MarketDataProvider):
 class _FakeConfigRepo:
     def get(self, key, defaults):
         return defaults
+
+    def get_raw(self, key):
+        # HATA 5B2D FINAL COMMIT GATE: `technical_indicator_weights` artık
+        # REQUIRED (missing -> fail-fast).
+        if key == "technical_indicator_weights":
+            return dict(DEFAULT_WEIGHTS)
+        return None
 
 
 class _FakeBenchmarkCacheRepo:

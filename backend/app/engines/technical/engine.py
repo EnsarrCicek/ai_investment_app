@@ -77,7 +77,16 @@ from app.engines.technical.data_quality import check_data_quality, check_raw_ohl
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
 from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon, horizon_reason
 from app.engines.technical.history_window import compute_history_window, resolve_expected_start
-from app.engines.technical.scoring import aggregate_available_components, clamp_component, is_available, safe_ratio
+from app.engines.technical.scoring import (
+    FAMILY_MEMBERSHIP,
+    aggregate_available_scores,
+    clamp_component,
+    compute_scoring_config_hash,
+    is_available,
+    resolve_family_weights,
+    resolve_indicator_weights,
+    safe_ratio,
+)
 from app.engines.technical.market_structure import analyze_market_structure
 from app.services.market_data.completed_bars import filter_completed_daily_bars
 from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
@@ -174,8 +183,46 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # `technical_score`/`components`/DecisionEngine hiç etkilenmedi (breakout
 # hiçbir zaman skora girmiyordu, bkz. HATA 4A audit'i). Eski kayıtlar
 # değiştirilmedi/silinmedi.
-ENGINE_VERSION = "1.6.0"
+#
+# 27.08.2026: 1.6.0 -> 1.7.0 — HATA 5B2D: `technical_score` artık FLAT
+# 7-component ağırlıklı ortalama DEĞİL, İKİ SEVİYELİ (component -> family ->
+# technical_score) bir aggregation'dır (bkz. `scoring.FAMILY_MEMBERSHIP`).
+# Kök gerekçe (HATA 5B2/5B2A/5B2B audit'leri, 92 sembol × 2 yıl gerçek
+# veriyle): 7 nominal component istatistiksel olarak yalnızca ~2 efektif
+# bağımsız boyut taşıyor (PCA), momentum/ROC yönü matematiksel bir özdeşlik
+# (`sign` ikisinde de AYNI `Close[T]-Close[T-10]` payından geliyor) —
+# flat ağırlıklı ortalama bu redundancy'i SESSİZCE tekrar tekrar sayıyordu.
+# Yeni contract: `trend`/`oscillator_position`/`momentum_rate` (3 family,
+# versioned kod sabiti — Firestore'da kullanıcı-tunable DEĞİL), her family
+# İÇİNDE mevcut `technical_indicator_weights`'in relative oranlarıyla
+# (DEĞİŞMEDİ), family'ler ARASINDA ise `technical_family_weights`'ten
+# (varsayılan: eşit 1/3 — "bilimsel olarak optimal" İDDİA EDİLMİYOR, minimal
+# parametreli nötr bir prior) ağırlıklandırılır. HATA 5B1'in TÜM missing-data
+# contract'ı (finite-0 available, None/NaN/±inf unavailable, kalan ağırlıklar
+# renormalize, tümü unavailable ise `None`) HER İKİ SEVİYEDE de RECURSIVE
+# olarak (aynı `scoring.py` fonksiyonları yeniden kullanılarak) korunur.
+# Component ham formülleri (RSI/MACD/trend/EMA slope/Bollinger/Momentum/ROC)
+# ve skala katsayıları (25/1000/15/100/20/8) HİÇ DEĞİŞMEDİ; threshold'lar
+# (±15/±40) BİLİNÇLİ OLARAK korundu (conservative migration policy, bilimsel
+# kalibrasyon İDDİASI YOK — bkz. TEKNIK_ANALIZ_METODOLOJISI.md). MACD'nin
+# family içinde göreli payının artması (~2%→~8%, bkz. audit) BİLİNEN, bu
+# ticket'ta BİLİNÇLİ OLARAK dokunulmayan bir side-effect'tir (MACD'nin kendi
+# amplitude/scaling sorunu AYRI bir ticket). Eski (1.6.0 ve öncesi) kayıtlar
+# DEĞİŞTİRİLMEDİ/SİLİNMEDİ — migration YOK; 15 dakikalık cache artık yalnızca
+# `engine_version == ENGINE_VERSION` olan kayıtları geçerli sayar (aşağıda,
+# `analyze_with_id`).
+ENGINE_VERSION = "1.7.0"
 
+# HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
+# "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`
+# Firestore dokümanı HATA 5B2C ile bilinçli olarak 7/7 explicit/complete hale
+# getirilmiş, 1.7.0 family mimarisi için REQUIRED bir config/methodology
+# source-of-truth'tur (gerçek production değerleri bu sabitten DEĞERCE
+# FARKLIDIR -- bkz. TEKNIK_ANALIZ_METODOLOJISI.md). Doküman eksikse/kısmi ise
+# `resolve_indicator_weights()` FAIL-FAST olur, bu sabite SESSİZCE düşülmez.
+# `DEFAULT_WEIGHTS`'in kalan kullanım alanı: testlerde/scratch araçlarda
+# (ör. dormant `weight_walk_forward.py`, backtest strateji karşılaştırmaları)
+# "geçerli, tam 7-key bir referans config" olarak.
 DEFAULT_WEIGHTS = {
     "rsi": 0.10,
     "macd": 0.10,
@@ -379,10 +426,39 @@ class TechnicalAnalysisEngine:
         max_age_seconds: int = TECHNICAL_CACHE_TTL_SECONDS,
         now: datetime | None = None,
     ) -> tuple[TechnicalAnalysis, str | None]:
+        # HATA 5B2D TRUE FINAL COMMIT GATE (27.08.2026): CURRENT scoring
+        # config'i (indicator + family weights) CACHE KONTROLÜNDEN ÖNCE
+        # resolve/validate edilir -- iki nedenle:
+        #   (1) REQUIRED `technical_indicator_weights` silinmiş/bozulmuşsa
+        #       bu, FRESH bir cache kaydı tarafından ASLA bypass edilemez
+        #       (aksi halde config corruption sessizce maskelenirdi).
+        #   (2) AYNI `engine_version` altında config DEĞİŞTİYSE (T0'da
+        #       CONFIG_A ile cache'lenmiş, T1'de <TTL içinde CONFIG_B'ye
+        #       geçilmiş) cache artık GEÇERSİZ sayılmalı -- yalnızca
+        #       `engine_version` kontrolü bunu YAKALAYAMAZDI.
+        # Aynı resolved dict'ler aşağıda (cache miss durumunda) TEKRAR
+        # KULLANILIR -- ikinci bir Firestore read YAPILMAZ.
+        weights = resolve_indicator_weights(self._config_repo.get_raw("technical_indicator_weights"))
+        family_weights = resolve_family_weights(self._config_repo.get_raw("technical_family_weights"))
+        current_scoring_config_hash = compute_scoring_config_hash(weights, family_weights)
+
         cached, cached_id = self._analysis_repo.get_latest_with_id(symbol)
         if cached is not None:
             age = (datetime.now(timezone.utc) - cached.created_at).total_seconds()
-            if age < max_age_seconds:
+            # HATA 5B2D (27.08.2026, madde 20): `ENGINE_VERSION` bump'ı (1.6.0
+            # -> 1.7.0, family-level scoring) structural bir score semantics
+            # değişikliğidir -- eski `engine_version` taşıyan bir kayıt cache
+            # hit olarak dönerse, deployment sonrası ilk 15 dakika boyunca
+            # ESKİ flat-weighted skor YENİ family-scored bir sonuçmuş gibi
+            # servis edilirdi. TRUE FINAL COMMIT GATE: cache artık AYRICA
+            # `scoring_config_hash` da eşleşmedikçe geçerli sayılmaz -- eski
+            # (bu alan eklenmeden önceki) kayıtlarda `None` olduğundan bu
+            # karşılaştırma KASITLI OLARAK her zaman "eşleşmez" (cache MISS).
+            if (
+                age < max_age_seconds
+                and cached.engine_version == ENGINE_VERSION
+                and cached.scoring_config_hash == current_scoring_config_hash
+            ):
                 return cached, cached_id
 
         # HATA 2C (25.08.2026): analiz penceresinden (analysis_start) BİRAZ
@@ -446,7 +522,9 @@ class TechnicalAnalysisEngine:
         check_raw_ohlcv_integrity(df, symbol)
         check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS, now=now)
 
-        weights = self._config_repo.get("technical_indicator_weights", DEFAULT_WEIGHTS)
+        # `weights`/`family_weights` YUKARIDA (cache kontrolünden ÖNCE) zaten
+        # resolve/validate edildi -- burada TEKRAR okunmaz/hesaplanmaz (ikinci
+        # bir Firestore read YOK), aynı dict'ler doğrudan kullanılır.
 
         close, volume = df["Close"], df["Volume"]
 
@@ -490,11 +568,40 @@ class TechnicalAnalysisEngine:
         }
         components = {k: clamp_component(v) for k, v in raw_components.items()}
 
-        # HATA 5B1: yalnız AVAILABLE (finite) component'ler üzerinden
-        # ağırlıklı ortalama, KALAN mevcut ağırlıklar renormalize edilerek
-        # (bkz. `scoring.aggregate_available_components`). Hiçbir component
-        # available değilse `final_score=None` — `0.0`/`100.0` UYDURULMAZ.
-        final_score = aggregate_available_components(components, weights)
+        # HATA 5B2D — LEVEL 1 (component -> family): her family KENDİ
+        # İÇİNDEKİ (finite) available component'lerin, `technical_indicator_
+        # weights`'teki relative oranlarıyla ağırlıklı ortalamasıdır. HATA
+        # 5B1 contract'ı RECURSIVE olarak burada da geçerlidir: finite 0.0
+        # available'dır (ağırlığı korunur), None/NaN/±inf unavailable'dır
+        # (hem numerator hem weight-denominator'dan çıkar), family'nin TÜM
+        # member'ları unavailable ise `family_score=None` (0.0 UYDURULMAZ) --
+        # `aggregate_available_scores` (== `aggregate_available_components`,
+        # bkz. scoring.py) İKİNCİ bir bağımsız implementasyon YAZILMADAN
+        # yeniden kullanılır.
+        #
+        # FINAL PRE-COMMIT GATE (27.08.2026, madde 4/5) — `round_digits=None`:
+        # bu adım TAM HASSASİYETLE (yuvarlanmadan) hesaplanır -- aksi halde
+        # Level 2 YUVARLANMIŞ family değerleri üzerinden çalışırdı ("double
+        # rounding"), final `technical_score` gerçek tam-hassasiyetli
+        # sonuçtan nadiren ama gerçek şekilde sapabilirdi.
+        raw_family_scores: dict[str, float | None] = {
+            family: aggregate_available_scores(
+                {member: components[member] for member in members},
+                {member: weights.get(member, 0.0) for member in members},
+                round_digits=None,
+            )
+            for family, members in FAMILY_MEMBERSHIP.items()
+        }
+
+        # HATA 5B2D — LEVEL 2 (family -> technical_score): AYNI contract, TAM
+        # HASSASİYETLİ `raw_family_scores` üzerinde -- unavailable (`None`)
+        # bir family hem numerator hem weight-denominator'dan çıkar, KALAN
+        # available family'lerin ağırlığı renormalize edilir. `aggregate_
+        # available_scores` zaten `is_available()` ile `None` değerleri doğru
+        # filtreler -- family_scores'u AYRICA filtrelemeye GEREK YOK. Bu
+        # ÇAĞRI, EN SON (`round_digits=2`, varsayılan) yuvarlamanın YAPILDIĞI
+        # TEK yerdir.
+        final_score = aggregate_available_scores(raw_family_scores, family_weights)
 
         # Firestore'a/API'ye giden `components` dict'i unavailable component'leri
         # OMIT eder (None/NaN sentinel TUTMAZ) — hem "bu component için skor
@@ -502,6 +609,13 @@ class TechnicalAnalysisEngine:
         # (ör. ExplanationEngine._top_reasons'ın `abs()` çağrısı) bir sentinel
         # değer nedeniyle crash riski oluşturmaz.
         stored_components = {k: v for k, v in components.items() if is_available(v)}
+        # Aynı omit-unavailable/keep-valid-zero sözleşmesi `family_scores` için
+        # de geçerli (HATA 5B2D, madde 8) -- debugging/explanation/historical
+        # provenance için persist edilir. FINAL PRE-COMMIT GATE madde 7: bu
+        # yuvarlama YALNIZCA display/provenance'tır -- `final_score` KENDİ
+        # tam-hassasiyetli `raw_family_scores`'undan gelir, bu (yuvarlanmış)
+        # dict'ten ASLA yeniden hesaplanmaz/okunmaz.
+        stored_family_scores = {k: round(v, 2) for k, v in raw_family_scores.items() if is_available(v)}
 
         if final_score is None:
             # Tüm 7 component birden unavailable — son derece nadir (HATA 5B1
@@ -541,6 +655,8 @@ class TechnicalAnalysisEngine:
             trend=trend,
             confidence=confidence,
             components=stored_components,
+            family_scores=stored_family_scores,
+            scoring_config_hash=current_scoring_config_hash,
             market_data_as_of=df.index[-1].to_pydatetime(),
             history_validation_status=validation_status.value,
             **session_normalization_to_dict(session_normalization_result),

@@ -6,6 +6,7 @@ from app.engines.backtest.engine import compare_strategies, simulate, technical_
 from app.engines.backtest.strategy_presets import STRATEGY_PRESETS
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.engine import DEFAULT_WEIGHTS
+from app.engines.technical.scoring import DEFAULT_TECHNICAL_FAMILY_WEIGHTS, aggregate_available_scores
 
 
 def _uptrend_df(n=80):
@@ -55,7 +56,7 @@ def test_technical_score_series_zero_denominator_components_are_renormalized_not
     # eski `.fillna(0.0)` deseninin (sessizce "geçerli nötr 0" sayıp skoru
     # SEYRELTMESİ) YERİNE.
     df = _flat_then_trending_df()
-    scores = technical_score_series(df, DEFAULT_WEIGHTS)
+    scores = technical_score_series(df, DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
     # Düz segmentin sonunda (ATR/band_width'in EWM decay'i pratikte 0'a
     # ulaştığı bir nokta) skor NaN OLMAMALI (RSI/trend/ema_slope/ROC hâlâ
@@ -70,9 +71,63 @@ def test_technical_score_series_zero_denominator_components_are_renormalized_not
     assert flat_end_score == 0.0
 
 
+def test_technical_score_series_requires_explicit_family_weights():
+    # FINAL PRE-COMMIT GATE (madde 2/3): `family_weights` artık BİLİNÇLİ
+    # OLARAK ZORUNLU bir parametredir (varsayılan YOK) -- bu, düşük seviyeli
+    # bu pure fonksiyonun sessizce `DEFAULT_TECHNICAL_FAMILY_WEIGHTS`'e
+    # düşüp PRODUCTION'daki gerçek `technical_family_weights` config'ini
+    # yapısal olarak YOKSAYAMAMASINI garanti eder (denetimde bulunan
+    # `BacktestEngine.compare_strategies()` bug'ının regresyon kilidi).
+    df = _noisy_trending_df(n=150)
+    with pytest.raises(TypeError):
+        technical_score_series(df, DEFAULT_WEIGHTS)  # family_weights EKSİK
+
+
+def test_technical_score_series_family_weighting_changes_score_vs_flat_weighting():
+    # HATA 5B2D kök gerekçe kanıtı: family-level aggregation, flat 7-component
+    # ağırlıklı ortalamadan (eski HATA 5B1 mimarisi) GENELDE FARKLI bir skor
+    # üretir -- bu SESSİZCE aynı kalmamalı (aksi halde family mimarisi hiçbir
+    # şey değiştirmiyor demektir).
+    df = _noisy_trending_df(n=150)
+    family_scores = technical_score_series(df, DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
+
+    # Eski (HATA 5B1) flat mimariyi manuel olarak yeniden inşa et (yalnızca
+    # BU testte -- production kodu DEĞİŞTİRİLMEDİ, karşılaştırma amaçlı).
+    from app.engines.technical import indicators as ind
+    from app.engines.technical.scoring import aggregate_available_scores_series, clamp_components_df
+
+    close = df["Close"]
+    rsi_s = ind.rsi(close)
+    _, _, macd_hist_s = ind.macd(close)
+    ema_short_s = ind.ema(close, 20)
+    ema_long_s = ind.ema(close, 50)
+    ema_slope_s = ind.ema_slope(close, window=20, slope_lookback=5)
+    upper_s, middle_s, _ = ind.bollinger_bands(close)
+    atr_s = ind.atr(df)
+    momentum_s = ind.momentum(close)
+    roc_s = ind.roc(close)
+    band_width_s = upper_s - middle_s
+    raw = pd.DataFrame(
+        {
+            "rsi": (rsi_s - 50) * 2,
+            "macd": (macd_hist_s / atr_s) * 25,
+            "trend": ((ema_short_s - ema_long_s) / ema_long_s) * 1000,
+            "ema_slope": ema_slope_s * 15,
+            "bollinger": ((close - middle_s) / band_width_s) * 100,
+            "momentum": (momentum_s / atr_s) * 20,
+            "roc": roc_s * 8,
+        }
+    )
+    flat_legacy_scores = aggregate_available_scores_series(clamp_components_df(raw), DEFAULT_WEIGHTS)
+
+    diff = (family_scores - flat_legacy_scores).dropna()
+    assert len(diff) > 0
+    assert diff.abs().max() > 0.01  # gerçekten farklı -- family mimarisi bir NO-OP değil
+
+
 def test_technical_score_series_matches_input_length_and_bounds():
     df = _uptrend_df()
-    series = technical_score_series(df, DEFAULT_WEIGHTS)
+    series = technical_score_series(df, DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
     assert len(series) == len(df)
     assert series.dropna().between(-100, 100).all()
 
@@ -90,11 +145,11 @@ def test_technical_score_series_full_history_matches_causal_prefix_computation()
     # sonuna kadarki kısmı) üzerinden hesaplanınca da, o prefix'in İÇİNDEKİ
     # HER tarih için BİREBİR AYNI skoru üretmelidir.
     df = _noisy_trending_df(n=150)
-    full_series = technical_score_series(df, DEFAULT_WEIGHTS)
+    full_series = technical_score_series(df, DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
     prefix_end = 100  # bir walk-forward fold'unun test penceresinin sonu gibi düşünülebilir
     causal_prefix_df = df.iloc[:prefix_end]
-    prefix_series = technical_score_series(causal_prefix_df, DEFAULT_WEIGHTS)
+    prefix_series = technical_score_series(causal_prefix_df, DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
     pd.testing.assert_series_equal(full_series.iloc[:prefix_end], prefix_series, check_names=False)
 
@@ -336,7 +391,7 @@ def test_compare_strategies_all_presets_share_the_same_simulation_horizon():
     indicator_history = _noisy_trending_df(n=150)  # warm-up dahil, daha geniş
     simulation_history = indicator_history.iloc[60:]  # yalnız istenen simülasyon penceresi
 
-    results = compare_strategies(indicator_history, simulation_history, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+    results = compare_strategies(indicator_history, simulation_history, STRATEGY_PRESETS, DEFAULT_THRESHOLDS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
     buy_and_hold_values = {r["buy_and_hold_return_pct"] for r in results}
     assert len(buy_and_hold_values) == 1  # TÜM preset'lerde birebir aynı
@@ -349,7 +404,7 @@ def test_compare_strategies_returns_one_result_per_preset_sorted_by_return():
     # ikisine de AYNI df veriliyor.
     df = _noisy_trending_df()
 
-    results = compare_strategies(df, df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+    results = compare_strategies(df, df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
     assert len(results) == len(STRATEGY_PRESETS)
     assert {r["preset"] for r in results} == set(STRATEGY_PRESETS.keys())
@@ -360,7 +415,7 @@ def test_compare_strategies_returns_one_result_per_preset_sorted_by_return():
 def test_compare_strategies_each_result_has_expected_metrics():
     df = _noisy_trending_df()
 
-    results = compare_strategies(df, df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS)
+    results = compare_strategies(df, df, STRATEGY_PRESETS, DEFAULT_THRESHOLDS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
     for r in results:
         assert set(r.keys()) == {

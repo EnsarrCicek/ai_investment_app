@@ -11,6 +11,7 @@ from app.engines.backtest.strategy_presets import STRATEGY_PRESETS
 from app.engines.backtest.walk_forward import WalkForwardOptimizer
 from app.engines.decision.engine import DEFAULT_THRESHOLDS
 from app.engines.technical.data_quality import TradingDayContinuityError
+from app.engines.technical.engine import DEFAULT_WEIGHTS
 from app.services.market_data.completed_bars import filter_completed_daily_bars
 from app.services.market_data.trading_calendar import (
     NonSessionClassification,
@@ -24,6 +25,15 @@ TZ = ZoneInfo("Europe/Istanbul")
 class _FakeConfigRepo:
     def get(self, key, defaults):
         return defaults
+
+    def get_raw(self, key):
+        # HATA 5B2D FINAL COMMIT GATE: `technical_indicator_weights` artık
+        # REQUIRED (missing -> fail-fast) -- gerçek production'ı simüle etmek
+        # için GEÇERLİ/TAM bir config döner. `technical_family_weights` hâlâ
+        # `None` (dokümanı henüz production'da yok, pre-deploy gate ayrı).
+        if key == "technical_indicator_weights":
+            return dict(DEFAULT_WEIGHTS)
+        return None
 
 
 def _bday_df(periods: int, end: str, seed: int = 5) -> pd.DataFrame:
@@ -60,6 +70,51 @@ def _append_partial_row(df: pd.DataFrame, date_str: str) -> pd.DataFrame:
 _NOW_MARKET_OPEN = datetime(2026, 8, 26, 10, 44, tzinfo=TZ)
 
 
+class _MissingIndicatorWeightsConfigRepo:
+    """FINAL COMMIT GATE, madde 6: `technical_indicator_weights` dokümanı
+    TAMAMEN yok -- production config corruption/deletion, fail-fast."""
+
+    def get(self, key, defaults):
+        return defaults
+
+    def get_raw(self, key):
+        return None
+
+
+def test_backtest_engine_run_fails_fast_on_missing_indicator_weights_document(fake_provider):
+    # FINAL COMMIT GATE madde 6: geçerli/temiz OHLCV (data-quality HİÇBİR
+    # kontrolü tetiklenmez) + `technical_indicator_weights` dokümanı TAMAMEN
+    # yok -> ValueError -- production config corruption/deletion olarak
+    # ele alınır, code DEFAULT_WEIGHTS'e SESSİZCE düşülmez.
+    from app.engines.technical.data_quality import DataQualityError
+
+    completed = _bday_df(periods=340, end="2026-08-25")
+    provider = fake_provider(history_df=completed)
+    engine = BacktestEngine(provider=provider, config_repo=_MissingIndicatorWeightsConfigRepo())
+
+    with pytest.raises(ValueError) as exc_info:
+        engine.run("TEST", period="1y", now=_NOW_MARKET_OPEN)
+
+    assert not isinstance(exc_info.value, DataQualityError)
+    assert "technical_indicator_weights" in str(exc_info.value)
+
+
+def test_walk_forward_optimizer_run_fails_fast_on_missing_indicator_weights_document(fake_provider):
+    # FINAL COMMIT GATE madde 6: `WalkForwardOptimizer`'ın production path'i
+    # AYNI contract'ı kullanmalı.
+    from app.engines.technical.data_quality import DataQualityError
+
+    completed = _bday_df(periods=340, end="2026-08-25")
+    provider = fake_provider(history_df=completed)
+    optimizer = WalkForwardOptimizer(provider=provider, config_repo=_MissingIndicatorWeightsConfigRepo())
+
+    with pytest.raises(ValueError) as exc_info:
+        optimizer.run("TEST", period="1y", train_days=100, test_days=30, now=_NOW_MARKET_OPEN)
+
+    assert not isinstance(exc_info.value, DataQualityError)
+    assert "technical_indicator_weights" in str(exc_info.value)
+
+
 def test_backtest_engine_run_excludes_partial_bar_and_reports_as_of(fake_provider):
     completed = _bday_df(periods=340, end="2026-08-25")
     raw = _append_partial_row(completed, "2026-08-26")
@@ -84,6 +139,83 @@ def test_backtest_engine_compare_strategies_excludes_partial_bar_and_reports_as_
     assert result["backtest_data_as_of"] == "2026-08-25"
     assert result["data_policy"] == "COMPLETED_DAILY_ONLY"
     assert result["to_date"] == "2026-08-25"
+
+
+class _CustomFamilyWeightsConfigRepo:
+    """FINAL PRE-COMMIT GATE madde 3: `technical_family_weights` dokümanı
+    production'da NON-DEFAULT bir değer taşıyorsa (trend=.50/oscillator=.25/
+    momentum=.25), `BacktestEngine.run()` VE `BacktestEngine.compare_
+    strategies()` AYNI (bu custom) config'i kullanmalı -- ikisi FARKLI
+    family_weights'e düşerse bu bir BUG'dır (denetimde tam olarak bu
+    bulundu: `compare_strategies()` sessizce eşit-1/3'e düşüyordu)."""
+
+    CUSTOM_FAMILY_WEIGHTS = {"trend": 0.50, "oscillator_position": 0.25, "momentum_rate": 0.25}
+
+    def get(self, key, defaults):
+        return defaults
+
+    def get_raw(self, key):
+        if key == "technical_indicator_weights":
+            return dict(DEFAULT_WEIGHTS)
+        if key == "technical_family_weights":
+            return self.CUSTOM_FAMILY_WEIGHTS
+        return None
+
+
+def test_backtest_engine_run_and_compare_strategies_use_identical_family_weights_config(fake_provider, monkeypatch):
+    import app.engines.backtest.engine as backtest_engine_module
+
+    captured_family_weights: list[dict] = []
+    real_technical_score_series = backtest_engine_module.technical_score_series
+
+    def _spy_technical_score_series(df, weights, family_weights):
+        captured_family_weights.append(family_weights)
+        return real_technical_score_series(df, weights, family_weights)
+
+    monkeypatch.setattr(backtest_engine_module, "technical_score_series", _spy_technical_score_series)
+
+    completed = _bday_df(periods=340, end="2026-08-25")
+    config_repo = _CustomFamilyWeightsConfigRepo()
+
+    run_engine = BacktestEngine(provider=fake_provider(history_df=completed), config_repo=config_repo)
+    run_engine.run("TEST", period="1y", now=_NOW_MARKET_OPEN)
+
+    compare_engine = BacktestEngine(provider=fake_provider(history_df=completed), config_repo=config_repo)
+    compare_engine.compare_strategies("TEST", STRATEGY_PRESETS, period="1y", now=_NOW_MARKET_OPEN)
+
+    # run(): 1 çağrı; compare_strategies(): preset sayısı kadar çağrı -- HEPSİ
+    # AYNI custom family_weights'i almış olmalı (eşit 1/3'e sessizce
+    # DÜŞMEMİŞ olmalı).
+    assert len(captured_family_weights) == 1 + len(STRATEGY_PRESETS)
+    for fw in captured_family_weights:
+        assert fw == _CustomFamilyWeightsConfigRepo.CUSTOM_FAMILY_WEIGHTS
+
+
+def test_backtest_engine_run_reports_technical_engine_version(fake_provider):
+    # HATA 5B2D madde 24/34-V: backtest sonucunun HANGİ technical scoring
+    # semantics'iyle (flat 7-component vs family-level aggregation) üretildiği
+    # geriye dönük tespit edilebilsin diye.
+    from app.engines.technical.engine import ENGINE_VERSION as TECHNICAL_ENGINE_VERSION
+
+    completed = _bday_df(periods=340, end="2026-08-25")
+    provider = fake_provider(history_df=completed)
+    engine = BacktestEngine(provider=provider, config_repo=_FakeConfigRepo())
+
+    result = engine.run("TEST", period="1y", now=_NOW_MARKET_OPEN)
+
+    assert result["technical_engine_version"] == TECHNICAL_ENGINE_VERSION == "1.7.0"
+
+
+def test_backtest_engine_compare_strategies_reports_technical_engine_version(fake_provider):
+    from app.engines.technical.engine import ENGINE_VERSION as TECHNICAL_ENGINE_VERSION
+
+    completed = _bday_df(periods=340, end="2026-08-25")
+    provider = fake_provider(history_df=completed)
+    engine = BacktestEngine(provider=provider, config_repo=_FakeConfigRepo())
+
+    result = engine.compare_strategies("TEST", STRATEGY_PRESETS, period="1y", now=_NOW_MARKET_OPEN)
+
+    assert result["technical_engine_version"] == TECHNICAL_ENGINE_VERSION
 
 
 def test_walk_forward_optimizer_excludes_partial_bar_and_reports_as_of(fake_provider):
@@ -487,8 +619,9 @@ def test_simulation_start_score_is_finite_valid_after_full_warmup():
 
     from app.engines.backtest.engine import technical_score_series
     from app.engines.technical.engine import DEFAULT_WEIGHTS
+    from app.engines.technical.scoring import DEFAULT_TECHNICAL_FAMILY_WEIGHTS
 
-    scores_all = technical_score_series(prepared.indicator_history, DEFAULT_WEIGHTS)
+    scores_all = technical_score_series(prepared.indicator_history, DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
     simulation_start_score = scores_all.loc[prepared.simulation_history.index[0]]
     assert pd.notna(simulation_start_score)
     assert not (simulation_start_score != simulation_start_score)  # NaN != NaN olurdu

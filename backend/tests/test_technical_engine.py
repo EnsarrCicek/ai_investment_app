@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from app.engines.technical import indicators as ind
-from app.engines.technical.engine import TECHNICAL_CACHE_TTL_SECONDS, TechnicalAnalysisEngine
+from app.engines.technical.engine import DEFAULT_WEIGHTS, ENGINE_VERSION, TECHNICAL_CACHE_TTL_SECONDS, TechnicalAnalysisEngine
+from app.engines.technical.scoring import DEFAULT_TECHNICAL_FAMILY_WEIGHTS, compute_scoring_config_hash
 from app.models.technical_analysis import TechnicalAnalysis
 from app.services.market_data.trading_calendar import expected_trading_sessions
 
@@ -30,16 +31,40 @@ class _FakeConfigRepo:
     def get(self, key, defaults):
         return defaults
 
+    def get_raw(self, key):
+        # HATA 5B2D FINAL COMMIT GATE: `technical_indicator_weights` artık
+        # REQUIRED (missing -> fail-fast) -- gerçek production'ı simüle etmek
+        # için burada GEÇERLİ/TAM bir config döner. `technical_family_weights`
+        # ise hâlâ `None` döner -- dokümanı henüz production'da yok (pre-deploy
+        # gate ayrı), bu da `resolve_family_weights()`'in `DEFAULT_TECHNICAL_
+        # FAMILY_WEIGHTS`'e (eşit 1/3) düşen gerçek dalını egzersiz eder.
+        if key == "technical_indicator_weights":
+            return dict(DEFAULT_WEIGHTS)
+        return None
+
 
 class _StaleSixKeyConfigRepo:
     """Firestore'da AŞAMA 48/9 öncesinden kalmış, "ema_slope" anahtarı OLMAYAN
-    eski bir "technical_indicator_weights" belgesini simüle eder — toplam
-    ağırlık artık 1.0 değildir. final_score'un yine de [-100, 100] aralığında
-    kalması gerekir (normalize edilmiş ağırlıklı ortalama formülü sayesinde).
+    eski bir "technical_indicator_weights" belgesini simüle eder.
+
+    HATA 5B2D FINAL PRE-COMMIT GATE, madde 8: bu senaryo eskiden (AŞAMA 48/9)
+    BİLİNÇLİ OLARAK "graceful degradation" (eksik anahtar `DEFAULT_WEIGHTS`
+    ile sessizce tamamlanır) olarak tasarlanmıştı -- ama bu TAM OLARAK HATA
+    5B2C'nin kök nedeni olan mekanizmadır (`ema_slope`'un aylarca fark
+    edilmeden eksik kalması). Family mimarisinde bu weight'ler artık
+    within-family methodology'nin bir parçası olduğundan, aynı sessiz drift
+    riski KAPATILDI: bu fixture artık "eski davranış hâlâ çalışıyor" DEĞİL,
+    "partial config artık fail-fast" kontratını kilitliyor (bkz. aşağıdaki
+    test, `test_analyze_with_id_rejects_stale_six_key_weight_config`).
     """
 
     def get(self, key, defaults):
         return {"rsi": 0.1667, "macd": 0.1667, "trend": 0.1667, "bollinger": 0.1667, "momentum": 0.1667, "roc": 0.1665}
+
+    def get_raw(self, key):
+        if key == "technical_indicator_weights":
+            return {"rsi": 0.1667, "macd": 0.1667, "trend": 0.1667, "bollinger": 0.1667, "momentum": 0.1667, "roc": 0.1665}
+        return None
 
 
 class _FakeBenchmarkCacheRepo:
@@ -68,7 +93,9 @@ class _FakeTechnicalAnalysisRepo:
         return "new-id"
 
 
-def _cached_analysis(age_seconds: float) -> TechnicalAnalysis:
+def _cached_analysis(
+    age_seconds: float, engine_version: str = ENGINE_VERSION, scoring_config_hash: str | None = None
+) -> TechnicalAnalysis:
     return TechnicalAnalysis(
         asset="TEST",
         technical_score=42.0,
@@ -77,7 +104,15 @@ def _cached_analysis(age_seconds: float) -> TechnicalAnalysis:
         components={"rsi": 42.0},
         indicators={"rsi": 55.0},
         created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds),
+        engine_version=engine_version,
+        scoring_config_hash=scoring_config_hash,
     )
+
+
+# `_FakeConfigRepo` her zaman `DEFAULT_WEIGHTS`/`DEFAULT_TECHNICAL_FAMILY_
+# WEIGHTS`'e resolve olur -- "cache HIT olmalı" testleri bu GERÇEK hash'i
+# kullanmalı (HATA 5B2D TRUE FINAL COMMIT GATE, madde 8-A).
+_FAKE_CONFIG_REPO_SCORING_HASH = compute_scoring_config_hash(DEFAULT_WEIGHTS, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
 
 
 def test_technical_analysis_old_float_document_still_parses():
@@ -148,6 +183,48 @@ def test_technical_analysis_new_null_trend_document_parses():
     }
     analysis = TechnicalAnalysis(**new_style_doc)
     assert analysis.trend is None
+
+
+def test_technical_analysis_old_document_without_family_scores_still_parses():
+    # HATA 5B2D madde 34-N: `family_scores` eklenmeden önceki (flat 7-component,
+    # ENGINE_VERSION 1.6.0 ve öncesi) Firestore kayıtları bu alanı hiç
+    # taşımıyor -- `default_factory=dict` bunu geriye dönük uyumlu şekilde
+    # ifade eder, migration YOK.
+    old_style_doc = {
+        "asset": "TEST",
+        "technical_score": 42.0,
+        "trend": "BULLISH",
+        "confidence": 0.9,
+        "components": {"rsi": 42.0},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+        "engine_version": "1.6.0",
+    }
+    analysis = TechnicalAnalysis(**old_style_doc)
+    assert analysis.family_scores == {}
+
+
+def test_technical_analysis_new_document_with_family_scores_parses():
+    # HATA 5B2D madde 34-O: yeni (1.7.0) kayıtlar `family_scores` taşır.
+    new_style_doc = {
+        "asset": "TEST",
+        "technical_score": 27.77,
+        "trend": "NEUTRAL",
+        "confidence": 0.7,
+        "components": {"rsi": 40.0},
+        "family_scores": {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+        "engine_version": "1.7.0",
+    }
+    analysis = TechnicalAnalysis(**new_style_doc)
+    assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
+
+
+def test_engine_version_is_1_7_0():
+    # HATA 5B2D madde 34-P/19: structural scoring semantic değişikliği
+    # ENGINE_VERSION bump'ını ZORUNLU kılar (1.6.0 -> 1.7.0).
+    assert ENGINE_VERSION == "1.7.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -223,6 +300,9 @@ def test_analyze_with_id_flat_price_makes_zero_denominator_components_unavailabl
     assert analysis.components["roc"] == 0.0
     assert analysis.technical_score is not None
     assert analysis.technical_score == 0.0
+    # HATA 5B2D: 3 family de (yalnızca available member'ları üzerinden)
+    # finite 0.0 -- None ile karışmaz, hiçbiri unavailable DEĞİLDİR.
+    assert analysis.family_scores == {"trend": 0.0, "oscillator_position": 0.0, "momentum_rate": 0.0}
 
 
 def test_technical_score_zero_vs_none_trend_signal_and_persistence_contract(fake_provider, monkeypatch):
@@ -259,8 +339,8 @@ def test_technical_score_zero_vs_none_trend_signal_and_persistence_contract(fake
     # components`'ın kendisi (gerçek matematikten üretildiği için) dolu
     # kalabilir, bu KASITLIDIR ve testin amacını etkilemez.
     monkeypatch.setattr(
-        "app.engines.technical.engine.aggregate_available_components",
-        lambda components, weights: None,
+        "app.engines.technical.engine.aggregate_available_scores",
+        lambda *args, **kwargs: None,
     )
     analysis_repo_b = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
     engine_b = TechnicalAnalysisEngine(
@@ -287,8 +367,77 @@ def test_technical_score_zero_vs_none_trend_signal_and_persistence_contract(fake
     assert len(analysis_repo_b.added) == 1
 
 
+class _PartialFamilyWeightsConfigRepo:
+    """`technical_family_weights` dokümanı VAR ama eksik anahtarlı (HATA
+    5B2C'nin kök nedenine benzer bir config-drift senaryosu) -- fail-fast
+    end-to-end (madde 12) gerçek `analyze_with_id()` akışında da kilitlenmeli."""
+
+    def get(self, key, defaults):
+        return defaults
+
+    def get_raw(self, key):
+        # `technical_indicator_weights` GEÇERLİ/TAM olmalı ki bu test YALNIZ
+        # family-weights partial senaryosunu izole etsin (indicator weights
+        # eksikliğiyle KARIŞMASIN, bkz. FINAL COMMIT GATE madde 1-4).
+        if key == "technical_indicator_weights":
+            return dict(DEFAULT_WEIGHTS)
+        if key == "technical_family_weights":
+            return {"trend": 0.5, "oscillator_position": 0.5}  # momentum_rate eksik
+        return None
+
+
+def test_analyze_with_id_raises_on_partial_family_weights_config(fake_provider):
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_PartialFamilyWeightsConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    with pytest.raises(ValueError):
+        engine.analyze_with_id("TEST")
+
+
+class _MissingIndicatorWeightsConfigRepo:
+    """FINAL COMMIT GATE, madde 5: `technical_indicator_weights` dokümanı
+    TAMAMEN yok -- bu artık "normal default case" DEĞİL, production config
+    corruption/deletion olarak ele alınır (`technical_family_weights` ise
+    dokümanı henüz production'da olmadığından hâlâ `None` -- eşit-1/3
+    default'a düşer, bu DEĞİŞMEDİ)."""
+
+    def get(self, key, defaults):
+        return defaults
+
+    def get_raw(self, key):
+        return None  # HEM indicator HEM family weights dokümanı yok
+
+
+def test_analyze_with_id_fails_fast_on_missing_indicator_weights_document_not_data_quality(fake_provider):
+    # FINAL COMMIT GATE, madde 5: geçerli OHLCV (Layer-1/continuity/min-history
+    # HİÇBİRİ tetiklenmez) + `technical_indicator_weights` dokümanı TAMAMEN
+    # yok -> ValueError, ama bu bir `DataQualityError` (`DataQualityError`
+    # ValueError'ın ALT SINIFIDIR) DEĞİLDİR -- yalnızca config eksikliğinden
+    # kaynaklandığı doğrudan kanıtlanır.
+    from app.engines.technical.data_quality import DataQualityError
+
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_MissingIndicatorWeightsConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        engine.analyze_with_id("TEST")
+
+    assert not isinstance(exc_info.value, DataQualityError)  # data-quality NEDENİYLE değil
+    assert "technical_indicator_weights" in str(exc_info.value)  # doğrudan config nedeni
+
+
 def test_analyze_with_id_uses_cache_when_fresh(fake_provider):
-    cached = _cached_analysis(age_seconds=60)  # 1 dakika önce — TTL(900s) içinde
+    cached = _cached_analysis(age_seconds=60, scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH)  # 1 dakika önce — TTL(900s) içinde, AYNI config
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=cached, cached_id="cached-id")
     provider = fake_provider(history_df=None)  # get_history çağrılırsa NotImplementedError patlar
     engine = TechnicalAnalysisEngine(
@@ -303,6 +452,189 @@ def test_analyze_with_id_uses_cache_when_fresh(fake_provider):
     assert analysis is cached
     assert doc_id == "cached-id"
     assert analysis_repo.added == []  # yeniden hesaplanıp kaydedilmedi
+
+
+def test_analyze_with_id_recomputes_when_cached_engine_version_is_stale(fake_provider):
+    # HATA 5B2D, madde 20/34-Q: `ENGINE_VERSION` bump'ı (1.6.0 -> 1.7.0,
+    # family-level scoring) structural bir score semantics değişikliğidir --
+    # TAZE (TTL içinde) ama ESKİ `engine_version` taşıyan bir kayıt cache hit
+    # olarak DÖNMEMELİ, aksi halde eski flat-weighted skor yeni family-scored
+    # bir sonuçmuş gibi servis edilirdi.
+    stale_version_cached = _cached_analysis(age_seconds=60, engine_version="1.6.0")  # taze YAŞ, ESKİ versiyon
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=stale_version_cached, cached_id="stale-version-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert analysis is not stale_version_cached  # yeniden hesaplandı, cache hit OLMADI
+    assert doc_id == "new-id"
+    assert len(analysis_repo.added) == 1
+    assert analysis.engine_version == ENGINE_VERSION
+
+
+def test_analyze_with_id_reuses_cache_when_engine_version_matches(fake_provider):
+    # HATA 5B2D, madde 34-R: taze VE AYNI `engine_version` -- normal cache
+    # hit davranışı (item Q'nun karşıtı) hâlâ çalışmalı.
+    fresh_current_version_cached = _cached_analysis(
+        age_seconds=60, engine_version=ENGINE_VERSION, scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=fresh_current_version_cached, cached_id="fresh-id")
+    provider = fake_provider(history_df=None)  # get_history çağrılırsa NotImplementedError patlar
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert analysis is fresh_current_version_cached
+    assert doc_id == "fresh-id"
+    assert analysis_repo.added == []
+
+
+class _ConfiguredWeightsConfigRepo:
+    """HATA 5B2D TRUE FINAL COMMIT GATE, madde 8: sabit, EXPLICIT indicator/
+    family weight'ler döner -- config-change-invalidates-cache testleri
+    (madde B/C) için T0/T1 config'lerini net şekilde ayırt etmek amacıyla."""
+
+    def __init__(self, indicator_weights: dict, family_weights: dict | None = None):
+        self._indicator_weights = indicator_weights
+        self._family_weights = family_weights
+
+    def get(self, key, defaults):
+        return defaults
+
+    def get_raw(self, key):
+        if key == "technical_indicator_weights":
+            return self._indicator_weights
+        if key == "technical_family_weights":
+            return self._family_weights
+        return None
+
+
+def test_analyze_with_id_cache_miss_when_indicator_weights_changed_within_ttl(fake_provider):
+    # madde B / TRUE FINAL COMMIT GATE regresyon kilidi: T0'da CONFIG_A ile
+    # cache'lenmiş bir kayıt, T1'de (<TTL) `technical_indicator_weights`
+    # DEĞİŞTİYSE (`engine_version` AYNI kalsa bile) artık GEÇERSİZ sayılmalı.
+    config_a = dict(DEFAULT_WEIGHTS)
+    config_b = dict(DEFAULT_WEIGHTS, rsi=DEFAULT_WEIGHTS["rsi"] + 0.05)  # T1: FARKLI indicator config
+    hash_a = compute_scoring_config_hash(config_a, DEFAULT_TECHNICAL_FAMILY_WEIGHTS)
+
+    cached_under_config_a = _cached_analysis(age_seconds=60, scoring_config_hash=hash_a)
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=cached_under_config_a, cached_id="config-a-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_ConfiguredWeightsConfigRepo(config_b),  # T1: config DEĞİŞTİ
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert analysis is not cached_under_config_a  # cache MISS -- yeniden hesaplandı
+    assert doc_id == "new-id"
+    assert len(analysis_repo.added) == 1
+
+
+def test_analyze_with_id_cache_miss_when_family_weights_changed_within_ttl(fake_provider):
+    # madde C: AYNI indicator weights, ama `technical_family_weights`
+    # DEĞİŞTİ (F1 -> F2) -- cache GEÇERSİZ sayılmalı.
+    family_f1 = {"trend": 1.0 / 3.0, "oscillator_position": 1.0 / 3.0, "momentum_rate": 1.0 / 3.0}
+    family_f2 = {"trend": 0.5, "oscillator_position": 0.25, "momentum_rate": 0.25}
+    hash_f1 = compute_scoring_config_hash(DEFAULT_WEIGHTS, family_f1)
+
+    cached_under_f1 = _cached_analysis(age_seconds=60, scoring_config_hash=hash_f1)
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=cached_under_f1, cached_id="family-f1-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_ConfiguredWeightsConfigRepo(dict(DEFAULT_WEIGHTS), family_f2),  # T1: family DEĞİŞTİ
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert analysis is not cached_under_f1  # cache MISS -- yeniden hesaplandı
+    assert doc_id == "new-id"
+    assert len(analysis_repo.added) == 1
+
+
+def test_analyze_with_id_fresh_cache_does_not_bypass_missing_indicator_config(fake_provider):
+    # madde D: FRESH, AYNI engine_version'lı bir cache kaydı MEVCUT olsa
+    # bile, `technical_indicator_weights` TAMAMEN eksikse FAIL-FAST olmalı --
+    # required production config, cache tarafından ASLA bypass edilemez.
+    from app.engines.technical.data_quality import DataQualityError
+
+    some_fresh_cache = _cached_analysis(age_seconds=60, scoring_config_hash="irrelevant-would-mismatch-anyway")
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=some_fresh_cache, cached_id="some-fresh-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_MissingIndicatorWeightsConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        engine.analyze_with_id("TEST")
+
+    assert not isinstance(exc_info.value, DataQualityError)
+    assert "technical_indicator_weights" in str(exc_info.value)
+    assert analysis_repo.added == []  # sahte/eksik bir kayıt PERSIST EDİLMEDİ
+
+
+def test_analyze_with_id_fresh_cache_does_not_bypass_partial_indicator_config(fake_provider):
+    # madde E: partial (stale 6-key) `technical_indicator_weights` + FRESH
+    # cache -- AYNI şekilde FAIL-FAST, cache DÖNMEMELİ.
+    from app.engines.technical.data_quality import DataQualityError
+
+    some_fresh_cache = _cached_analysis(age_seconds=60, scoring_config_hash="irrelevant-would-mismatch-anyway")
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=some_fresh_cache, cached_id="some-fresh-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_StaleSixKeyConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    with pytest.raises(ValueError):
+        engine.analyze_with_id("TEST")
+
+    assert analysis_repo.added == []
+
+
+def test_analyze_with_id_old_cache_without_scoring_config_hash_is_cache_miss_not_crash(fake_provider):
+    # madde G: `scoring_config_hash` alanı eklenmeden ÖNCEki (ama zaten
+    # 1.7.0 `engine_version` taşıyan, teorik bir ara-durum) bir kayıt --
+    # `None` ile GERÇEK bir hash asla eşleşmez, bu yüzden CACHE MISS olur;
+    # `None == str` karşılaştırması hiçbir TypeError/crash ÜRETMEZ.
+    old_cache_without_hash = _cached_analysis(age_seconds=60, engine_version=ENGINE_VERSION, scoring_config_hash=None)
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_cache_without_hash, cached_id="no-hash-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")  # crash ATMAMALI
+
+    assert analysis is not old_cache_without_hash  # cache MISS
+    assert doc_id == "new-id"
+    assert len(analysis_repo.added) == 1
+    assert analysis.scoring_config_hash is not None  # YENİ kayıt hash'i taşır
 
 
 def test_analyze_with_id_recomputes_when_stale(fake_provider):
@@ -374,10 +706,11 @@ def test_analyze_with_id_includes_ema_slope_component(fake_provider):
     assert -100 <= analysis.technical_score <= 100
 
 
-def test_analyze_with_id_normalizes_score_with_stale_weight_config(fake_provider):
-    # AŞAMA 48/9: "ema_slope" eklendiğinde, Firestore'da hâlâ eski 6 anahtarlı
-    # bir kayıt varsa (toplam ağırlık != 1.0), final_score yine de sınırlar
-    # içinde kalmalı — ağırlık toplamına bölünerek normalize edilir.
+def test_analyze_with_id_rejects_stale_six_key_weight_config(fake_provider):
+    # HATA 5B2D FINAL PRE-COMMIT GATE, madde 8: partial `technical_indicator_
+    # weights` (eski AŞAMA 48/9-öncesi 6-key doküman, `ema_slope` eksik)
+    # artık SESSİZCE `DEFAULT_WEIGHTS` ile tamamlanmaz -- fail-fast. Bu,
+    # HATA 5B2C'nin kök nedenini (aynı mekanizma) kod seviyesinde kapatır.
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
     provider = fake_provider(history_df=_real_history_df())
     engine = TechnicalAnalysisEngine(
@@ -387,9 +720,8 @@ def test_analyze_with_id_normalizes_score_with_stale_weight_config(fake_provider
         benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
     )
 
-    analysis, _ = engine.analyze_with_id("TEST")
-
-    assert -100 <= analysis.technical_score <= 100
+    with pytest.raises(ValueError):
+        engine.analyze_with_id("TEST")
 
 
 def test_analyze_with_id_includes_relative_strength_class(fake_provider):

@@ -16,6 +16,9 @@ void main() {
 
     expect(detail.asset, 'THYAO');
     expect(detail.technicalScore, -29.02);
+    // HATA 5B2D: `family_scores` eklenmeden önceki (backend flat 7-component
+    // mimarisi) kayıtlar bu alanı hiç içermez -- boş map, geriye dönük uyumlu.
+    expect(detail.familyScores, isEmpty);
     expect(detail.marketStructure, isNull);
     expect(detail.signalClass, isNull);
     expect(detail.candlestickPatterns, isEmpty);
@@ -125,5 +128,21 @@ void main() {
 
     expect(detail.technicalScore, 0.0);
     expect(detail.trend, 'NEUTRAL');
+  });
+
+  test('27.08.2026 (HATA 5B2D): family_scores mevcutken doğru ayrıştırılır', () {
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': 27.77,
+      'trend': 'NEUTRAL',
+      'confidence': 0.7,
+      'components': {'rsi': 40.0, 'bollinger': 20.0, 'ema_slope': -10.0},
+      'family_scores': {'trend': 30.0, 'oscillator_position': 15.0, 'momentum_rate': 38.32},
+      'indicators': {'rsi': 55.0},
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.familyScores, {'trend': 30.0, 'oscillator_position': 15.0, 'momentum_rate': 38.32});
   });
 }

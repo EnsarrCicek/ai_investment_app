@@ -38,6 +38,7 @@ import pandas as pd
 
 from app.engines.backtest.engine import simulate, technical_score_series
 from app.engines.backtest.metrics import expectancy_pct
+from app.engines.technical.scoring import DEFAULT_TECHNICAL_FAMILY_WEIGHTS
 
 
 def split_walk_forward_indices(n: int, n_splits: int = 4, train_ratio: float = 0.7) -> list[tuple[slice, slice]]:
@@ -61,6 +62,7 @@ def walk_forward_optimize_weights(
     df: pd.DataFrame,
     weight_grid: list[dict],
     thresholds: dict,
+    family_weights: dict | None = None,
     n_splits: int = 4,
     train_ratio: float = 0.7,
     initial_capital: float = 100_000.0,
@@ -68,13 +70,24 @@ def walk_forward_optimize_weights(
     """Her fold için: train bölümünde grid'deki en iyi ağırlık setini
     expectancy_pct'e göre seç, sonra o setin test (out-of-sample) performansını
     ölç. Tüm fold'ların test sonuçlarını birleştirip özet döner.
+
+    FINAL PRE-COMMIT GATE (27.08.2026, madde 2): bu modülün KENDİ modül
+    docstring'inde belirtildiği gibi (bkz. üstteki not) hiçbir PRODUCTION-
+    ACTIVE çağıranı YOKTUR (yalnızca testlerde kullanılır) -- bu yüzden
+    `technical_score_series()`'in AKSİNE `family_weights` burada opsiyoneldir
+    ve verilmezse `DEFAULT_TECHNICAL_FAMILY_WEIGHTS`'e (eşit 1/3) düşer; bu
+    varsayılan yalnızca dormant/test seviyesinde tutulur, PRODUCTION-ACTIVE
+    hiçbir çağıran (`BacktestEngine`/`WalkForwardOptimizer`) için değil.
     """
+    if family_weights is None:
+        family_weights = DEFAULT_TECHNICAL_FAMILY_WEIGHTS
+
     n = len(df)
     splits = split_walk_forward_indices(n, n_splits=n_splits, train_ratio=train_ratio)
     if not splits:
         raise ValueError("Walk-forward için hiçbir geçerli bölüm oluşturulamadı")
 
-    candidate_series = [technical_score_series(df, candidate) for candidate in weight_grid]
+    candidate_series = [technical_score_series(df, candidate, family_weights) for candidate in weight_grid]
 
     fold_results = []
     for train_slice, test_slice in splits:
