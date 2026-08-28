@@ -117,17 +117,27 @@ from app.engines.backtest.completed_history import prepare_backtest_history
 from app.engines.decision.engine import DEFAULT_THRESHOLDS, _classify
 from app.engines.technical import indicators as ind
 from app.engines.technical.engine import DEFAULT_WEIGHTS as DEFAULT_TECHNICAL_WEIGHTS
+from app.engines.technical.scoring import aggregate_available_components_series, clamp_components_df
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
 from app.services.market_data.trading_calendar import session_normalization_to_dict
 
 
-def _clamp_series(series: pd.Series) -> pd.Series:
-    return series.clip(-100.0, 100.0)
-
-
 def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
+    """HATA 5B1 (27.08.2026): bileşen formülleri (RSI/MACD/EMA/Bollinger/
+    Momentum/ROC) DEĞİŞMEDİ — yalnızca eksik/tanımsız bir bileşenin nasıl
+    ele alındığı değişti. Eskiden `.fillna(0.0)` (5/7 bileşen) bunu SESSİZCE
+    "geçerli nötr 0" sayıyordu (weight_sum'da payı KORUNARAK, yani skoru
+    seyrelterek); RSI/ROC ise hiç doldurulmuyordu (NaN tüm günü zehirliyordu).
+    Artık HİÇBİR component'e `.fillna(0.0)` UYGULANMAZ — ham (unclamped) oran
+    NaN/±inf ise `aggregate_available_components_series()` o günün o
+    bileşenini numerator'dan VE weight denominator'dan ÇIKARIP KALAN mevcut
+    bileşenlerin ağırlığını renormalize eder (bkz. `scoring.py` modül
+    docstring'i). `ATR==0`/`band_width==0` gibi eski `.replace(0, pd.NA)`
+    kısayolları da kaldırıldı — pandas'ın doğal float bölmesi zaten `0/0→NaN`,
+    `x/0→±inf` üretir, ikisi de aynı `is_available()` kontrolünden geçer.
+    """
     close = df["Close"]
 
     rsi_s = ind.rsi(close)
@@ -136,25 +146,24 @@ def technical_score_series(df: pd.DataFrame, weights: dict) -> pd.Series:
     ema_long_s = ind.ema(close, 50)
     ema_slope_s = ind.ema_slope(close, window=20, slope_lookback=5)
     upper_s, middle_s, _lower_s = ind.bollinger_bands(close)
-    atr_s = ind.atr(df).replace(0, pd.NA)
+    atr_s = ind.atr(df)
     momentum_s = ind.momentum(close)
     roc_s = ind.roc(close)
-    band_width_s = (upper_s - middle_s).replace(0, pd.NA)
-    ema_long_safe = ema_long_s.replace(0, pd.NA)
+    band_width_s = upper_s - middle_s
 
-    components = {
-        "rsi": _clamp_series((rsi_s - 50) * 2),
-        "macd": _clamp_series((macd_hist_s / atr_s) * 25).fillna(0.0),
-        "trend": _clamp_series(((ema_short_s - ema_long_s) / ema_long_safe) * 1000).fillna(0.0),
-        "ema_slope": _clamp_series(ema_slope_s * 15).fillna(0.0),
-        "bollinger": _clamp_series(((close - middle_s) / band_width_s) * 100).fillna(0.0),
-        "momentum": _clamp_series((momentum_s / atr_s) * 20).fillna(0.0),
-        "roc": _clamp_series(roc_s * 8),
-    }
-    weight_sum = sum(weights.get(key, 0.0) for key in components)
-    raw_score = sum(components[key] * weights.get(key, 0.0) for key in components)
-    score = raw_score / weight_sum if weight_sum else raw_score * 0.0
-    return _clamp_series(score).round(2)
+    raw_components = pd.DataFrame(
+        {
+            "rsi": (rsi_s - 50) * 2,
+            "macd": (macd_hist_s / atr_s) * 25,
+            "trend": ((ema_short_s - ema_long_s) / ema_long_s) * 1000,
+            "ema_slope": ema_slope_s * 15,
+            "bollinger": ((close - middle_s) / band_width_s) * 100,
+            "momentum": (momentum_s / atr_s) * 20,
+            "roc": roc_s * 8,
+        }
+    )
+    components_df = clamp_components_df(raw_components)
+    return aggregate_available_components_series(components_df, weights)
 
 
 def _is_valid_execution_price(value: float) -> bool:

@@ -7,9 +7,11 @@ import pytest
 
 from app.engines.technical.data_quality import (
     DataQualityError,
+    InvalidOHLCVError,
     TradingCalendarUnsupportedError,
     TradingDayContinuityError,
     check_data_quality,
+    check_raw_ohlcv_integrity,
     check_trading_day_continuity,
     previous_expected_sessions,
 )
@@ -216,3 +218,135 @@ def test_previous_expected_sessions_raises_for_unsupported_year_without_clipping
     with pytest.raises(TradingCalendarUnsupportedError) as exc_info:
         previous_expected_sessions(before, 60)
     assert exc_info.value.year == 2020
+
+
+# ---------------------------------------------------------------------------
+# HATA 5B1 (27.08.2026) — LAYER 1: `check_raw_ohlcv_integrity()`. Mandatory
+# skorlanan pencere içindeki (yalnızca son bar DEĞİL) NaN/±inf/geçersiz
+# fiyat/negatif hacim/imkânsız OHLC ilişkisi HARD VETO edilmeli.
+# ---------------------------------------------------------------------------
+
+
+def test_check_raw_ohlcv_integrity_passes_for_clean_history():
+    check_raw_ohlcv_integrity(_fresh_df(rows=30), "TEST")  # exception atmamalı
+
+
+def test_check_raw_ohlcv_integrity_empty_dataframe_is_noop():
+    df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+    check_raw_ohlcv_integrity(df, "TEST")  # exception atmamalı
+
+
+def test_internal_nan_close_is_hard_vetoed_not_just_last_row():
+    # HATA 5B1 madde 16: yalnızca SON bar DEĞİL, pencerenin ORTASINDAKİ bir
+    # NaN da yakalanmalı -- `check_data_quality()`'nin dar (yalnızca son bar)
+    # kapsamından FARKLI, daha geniş bir garanti.
+    df = _fresh_df(rows=30)
+    df.iloc[15, df.columns.get_loc("Close")] = np.nan
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.reason_code == "INVALID_OHLCV"
+    assert exc_info.value.violations[0][0] == df.index[15].date()
+    assert exc_info.value.violations[0][1] == "NaN"
+
+
+def test_internal_nan_open_high_low_volume_each_hard_vetoed():
+    for col in ("Open", "High", "Low", "Volume"):
+        df = _fresh_df(rows=30)
+        df.iloc[10, df.columns.get_loc(col)] = np.nan
+        with pytest.raises(InvalidOHLCVError):
+            check_raw_ohlcv_integrity(df, "TEST")
+
+
+def test_internal_positive_infinity_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    df.iloc[12, df.columns.get_loc("High")] = float("inf")
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "INF"
+
+
+def test_internal_negative_infinity_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    df.iloc[12, df.columns.get_loc("Low")] = float("-inf")
+    with pytest.raises(InvalidOHLCVError):
+        check_raw_ohlcv_integrity(df, "TEST")
+
+
+def test_zero_close_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    df.iloc[5, df.columns.get_loc("Close")] = 0.0
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "NON_POSITIVE_PRICE"
+
+
+def test_negative_open_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    df.iloc[5, df.columns.get_loc("Open")] = -1.0
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "NON_POSITIVE_PRICE"
+
+
+def test_negative_volume_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    df.iloc[5, df.columns.get_loc("Volume")] = -100
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "NEGATIVE_VOLUME"
+
+
+def test_zero_volume_is_not_invalid():
+    # HATA 5B1 madde 7 — kesin scope sınırı: sıfır hacim OTOMATİK invalid
+    # SAYILMAZ (yalnızca negatif hacim hard-veto'dur). Ayrı bir semantik konu.
+    df = _fresh_df(rows=30)
+    df.iloc[5, df.columns.get_loc("Volume")] = 0
+    check_raw_ohlcv_integrity(df, "TEST")  # exception atmamalı
+
+
+@pytest.mark.parametrize("bad_column, delta", [("High", -1), ("Low", 100)])
+def test_high_below_low_and_low_above_high_are_hard_vetoed(bad_column, delta):
+    # High < Low (delta=-1 satırın Low'unun ALTINA) ve Low > High (delta=+100
+    # satırın High'ının ÜSTÜNE) — ikisi de aynı temel imkansızlığın (High/Low
+    # sırasının bozulması) iki yönü.
+    df = _fresh_df(rows=30)
+    row_loc = df.index[7]
+    if bad_column == "High":
+        df.loc[row_loc, "High"] = df.loc[row_loc, "Low"] + delta
+    else:
+        df.loc[row_loc, "Low"] = df.loc[row_loc, "High"] + delta
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "IMPOSSIBLE_OHLC_RELATIONSHIP"
+
+
+def test_high_below_open_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    row_loc = df.index[7]
+    df.loc[row_loc, "High"] = df.loc[row_loc, "Open"] - 5
+    df.loc[row_loc, "Low"] = df.loc[row_loc, "Open"] - 10  # Low<High korunsun, yalnız High<Open ihlali test edilsin
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "IMPOSSIBLE_OHLC_RELATIONSHIP"
+
+
+def test_low_above_close_is_hard_vetoed():
+    df = _fresh_df(rows=30)
+    row_loc = df.index[7]
+    df.loc[row_loc, "Low"] = df.loc[row_loc, "Close"] + 5
+    df.loc[row_loc, "High"] = df.loc[row_loc, "Close"] + 10  # High>Low korunsun, yalnız Low>Close ihlali test edilsin
+    with pytest.raises(InvalidOHLCVError) as exc_info:
+        check_raw_ohlcv_integrity(df, "TEST")
+    assert exc_info.value.violations[0][1] == "IMPOSSIBLE_OHLC_RELATIONSHIP"
+
+
+def test_evidence_only_malformed_row_outside_mandatory_window_does_not_veto():
+    # HATA 5A evidence-contract regresyon kilidi: bu fonksiyona yalnızca
+    # ÇAĞIRAN tarafın verdiği mandatory pencere gider -- bozuk bir satır
+    # mandatory pencerenin DIŞINDA (ör. evidence-only pre-roll'da) kalırsa
+    # bu fonksiyon onu HİÇ GÖRMEZ. Bu test, entegrasyon noktalarının (bkz.
+    # completed_history.py/technical/engine.py) yalnızca kırpılmış mandatory
+    # pencereyi geçirdiğini simüle eder: bozuk satırı İÇERMEYEN bir df
+    # sorunsuz geçer.
+    mandatory_window = _fresh_df(rows=30)  # evidence pre-roll HİÇ dahil değil
+    check_raw_ohlcv_integrity(mandatory_window, "TEST")  # exception atmamalı

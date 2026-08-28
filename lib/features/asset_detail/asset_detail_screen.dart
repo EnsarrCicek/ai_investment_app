@@ -262,7 +262,13 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Teknik Skor: ${data.technicalScore.toStringAsFixed(1)}',
+                          // 27.08.2026 (HATA 5B1): `technicalScore` `null` ise
+                          // (7 bileşenin tamamı unavailable, son derece nadir)
+                          // 0.0 gibi sahte bir skor GÖSTERİLMEZ -- dürüst bir
+                          // "veri yetersiz" mesajı verilir.
+                          data.technicalScore != null
+                              ? 'Teknik Skor: ${data.technicalScore!.toStringAsFixed(1)}'
+                              : 'Teknik Skor: Veri yetersiz',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         Text('Güven: %${(data.confidence * 100).toStringAsFixed(0)}'),
@@ -282,7 +288,13 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                         ],
                       ],
                     ),
-                    Text(data.trend, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      // 27.08.2026 (HATA 5B1 FINAL PRE-COMMIT GATE): `trend`
+                      // `null` ise (skor hiç hesaplanamadı) "NEUTRAL" gibi
+                      // uydurma bir yön GÖSTERİLMEZ.
+                      data.trend ?? 'Veri yetersiz',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
               ),

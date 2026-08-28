@@ -80,6 +80,76 @@ def _cached_analysis(age_seconds: float) -> TechnicalAnalysis:
     )
 
 
+def test_technical_analysis_old_float_document_still_parses():
+    # HATA 5B1 madde S: TÜM mevcut Firestore kayıtları `technical_score`'u
+    # gerçek bir float olarak taşıyor (bug dormant'tı) -- `float | None` tip
+    # birleşimi geriye dönük UYUMLUDUR, bir float bu birleşimin bir ALT
+    # KÜMESİDİR. Migration YOK.
+    old_style_doc = {
+        "asset": "TEST",
+        "technical_score": 42.0,
+        "trend": "BULLISH",
+        "confidence": 0.9,
+        "components": {"rsi": 42.0},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+    }
+    analysis = TechnicalAnalysis(**old_style_doc)
+    assert analysis.technical_score == 42.0
+
+
+def test_technical_analysis_new_null_score_document_parses():
+    # HATA 5B1 madde T: 7 component'in tamamı unavailable olduğunda üretilen
+    # YENİ `technical_score: null` kaydı da (repository `model_dump()`'ın
+    # mevcut nullable-field convention'ıyla Firestore'a yazdığı hali) hatasız
+    # parse edilmeli.
+    new_style_doc = {
+        "asset": "TEST",
+        "technical_score": None,
+        "trend": "NEUTRAL",
+        "confidence": 0.0,
+        "components": {},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+    }
+    analysis = TechnicalAnalysis(**new_style_doc)
+    assert analysis.technical_score is None
+
+
+def test_technical_analysis_old_string_trend_document_still_parses():
+    # HATA 5B1 FINAL PRE-COMMIT GATE, madde 2: TÜM mevcut Firestore kayıtları
+    # `trend`'i gerçek bir `str` ("BULLISH"/"BEARISH"/"NEUTRAL") olarak
+    # taşıyor -- `str | None` tip birleşimi geriye dönük UYUMLUDUR. Migration
+    # YOK.
+    old_style_doc = {
+        "asset": "TEST",
+        "technical_score": 42.0,
+        "trend": "BULLISH",
+        "confidence": 0.9,
+        "components": {"rsi": 42.0},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+    }
+    analysis = TechnicalAnalysis(**old_style_doc)
+    assert analysis.trend == "BULLISH"
+
+
+def test_technical_analysis_new_null_trend_document_parses():
+    # HATA 5B1 FINAL PRE-COMMIT GATE, madde 2: `technical_score=None`
+    # olduğunda üretilen YENİ `trend: null` kaydı da hatasız parse edilmeli.
+    new_style_doc = {
+        "asset": "TEST",
+        "technical_score": None,
+        "trend": None,
+        "confidence": 0.0,
+        "components": {},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+    }
+    analysis = TechnicalAnalysis(**new_style_doc)
+    assert analysis.trend is None
+
+
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
     # get_history() bu DataFrame'i asla döndürmemeli (cache hit testlerinde) —
     # provider'ın history_df'i None birakilirsa FakeMarketDataProvider
@@ -108,6 +178,113 @@ def _real_history_df(rows: int = 120) -> pd.DataFrame:
         },
         index=pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days]),
     )
+
+
+def _flat_history_df(rows: int = 120, price: float = 100.0) -> pd.DataFrame:
+    """HATA 5B1 (27.08.2026): tamamen düz (sabit) ama GEÇERLİ (pozitif,
+    tutarlı OHLC) bir fiyat serisi — `check_raw_ohlcv_integrity()`'yi
+    (Layer 1) sorunsuz geçer, ama ATR/Bollinger band_width TAM OLARAK 0
+    üretir (gerçek, "corrupt olmayan" bir piyasa koşulu: N gün boyunca hiç
+    fiyat hareketi yok)."""
+    end = (pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).date()
+    trading_days = _bist_trading_days(end, rows)
+    idx = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days])
+    return pd.DataFrame(
+        {"Open": price, "High": price, "Low": price, "Close": price, "Volume": 1000},
+        index=idx,
+    )
+
+
+def test_analyze_with_id_flat_price_makes_zero_denominator_components_unavailable(fake_provider):
+    # HATA 5B1 madde K/L/M/N: düz fiyatta ATR=0/band_width=0 VE bu
+    # component'lerin PAYI da (macd_hist/momentum diff/close-middle) aynı
+    # düzlük yüzünden 0 olduğundan bunlar 0/0 BELİRSİZLİĞİDİR -- component
+    # UNAVAILABLE sayılmalı, `components` dict'inden OMIT edilmeli. RSI'ın
+    # düz-seri "50" tanımı (component=0), ve trend/ema_slope/ROC'un payDA
+    # SIFIR OLMAYAN (100/100 gibi) oranları ise GERÇEK geçerli sıfırlardır --
+    # AVAILABLE kalmalı.
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_flat_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert "macd" not in analysis.components
+    assert "momentum" not in analysis.components
+    assert "bollinger" not in analysis.components
+    assert analysis.components["rsi"] == 0.0
+    assert analysis.components["trend"] == 0.0
+    assert analysis.components["ema_slope"] == 0.0
+    assert analysis.components["roc"] == 0.0
+    assert analysis.technical_score is not None
+    assert analysis.technical_score == 0.0
+
+
+def test_technical_score_zero_vs_none_trend_signal_and_persistence_contract(fake_provider, monkeypatch):
+    # HATA 5B1 FINAL PRE-COMMIT GATE, madde 1 + 2 + 5: iki kritik durumu AYNI
+    # gerçek `analyze_with_id()` akışında, birbirine karşı kilitler.
+    #
+    # CASE A: technical_score=0.0 -- GEÇERLİ, hesaplanmış bir skor (düz fiyat
+    # senaryosu). trend hâlâ "NEUTRAL" olmalı, "unavailable"/missing İLE
+    # KARIŞTIRILMAMALI.
+    analysis_repo_a = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    engine_a = TechnicalAnalysisEngine(
+        provider=fake_provider(history_df=_flat_history_df()),
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo_a,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    case_a, _ = engine_a.analyze_with_id("TEST")
+
+    assert case_a.technical_score == 0.0
+    assert case_a.trend == "NEUTRAL"
+    assert case_a.confidence > 0.0  # gerçek bir güven hesaplandı, 0'a ZORLANMADI
+    # HATA 5B1 FINAL CONFIDENCE AUDIT, madde 6: skor GEÇERLİ (0.0, unavailable
+    # DEĞİL) olduğundan signal classifier NORMAL şekilde çalışmış olmalı --
+    # exact sınıf (mevcut classifier contract'ının kendi iç mantığı) burada
+    # İDDİA EDİLMİYOR, yalnızca "unavailable skorda olduğu gibi None'a
+    # DÜŞMEDİ" kilitleniyor.
+    assert case_a.signal_class is not None
+
+    # CASE B: technical_score=None -- yalnızca `scoring.py` unit seviyesinde
+    # değil, GERÇEK `analyze_with_id()` akışında. Valid OHLCV kullanılır (Layer
+    # 1 HARD VETO tetiklenmez); component aggregation'ı deterministik olarak
+    # `None` yapan bir monkeypatch ile YALNIZCA `None`'ın engine içindeki
+    # DOWNSTREAM yolu test edilir (indikatör matematiği DEĞİL) -- `stored_
+    # components`'ın kendisi (gerçek matematikten üretildiği için) dolu
+    # kalabilir, bu KASITLIDIR ve testin amacını etkilemez.
+    monkeypatch.setattr(
+        "app.engines.technical.engine.aggregate_available_components",
+        lambda components, weights: None,
+    )
+    analysis_repo_b = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    engine_b = TechnicalAnalysisEngine(
+        provider=fake_provider(history_df=_real_history_df()),
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo_b,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    # Herhangi bir TypeError/numeric-comparison crash OLMADAN tamamlanmalı --
+    # `final_score > 15`/`final_score >= 0` gibi karşılaştırmalar `None` ile
+    # asla çağrılmaz (bkz. `if final_score is None:` dalı, engine.py).
+    case_b, doc_id_b = engine_b.analyze_with_id("TEST")
+
+    assert case_b.technical_score is None
+    assert case_b.trend is None  # "NEUTRAL" UYDURULMADI
+    assert case_b.confidence == 0.0
+    assert case_b.signal_class is None  # sahte WATCHLIST/BULLISH/BEARISH YOK
+    assert case_b.investment_horizon is None
+    assert case_b.investment_horizon_reason == ""
+    # Firestore model construction (pydantic TechnicalAnalysis(...)) VE
+    # persist (_FakeTechnicalAnalysisRepo.add) crash ETMEDİ.
+    assert doc_id_b == "new-id"
+    assert len(analysis_repo_b.added) == 1
 
 
 def test_analyze_with_id_uses_cache_when_fresh(fake_provider):

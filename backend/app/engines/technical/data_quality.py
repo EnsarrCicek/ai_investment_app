@@ -16,6 +16,7 @@ madde 7 — geliştirme sırası).
 
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 
 from app.services.market_data.completed_bars import latest_expected_completed_date
@@ -167,6 +168,86 @@ class TradingDayContinuityError(DataQualityError):
         # unexpected varsa yeni, ayrı bir reason_code kullanılır.
         reason_code = "MISSING_TRADING_SESSION" if missing_dates else "UNEXPECTED_TRADING_SESSION"
         super().__init__(reason_code, message)
+
+
+class InvalidOHLCVError(DataQualityError):
+    """HATA 5B1 (27.08.2026) — LAYER 1 (market data quality): mandatory
+    skorlanan pencere (`indicator_history` / live'ın `expected_start`'tan
+    itibaren kırpılmış analiz penceresi) İÇİNDE, HERHANGİ bir satırda
+    (yalnızca son bar DEĞİL — bkz. `check_data_quality`'nin daha dar,
+    yalnızca-son-bar kapsamı) NaN/±inf OHLCV, sıfır/negatif fiyat, negatif
+    hacim veya imkânsız bir OHLC ilişkisi (`High < Low` vb.) varsa HARD VETO
+    eder.
+
+    Bu, HATA 5B1'in component-seviyesi "available/unavailable" renormalizasyon
+    contract'ından (bkz. `scoring.py`) KASITLI OLARAK AYRIDIR: bir component'in
+    KENDİ matematiğinin (warm-up NaN, 0/0 oranı) tanımsız olması NORMAL ve
+    beklenen bir durumdur (Layer 2/3, per-component, graceful renormalizasyon).
+    Ama market datanın KENDİSİNİN (Open/High/Low/Close/Volume) bozuk olması
+    FARKLI bir kategoridir — component renormalizasyonu bunu ASLA sessizce
+    "eksik component" gibi ele alıp gizlememelidir; bu fonksiyon, indikatör
+    hesabı hiç BAŞLAMADAN önce (mevcut HATA 2B/3C/3D fail-fast mimarisiyle
+    AYNI felsefeyle) tüm satırı reddeder.
+
+    **Kapsam sınırı (HATA 2C/5A evidence semantics KORUNUR):** yalnızca
+    ÇAĞIRAN tarafın verdiği mandatory pencere kontrol edilir — evidence-only
+    pre-roll (`warmup_history_start`'tan ÖNCESİ) bu fonksiyona HİÇ verilmez
+    (bkz. `completed_history.prepare_backtest_history()`/`technical/engine.py`
+    çağrı noktaları, her ikisi de yalnızca kendi mandatory kırpılmış
+    penceresini geçirir).
+
+    **Bilinçli olarak KAPSAM DIŞI (HATA 5B1 final contract audit'i, madde 7):**
+    yinelenen (duplicate) timestamp, timestamp sıralama sorunları — ayrı,
+    gelecekteki bir data-quality denetiminin konusu. `Volume == 0` OTOMATİK
+    invalid SAYILMAZ (yalnızca `Volume < 0` hard veto'dur) — sıfır hacim ayrı
+    bir semantik/data-quality konusudur, bu HATA'nın kapsamında değildir.
+    """
+
+    def __init__(self, symbol: str, violations: list[tuple[date, str]]):
+        self.symbol = symbol
+        self.violations = violations
+        preview = ", ".join(f"{d.isoformat()} ({reason})" for d, reason in violations[:5])
+        more = f" (+{len(violations) - 5} tane daha)" if len(violations) > 5 else ""
+        super().__init__(
+            "INVALID_OHLCV",
+            f"'{symbol}' için zorunlu skorlanan pencerede geçersiz/tutarsız OHLCV: {preview}{more}",
+        )
+
+
+def check_raw_ohlcv_integrity(df: pd.DataFrame, symbol: str) -> None:
+    """LAYER 1 — bkz. `InvalidOHLCVError` docstring'i. `df` boşsa sessizce
+    döner (çağıran taraf zaten ayrı bir boş-history kontrolü yapar).
+    """
+    if df.empty:
+        return
+
+    numeric = df[REQUIRED_COLUMNS].astype(float)
+    open_, high, low, close, volume = (numeric[c] for c in REQUIRED_COLUMNS)
+
+    finite_mask = pd.DataFrame(
+        np.isfinite(numeric.to_numpy()), index=numeric.index, columns=REQUIRED_COLUMNS
+    ).all(axis=1)
+    non_positive_price_mask = finite_mask & ((open_ <= 0) | (high <= 0) | (low <= 0) | (close <= 0))
+    negative_volume_mask = finite_mask & (volume < 0)
+    impossible_ohlc_mask = finite_mask & (
+        (high < low) | (high < open_) | (high < close) | (low > open_) | (low > close)
+    )
+
+    bad_mask = ~finite_mask | non_positive_price_mask | negative_volume_mask | impossible_ohlc_mask
+    if not bad_mask.any():
+        return
+
+    def _reason(ts) -> str:
+        if not finite_mask.loc[ts]:
+            return "NaN" if numeric.loc[ts].isna().any() else "INF"
+        if non_positive_price_mask.loc[ts]:
+            return "NON_POSITIVE_PRICE"
+        if negative_volume_mask.loc[ts]:
+            return "NEGATIVE_VOLUME"
+        return "IMPOSSIBLE_OHLC_RELATIONSHIP"
+
+    violations = [(ts.date(), _reason(ts)) for ts in df.index[bad_mask]]
+    raise InvalidOHLCVError(symbol, violations)
 
 
 def check_data_quality(

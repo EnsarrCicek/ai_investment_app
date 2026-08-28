@@ -30,6 +30,28 @@ class _FakeTechnicalEngine:
         return analysis, "tech-id"
 
 
+class _FakeTechnicalEngineUnavailableScore:
+    """HATA 5B1 (27.08.2026): `technical_score=None` üretildiğinde (7
+    component'in tamamı unavailable, son derece nadir bir durum) --
+    `components` dict'i de PRODUCTION davranışıyla tutarlı şekilde
+    unavailable component'leri OMIT eder (boş kalır)."""
+
+    def analyze_with_id(self, symbol, persist=True):
+        analysis = TechnicalAnalysis(
+            asset=symbol,
+            technical_score=None,
+            # HATA 5B1 FINAL PRE-COMMIT GATE (27.08.2026, madde 2): trend de
+            # None -- "NEUTRAL" skorun hesaplandığı ama nötr olduğu anlamına
+            # gelir, skor hiç üretilemediğinde bu UYDURULMAZ.
+            trend=None,
+            confidence=0.0,
+            components={},
+            indicators={},
+            created_at=datetime.now(timezone.utc),
+        )
+        return analysis, "tech-id-unavailable"
+
+
 class _FakeMacroRepo:
     def get_latest_with_id(self):
         return None, None
@@ -88,3 +110,24 @@ def test_explain_still_reports_missing_macro():
 
     assert any("makro" in m.lower() for m in result["missing"])
     assert result["macro_reasons"] == []
+
+
+def test_explain_does_not_crash_when_technical_score_is_unavailable():
+    # HATA 5B1 madde U: `technical_score=None` + boş `components` dict --
+    # `_top_reasons()`'ın `abs(kv[1])` çağrısı (component'ler unavailable
+    # olduğunda OMIT edildiği için) bir `None`/NaN sentinel'e HİÇ rastlamaz;
+    # `DecisionEngine.decide()` de `technical_score=None`'ı zaten doğru
+    # dışlayıp kalan (haber) ağırlığı üzerinden renormalize eder. Bu, uçtan
+    # uca (ExplanationEngine -> DecisionEngine) crash olmadığını kilitler.
+    decision_engine = DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+    engine = ExplanationEngine(
+        decision_engine=decision_engine,
+        technical_engine=_FakeTechnicalEngineUnavailableScore(),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=_FakeNewsRepo([_news(60.0, 0.8, 0.7, "Güçlü bilanço açıklandı.")]),
+    )
+
+    result = engine.explain("TEST")  # exception atmamalı
+
+    assert result["technical_reasons"] == []
+    assert result["decision"] in {"BUY", "WEAK_BUY", "HOLD", "WEAK_SELL", "SELL"}

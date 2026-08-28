@@ -5,8 +5,31 @@ from pydantic import BaseModel, Field
 
 class TechnicalAnalysis(BaseModel):
     asset: str
-    technical_score: float
-    trend: str
+    # HATA 5B1 (27.08.2026): 7 component'in TAMAMI unavailable (finite değil)
+    # olduğu (son derece nadir, bkz. scoring.py modül docstring'i) durumda
+    # `None` -- 0.0/100.0 gibi sahte bir "nötr"/"maksimum" skor UYDURULMAZ.
+    # Eski Firestore kayıtlarının TAMAMI gerçek bir float taşıdığından
+    # (`float` bu tip birleşiminin bir alt kümesidir) geriye dönük okuma
+    # BOZULMAZ, migration YAPILMADI.
+    technical_score: float | None
+    # 27.08.2026 (HATA 5B1 FINAL PRE-COMMIT GATE): `technical_score is None`
+    # olduğunda `trend` de `None` olur -- "NEUTRAL" GERÇEK bir teknik yön
+    # bilgisidir (skor [-15, 15] aralığında demektir), "yön hesaplanamadı"
+    # ile AYNI şey DEĞİLDİR. `technical_score == 0.0` (geçerli, hesaplanmış
+    # bir skor) hâlâ `trend == "NEUTRAL"` üretir -- yalnızca skorun kendisi
+    # `None` (7 component'in tamamı unavailable) olduğunda `trend` de `None`
+    # olur. Eski Firestore kayıtlarının TAMAMI gerçek bir `str` taşıdığından
+    # geriye dönük okuma BOZULMAZ, migration YAPILMADI.
+    trend: str | None
+    # 27.08.2026 (HATA 5B1 FINAL PRE-COMMIT GATE, madde 3): `technical_score
+    # is None` olduğunda `confidence=0.0` KALIR (nullable YAPILMADI) --
+    # burada `confidence`'ın anlamı "üretilebilir bir teknik skora ne kadar
+    # güveniliyor" demektir; skor hiç üretilemediğinde %0 güven DÜRÜST bir
+    # değerdir, "nötr skor" anlamına GELMEZ. `DecisionEngine.decide()` zaten
+    # bu semantiği kullanıyor: `technical_confidence=0.0` overall confidence'ı
+    # sıfırlar (bkz. engines/decision/engine.py, `base_confidence` satırı) --
+    # None ile karıştırılmaz çünkü `technical_confidence: float | None`
+    # parametresi yalnızca HİÇ değer verilmediğinde (0.6) varsayılana düşer.
     confidence: float
     components: dict[str, float]
     indicators: dict

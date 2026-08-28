@@ -135,6 +135,7 @@ from dateutil.relativedelta import relativedelta
 from app.engines.technical.data_quality import (
     DataQualityError,
     check_data_quality,
+    check_raw_ohlcv_integrity,
     check_trading_day_continuity,
     previous_expected_sessions,
     validate_calendar_coverage,
@@ -330,6 +331,15 @@ def prepare_backtest_history(
     # aralık `[warmup_history_start, target_end]`'dir) TEK bir eksik/
     # beklenmeyen gün bile HARD VETO'dur.
     check_trading_day_continuity(indicator_history, symbol, now=now, expected_start=warmup_history_start)
+
+    # HATA 5B1 (27.08.2026) — LAYER 1: mandatory `indicator_history` (warm-up
+    # + simulation) İÇİNDE NaN/±inf/geçersiz fiyat/negatif hacim/imkânsız OHLC
+    # ilişkisi varsa HARD VETO — evidence-only pre-roll bu kontrolün DIŞINDA
+    # kalır (`indicator_history` zaten yalnızca `warmup_history_start` ve
+    # SONRASINI içerir, bkz. yukarıdaki `keep_mask`). Bu, component-seviyesi
+    # "unavailable" renormalizasyonunun (`scoring.py`) bozuk market datayı
+    # ASLA gizlememesini garanti eder.
+    check_raw_ohlcv_integrity(indicator_history, symbol)
     check_data_quality(indicator_history, symbol, min_history_days=INDICATOR_WARMUP_SESSIONS, now=now)
 
     sim_mask = [ts.date() >= simulation_start for ts in indicator_history.index]

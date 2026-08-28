@@ -73,10 +73,11 @@ from app.engines.technical.breakout import BreakoutEvent
 from app.engines.technical.breakout_timeline import build_breakout_timeline, select_live_breakout_event, to_legacy_breakout_event
 from app.engines.technical.narrative import build_narrative
 from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
-from app.engines.technical.data_quality import check_data_quality, check_trading_day_continuity
+from app.engines.technical.data_quality import check_data_quality, check_raw_ohlcv_integrity, check_trading_day_continuity
 from app.engines.technical.gap_analysis import classify_gap, is_gap_filled, latest_gap
 from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon, horizon_reason
 from app.engines.technical.history_window import compute_history_window, resolve_expected_start
+from app.engines.technical.scoring import aggregate_available_components, clamp_component, is_available, safe_ratio
 from app.engines.technical.market_structure import analyze_market_structure
 from app.services.market_data.completed_bars import filter_completed_daily_bars
 from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
@@ -227,7 +228,7 @@ def _compute_enrichment(
     symbol: str,
     atr_val: float,
     close_val: float,
-    final_score: float,
+    final_score: float | None,
     provider: MarketDataProvider | None = None,
     benchmark_cache_repo: BenchmarkCacheRepository | None = None,
     now: datetime | None = None,
@@ -291,27 +292,40 @@ def _compute_enrichment(
     weekly_direction = timeframe_direction(weekly_close)
     alignment = check_alignment({"1d": daily_direction, "1wk": weekly_direction})
 
-    signal_inputs = SignalInputs(
-        technical_score=final_score,
-        market_structure=structure_result["structure"],
-        breakout_event=breakout_event,
-        relative_volume_class=rv_class,
-        relative_strength_class=rs_class,
-        mtf_aligned=alignment["aligned"],
-        mtf_consensus=alignment["consensus"],
-    )
-    signal_class = classify_signal(signal_inputs)
+    # HATA 5B1 (27.08.2026): `technical_score` unavailable (`None`) olduğunda
+    # `classify_signal()`/`classify_horizon()` sayısal threshold karşılaştırması
+    # (`score >= 40` vb.) YAPAMAZ -- `None`'ı sahte bir "0"/"WATCHLIST"/
+    # "BULLISH" sınıfına ÇEVİRMEK invented bir semantik olurdu. Bu iki alan
+    # skorun kendisi kadar dürüst biçimde `None` kalır; breakout/market_
+    # structure/relative_volume/relative_strength/mtf_alignment gibi
+    # technical_score'dan BAĞIMSIZ enrichment alanları ETKİLENMEZ (aşağıda
+    # DEĞİŞMEDEN hesaplanmaya devam eder).
+    if final_score is not None:
+        signal_inputs = SignalInputs(
+            technical_score=final_score,
+            market_structure=structure_result["structure"],
+            breakout_event=breakout_event,
+            relative_volume_class=rv_class,
+            relative_strength_class=rs_class,
+            mtf_aligned=alignment["aligned"],
+            mtf_consensus=alignment["consensus"],
+        )
+        signal_class = classify_signal(signal_inputs)
 
-    horizon_inputs = HorizonInputs(
-        signal_class=signal_class,
-        market_structure=structure_result["structure"],
-        trend_regime=trend_regime_val,
-        relative_strength_class=rs_class,
-        mtf_aligned=alignment["aligned"],
-        mtf_consensus=alignment["consensus"],
-    )
-    investment_horizon = classify_horizon(horizon_inputs)
-    investment_horizon_reason = horizon_reason(investment_horizon, horizon_inputs)
+        horizon_inputs = HorizonInputs(
+            signal_class=signal_class,
+            market_structure=structure_result["structure"],
+            trend_regime=trend_regime_val,
+            relative_strength_class=rs_class,
+            mtf_aligned=alignment["aligned"],
+            mtf_consensus=alignment["consensus"],
+        )
+        investment_horizon = classify_horizon(horizon_inputs)
+        investment_horizon_reason = horizon_reason(investment_horizon, horizon_inputs)
+    else:
+        signal_class = None
+        investment_horizon = None
+        investment_horizon_reason = ""
 
     nearest_support_dict = _zone_to_dict(support)
     nearest_resistance_dict = _zone_to_dict(resistance)
@@ -422,6 +436,14 @@ class TechnicalAnalysisEngine:
         # BİLİNÇLİ OLARAK bu kırpılmış seri üzerinde yapılır (pre-roll'un
         # kendisi minimum-geçmiş şartını "sahte" karşılamasın diye).
         df = provider_history[provider_history.index.date >= expected_start]
+
+        # HATA 5B1 (27.08.2026) — LAYER 1: mandatory analiz penceresi İÇİNDE
+        # (yalnızca son bar DEĞİL) NaN/±inf/geçersiz fiyat/negatif hacim/
+        # imkânsız OHLC ilişkisi varsa HARD VETO — component-seviyesi
+        # "unavailable" renormalizasyonu (aşağıda) bozuk market datayı ASLA
+        # gizlemez. Pre-roll bu kontrolün DIŞINDA kalır (`df` zaten yalnızca
+        # `expected_start` ve SONRASINI içerir).
+        check_raw_ohlcv_integrity(df, symbol)
         check_data_quality(df, symbol, min_history_days=MIN_HISTORY_DAYS, now=now)
 
         weights = self._config_repo.get("technical_indicator_weights", DEFAULT_WEIGHTS)
@@ -445,27 +467,62 @@ class TechnicalAnalysisEngine:
 
         band_width = upper_val - middle_val
 
-        components = {
-            "rsi": _clamp((rsi_val - 50) * 2),
-            "macd": _clamp((macd_hist_val / atr_val) * 25) if atr_val else 0.0,
-            "trend": _clamp(((ema_short_val - ema_long_val) / ema_long_val) * 1000) if ema_long_val else 0.0,
-            "ema_slope": _clamp(ema_slope_val * 15),
-            "bollinger": _clamp(((close_val - middle_val) / band_width) * 100) if band_width else 0.0,
-            "momentum": _clamp((momentum_val / atr_val) * 20) if atr_val else 0.0,
-            "roc": _clamp(roc_val * 8),
+        # HATA 5B1 (27.08.2026): eski `if atr_val else 0.0` deseni yalnızca
+        # LİTERAL sıfır paydayı yakalıyordu — NaN Python'da TRUTHY olduğundan
+        # (`bool(float('nan'))==True`) bu guard NaN'ı HİÇ yakalamıyordu, sonuç
+        # `_clamp(nan)` (Python `max`/`min`'in NaN karşılaştırma davranışı
+        # nedeniyle) DETERMİNİSTİK olarak `+100.0` oluyordu — eksik bir
+        # component sahte bir "maksimum bullish" sinyaline dönüşüyordu.
+        # `safe_ratio()`/`clamp_component()` (bkz. `scoring.py`) hem NaN hem
+        # `x/0` hem `0/0` durumunu AYNI, tutarlı NaN sonucuna götürür; RSI'ın
+        # düz-seri `50.0`'ı (component `0.0`) `indicators.rsi()`'ın KENDİ
+        # kasıtlı tanımıdır — GERÇEK bir geçerli sıfırdır, bu değişiklikten
+        # ETKİLENMEZ. Component formülleri/skala katsayıları (25/1000/15/
+        # 100/20/8) HİÇ DEĞİŞMEDİ.
+        raw_components = {
+            "rsi": (rsi_val - 50) * 2,
+            "macd": safe_ratio(macd_hist_val, atr_val) * 25,
+            "trend": safe_ratio(ema_short_val - ema_long_val, ema_long_val) * 1000,
+            "ema_slope": ema_slope_val * 15,
+            "bollinger": safe_ratio(close_val - middle_val, band_width) * 100,
+            "momentum": safe_ratio(momentum_val, atr_val) * 20,
+            "roc": roc_val * 8,
         }
+        components = {k: clamp_component(v) for k, v in raw_components.items()}
 
-        weight_sum = sum(weights.get(k, 0.0) for k in components)
-        raw_score = sum(components[k] * weights.get(k, 0.0) for k in components)
-        final_score = round(_clamp(raw_score / weight_sum) if weight_sum else 0.0, 2)
+        # HATA 5B1: yalnız AVAILABLE (finite) component'ler üzerinden
+        # ağırlıklı ortalama, KALAN mevcut ağırlıklar renormalize edilerek
+        # (bkz. `scoring.aggregate_available_components`). Hiçbir component
+        # available değilse `final_score=None` — `0.0`/`100.0` UYDURULMAZ.
+        final_score = aggregate_available_components(components, weights)
 
-        agreement = sum(
-            1 for s in components.values() if (s >= 0) == (final_score >= 0)
-        ) / len(components)
-        volume_confirmation = min(current_volume / volume_sma_val, 2.0) / 2.0 if volume_sma_val else 0.5
-        confidence = round(_clamp(0.4 + 0.4 * agreement + 0.2 * volume_confirmation, 0.0, 1.0), 2)
+        # Firestore'a/API'ye giden `components` dict'i unavailable component'leri
+        # OMIT eder (None/NaN sentinel TUTMAZ) — hem "bu component için skor
+        # yok" anlamını en dürüst şekilde taşır hem de downstream tüketicilerde
+        # (ör. ExplanationEngine._top_reasons'ın `abs()` çağrısı) bir sentinel
+        # değer nedeniyle crash riski oluşturmaz.
+        stored_components = {k: v for k, v in components.items() if is_available(v)}
 
-        trend = "BULLISH" if final_score > 15 else "BEARISH" if final_score < -15 else "NEUTRAL"
+        if final_score is None:
+            # Tüm 7 component birden unavailable — son derece nadir (HATA 5B1
+            # audit'i: gerçek 5-sembol/2-yıl veri setinde 0 gözlem), ama
+            # skor-bağımlı türetilmiş alanlar (confidence/trend) sahte bir
+            # sayı UYDURMAZ. FINAL PRE-COMMIT GATE (27.08.2026, madde 2):
+            # `trend="NEUTRAL"` da bir UYDURMAdır -- NEUTRAL, skorun
+            # HESAPLANDIĞI ama [-15, 15] aralığında kaldığı GERÇEK bir teknik
+            # yön bilgisidir; skor hiç hesaplanamadığında `trend=None` (bkz.
+            # models/technical_analysis.py, `trend: str | None`).
+            confidence = 0.0
+            trend = None
+        else:
+            agreement = (
+                sum(1 for s in stored_components.values() if (s >= 0) == (final_score >= 0)) / len(stored_components)
+                if stored_components
+                else 0.0
+            )
+            volume_confirmation = min(current_volume / volume_sma_val, 2.0) / 2.0 if volume_sma_val else 0.5
+            confidence = round(_clamp(0.4 + 0.4 * agreement + 0.2 * volume_confirmation, 0.0, 1.0), 2)
+            trend = "BULLISH" if final_score > 15 else "BEARISH" if final_score < -15 else "NEUTRAL"
 
         enrichment = _compute_enrichment(
             df,
@@ -483,7 +540,7 @@ class TechnicalAnalysisEngine:
             technical_score=final_score,
             trend=trend,
             confidence=confidence,
-            components=components,
+            components=stored_components,
             market_data_as_of=df.index[-1].to_pydatetime(),
             history_validation_status=validation_status.value,
             **session_normalization_to_dict(session_normalization_result),

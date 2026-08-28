@@ -86,4 +86,44 @@ void main() {
     expect(detail.investmentHorizonReason, 'Yalnızca teknik skor yön veriyor.');
     expect(detail.marketDataAsOf, DateTime.parse('2026-08-24T00:00:00+03:00'));
   });
+
+  test('27.08.2026 (HATA 5B1): technical_score null iken crash olmadan ayrıştırılır', () {
+    // Backend 7 bileşenin TAMAMI unavailable olduğunda (son derece nadir)
+    // `technical_score: null` döner -- eski `(json['technical_score'] as num)
+    // .toDouble()` deseni bu durumda Dart runtime TypeError fırlatırdı.
+    // FINAL PRE-COMMIT GATE (madde 2): aynı durumda `trend` de `null` döner
+    // (eski `json['trend'] as String` deseni de burada TypeError fırlatırdı).
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': null,
+      'trend': null,
+      'confidence': 0.0,
+      'components': <String, dynamic>{},
+      'indicators': {'rsi': 40.0},
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.technicalScore, isNull);
+    expect(detail.trend, isNull);
+    expect(detail.components, isEmpty);
+  });
+
+  test('27.08.2026 (HATA 5B1 FINAL PRE-COMMIT GATE): technical_score=0.0 iken trend gerçek bir string olarak kalır', () {
+    // score=0.0 GEÇERLİ bir skordur (unavailable İLE KARIŞTIRILMAMALI) --
+    // trend de her zamanki gibi gerçek bir "NEUTRAL" string'i olarak kalır.
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': 0.0,
+      'trend': 'NEUTRAL',
+      'confidence': 0.62,
+      'components': {'rsi': 0.0, 'trend': 0.0},
+      'indicators': {'rsi': 50.0},
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.technicalScore, 0.0);
+    expect(detail.trend, 'NEUTRAL');
+  });
 }

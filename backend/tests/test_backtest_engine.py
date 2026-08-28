@@ -34,6 +34,42 @@ def _noisy_trending_df(n=150, seed=7):
     )
 
 
+def _flat_then_trending_df(flat_rows=80, trending_rows=40, price=100.0, seed=11):
+    # HATA 5B1: yeterince uzun bir düz (sabit fiyat) segment, ATR'nin EWM
+    # decay'inin TAM 0.0'a yakınsaması için (`ewm(alpha=1/14)`, birkaç
+    # yarı-ömür sonra pratikte 0'a iner) -- ardından normal trend devam eder.
+    flat_idx = pd.date_range("2024-01-01", periods=flat_rows, freq="D")
+    flat = pd.DataFrame(
+        {"Open": price, "High": price, "Low": price, "Close": price, "Volume": 1000.0}, index=flat_idx
+    )
+    trending = _noisy_trending_df(n=trending_rows, seed=seed)
+    trending.index = pd.date_range(flat_idx[-1] + pd.Timedelta(days=1), periods=trending_rows, freq="D")
+    return pd.concat([flat, trending])
+
+
+def test_technical_score_series_zero_denominator_components_are_renormalized_not_diluted():
+    # HATA 5B1 REQUIRED TEST PLAN: backtest'in vektörize `technical_score_
+    # series()`'i, gerçek indikatör formülleriyle (scratch değil, production
+    # kodun KENDİSİ), uzun bir düz segmentte MACD/Momentum/Bollinger'ı
+    # UNAVAILABLE sayıp KALAN component'lerin ağırlığını renormalize etmeli --
+    # eski `.fillna(0.0)` deseninin (sessizce "geçerli nötr 0" sayıp skoru
+    # SEYRELTMESİ) YERİNE.
+    df = _flat_then_trending_df()
+    scores = technical_score_series(df, DEFAULT_WEIGHTS)
+
+    # Düz segmentin sonunda (ATR/band_width'in EWM decay'i pratikte 0'a
+    # ulaştığı bir nokta) skor NaN OLMAMALI (RSI/trend/ema_slope/ROC hâlâ
+    # available, renormalize edilmiş bir skor üretilir) -- eski davranışta
+    # bu skor -50/50 gibi bir "seyreltilmiş" değere yakın olurdu; yeni
+    # davranışta yalnızca gerçekten available component'lerin ağırlıklı
+    # ortalamasıdır, ki düz fiyatta bunların HEPSİ 0.0 (RSI=50->0,
+    # trend=0/100->0, ema_slope=0/100->0, ROC=0/100->0) olduğundan skor
+    # TAM OLARAK 0.0 olmalıdır.
+    flat_end_score = scores.iloc[75]  # düz segmentin (0-79) sonuna yakın, warm-up sonrası
+    assert pd.notna(flat_end_score)
+    assert flat_end_score == 0.0
+
+
 def test_technical_score_series_matches_input_length_and_bounds():
     df = _uptrend_df()
     series = technical_score_series(df, DEFAULT_WEIGHTS)

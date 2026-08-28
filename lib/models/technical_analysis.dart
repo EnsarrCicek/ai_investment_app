@@ -46,8 +46,17 @@ class BreakoutInfo {
 
 class TechnicalAnalysisDetail {
   final String asset;
-  final double technicalScore;
-  final String trend;
+  // 27.08.2026 (HATA 5B1): backend'in 7 bileşeninin TAMAMI unavailable
+  // olduğunda (son derece nadir) `null` dönebilir -- 0.0 ile KARIŞTIRILMAMALI:
+  // 0.0 gerçek bir teknik skordur, `null` skorun HİÇ üretilemediği anlamına
+  // gelir.
+  final double? technicalScore;
+  // 27.08.2026 (HATA 5B1 FINAL PRE-COMMIT GATE): `technicalScore` `null`
+  // olduğunda `trend` de `null` olur -- "NEUTRAL" gerçek bir teknik yön
+  // bilgisidir (skor hesaplandı ama [-15, 15] aralığında), "yön
+  // hesaplanamadı" ile AYNI şey DEĞİLDİR. `technicalScore == 0.0` hâlâ
+  // `trend == 'NEUTRAL'` üretir.
+  final String? trend;
   final double confidence;
   final Map<String, double> components;
   final Map<String, dynamic> indicators;
@@ -115,8 +124,8 @@ class TechnicalAnalysisDetail {
   factory TechnicalAnalysisDetail.fromJson(Map<String, dynamic> json) {
     return TechnicalAnalysisDetail(
       asset: json['asset'] as String,
-      technicalScore: (json['technical_score'] as num).toDouble(),
-      trend: json['trend'] as String,
+      technicalScore: (json['technical_score'] as num?)?.toDouble(),
+      trend: json['trend'] as String?,
       confidence: (json['confidence'] as num).toDouble(),
       components: (json['components'] as Map<String, dynamic>).map(
         (key, value) => MapEntry(key, (value as num).toDouble()),

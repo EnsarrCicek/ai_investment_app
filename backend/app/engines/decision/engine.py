@@ -101,7 +101,23 @@ class DecisionEngine:
         )
 
         completeness = available_weight / sum(weights.values())
-        base_confidence = technical_confidence if technical_confidence is not None else 0.6
+        # HATA 5B1 — CONFIDENCE COMMIT BLOCKER (27.08.2026): `technical_score
+        # is None` (technical kanalı GERÇEKTEN unavailable, bkz. technical/
+        # engine.py/scoring.py) olduğunda `TechnicalAnalysisEngine` `confidence
+        # =0.0` üretir -- bu "üretilebilir bir teknik skora güven %0" demektir,
+        # "0 confidence'lı GEÇERLİ bir teknik skor" DEĞİL (bkz. models/
+        # technical_analysis.py `confidence` alanı docstring'i). Bu `0.0`'ı
+        # doğrudan `base_confidence` yapmak, eksik bir kanalın confidence'ı
+        # YAPAY olarak sıfırlamasına yol açardı -- projenin "missing kanal ->
+        # denominator'dan çıkar, dışla, UYDURMA" ilkesini confidence tarafında
+        # da ihlal ederdi. `technical_score is None` iken `technical_confidence`
+        # (her ne olursa olsun) confidence hesabına HİÇ sokulmaz -- bunun
+        # yerine, `technical_confidence` hiç verilmediğinde ZATEN kullanılan
+        # AYNI nötr varsayılana (0.6) düşülür; `completeness` (aşağıda) eksik
+        # ağırlık kadar confidence'ı zaten düşürüyor. `technical_score`
+        # GEÇERLİ bir değere (0.0 dahil) sahipse davranış DEĞİŞMEDİ.
+        technical_available = technical_score is not None
+        base_confidence = technical_confidence if (technical_available and technical_confidence is not None) else 0.6
         confidence = round(base_confidence * completeness * 100, 2)
 
         decision = _classify(final_score, thresholds)

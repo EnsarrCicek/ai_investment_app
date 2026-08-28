@@ -577,6 +577,36 @@ def test_evidence_rows_are_categorically_excluded_from_indicator_history():
     assert evidence_dates & indicator_history_dates == set()
 
 
+def test_evidence_only_malformed_row_does_not_veto_real_prepare_backtest_history():
+    # HATA 5B1 FINAL PRE-COMMIT GATE, madde 4: `check_raw_ohlcv_integrity()`'in
+    # (Layer 1) evidence-only pre-roll'a YANLIŞLIKLA genişlemediğini yalnızca
+    # fonksiyonu izole çağırarak (bkz. test_data_quality.py, `test_evidence_
+    # only_malformed_row_outside_mandatory_window_does_not_veto`) DEĞİL, GERÇEK
+    # `prepare_backtest_history()` uçtan uca akışıyla kanıtlar -- HATA 5A +
+    # HATA 5B1 parity kilidi.
+    now = datetime(2026, 8, 26, 18, 45, tzinfo=TZ)  # target_end=2026-08-26 -> simulation_start(1y)=2025-08-26
+    evidence = _bday_df("2025-03-01", "2025-05-28", seed=9)  # warmup_history_start'IN ÖNCESİNDE -- yalnız evidence
+    malformed_date = evidence.index[3]
+    evidence.loc[malformed_date, "Close"] = float("nan")  # BİLEREK bozuk -- evidence-only bölgede
+    warmup_and_simulation = _bday_df("2025-05-29", "2026-08-26")  # warmup_history_start(=2025-05-29)..target_end
+    df = pd.concat([evidence, warmup_and_simulation]).sort_index()
+
+    assert malformed_date.date() < date(2025, 5, 29)  # önkoşul: gerçekten evidence-only bölgede
+
+    # PASS beklenir -- Layer 1 HARD VETO tetiklenMEMELİ (bozuk satır mandatory
+    # pencerenin dışında).
+    prepared = prepare_backtest_history(_FakeProvider(df), "TEST", "1y", now=now)
+
+    assert prepared.history_validation_status == "VERIFIED_PRE_WINDOW"  # evidence GERÇEKTEN bulundu (NaN'a RAĞMEN)
+    assert prepared.warmup_history_start == date(2025, 5, 29)
+    assert prepared.indicator_history.index[0].date() == date(2025, 5, 29)
+    # Bozuk evidence tarihi indicator_history'ye HİÇ GİRMEDİ.
+    assert malformed_date.date() not in [ts.date() for ts in prepared.indicator_history.index]
+    # indicator_history'nin KENDİSİ tamamen temiz (NaN İÇERMİYOR).
+    assert not prepared.indicator_history.isna().any().any()
+    assert prepared.simulation_history.index[0].date() == prepared.simulation_start
+
+
 def test_min_history_counts_only_analysis_history_not_pre_roll():
     # HATA 3E madde 14: analiz penceresi (target_start onward) TEK BAŞINA
     # min_history_days'i karşılamıyorsa, pre-roll'un (evidence-only) EK
