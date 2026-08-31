@@ -8,6 +8,7 @@ import '../../models/explanation.dart';
 import '../../services/api/asset_api.dart';
 import '../../services/api/decision_api.dart';
 import '../../utils/decision_style.dart';
+import '../../utils/percent_format.dart';
 import '../asset_detail/asset_detail_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -222,7 +223,12 @@ class _AssetCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              Text('Confidence: %${decision.confidence.toStringAsFixed(0)}'),
+              // HATA 5C-UI2 (31.08.2026): "Confidence" → "Sinyal Mutabakatı"
+              // (final kararla yönsel uyum) + ayrı "Veri Kapsamı" (kaç kanal
+              // mevcuttu) -- ikisi ASLA tek sayıya birleştirilmez, karışıklığı
+              // önlemek için birlikte gösterilir (bkz. only-one-channel case).
+              Text('Sinyal Mutabakatı: ${formatDecisionConfidencePercent(decision.confidence)}'),
+              Text('Veri Kapsamı: ${formatCoveragePercent(decision.channelCompleteness)}'),
               const SizedBox(height: 4),
               Text('Technical: ${_fmtScore(decision.technicalScore)}'),
               Text('News: ${_fmtScore(decision.newsScore)}'),

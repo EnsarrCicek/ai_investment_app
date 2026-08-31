@@ -128,11 +128,16 @@ class _FakeNewOpportunityLogRepo:
 
 
 def _decision(decision: str = "BUY") -> AIDecision:
+    # HATA 5C-UI4 (31.08.2026): production'da `notify_if_new_opportunity()`'e
+    # geçirilen `decision` HER ZAMAN `decide_for_asset()`'in TAZE ürettiği bir
+    # nesne olduğundan `channel_completeness` HİÇBİR ZAMAN None değildir --
+    # weights (technical=1.0, news=0.0, macro=0.0) ile yalnızca technical
+    # mevcutken gerçek `decide()` formülü channel_completeness=1.0 üretir.
     now = datetime.now(timezone.utc)
     return AIDecision(
         asset="TEST", created_at=now, technical_score=60.0, news_score=None, macro_score=None,
         technical_weight=1.0, news_weight=0.0, macro_weight=0.0, final_score=60.0,
-        decision=decision, confidence=80.0, decision_engine_version="1.0.0",
+        decision=decision, confidence=80.0, channel_completeness=1.0, decision_engine_version="1.1.0",
     )
 
 

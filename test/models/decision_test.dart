@@ -72,4 +72,36 @@ void main() {
     final decision = Decision.fromJson(json);
     expect(decision.channelCompleteness, isNull);
   });
+
+  test('31.08.2026 (HATA 5C-UI2): decision_engine_version mevcutken doğru ayrıştırılır', () {
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': 80.0,
+      'news_score': -80.0,
+      'macro_score': null,
+      'final_score': 20.0,
+      'decision': 'WEAK_BUY',
+      'confidence': 62.5,
+      'channel_completeness': 0.8,
+      'decision_engine_version': '1.1.0',
+    };
+
+    final decision = Decision.fromJson(json);
+    expect(decision.decisionEngineVersion, '1.1.0');
+  });
+
+  test('31.08.2026 (HATA 5C-UI2): decision_engine_version eklenmeden önceki kayıtlarda null olarak geriye dönük uyumludur', () {
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': -30.2,
+      'news_score': null,
+      'macro_score': -8.4,
+      'final_score': -21.1,
+      'decision': 'WEAK_SELL',
+      'confidence': 58.1,
+    };
+
+    final decision = Decision.fromJson(json);
+    expect(decision.decisionEngineVersion, isNull);
+  });
 }

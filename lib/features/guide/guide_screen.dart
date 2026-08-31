@@ -211,12 +211,22 @@ class _AnalizSection extends StatelessWidget {
         Text('Kart üzerindeki alanlar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         SizedBox(height: 8),
         _Term(
-          term: 'Confidence (Güven)',
+          term: 'Sinyal Mutabakatı',
           range: '%0–100',
-          description: 'Karara ne kadar güvenilebileceği. Göstergelerin birbiriyle ne kadar '
-              'aynı yönü işaret ettiğine ve kaç veri kaynağının (teknik/haber/makro) mevcut '
-              'olduğuna bağlı.',
-          formula: 'güven = temel_güven × (mevcut ağırlık / toplam ağırlık) × 100',
+          description: 'Mevcut technical/news/macro skorlarının, her kanalın karara katkı '
+              'ağırlığıyla tartılarak, final kararla AYNI yönde (AL/TUT/SAT tarafı) ne kadar '
+              'örtüştüğü. Bir kanalın kendi içindeki gücünü değil, final kararla aynı yönde '
+              'olup olmadığını ölçer.',
+          formula: 'sinyal mutabakatı = Σ(kanal ağırlığı, yönü final kararla AYNI)\n'
+              '                      ÷ Σ(mevcut kanal ağırlığı) × 100',
+        ),
+        _Term(
+          term: 'Veri Kapsamı',
+          range: '%0–100',
+          description: 'Technical/news/macro kanallarından, configured ağırlık açısından ne '
+              'kadarının bu karar için gerçekten mevcut olduğu. Sinyal Mutabakatı ile ASLA tek '
+              'bir sayıya birleştirilmez — ikisi ayrı okunmalı (ör. yalnızca makro veri '
+              'mevcutken mutabakat %100 ama kapsam %20 olabilir).',
         ),
         _Term(
           term: 'Technical',
@@ -227,8 +237,10 @@ class _AnalizSection extends StatelessWidget {
         _Term(
           term: 'News',
           range: '−100 … +100',
-          description: 'Haber duygu/etki skoru — varsayılan ağırlığı %30. Bu motor henüz '
-              'yazılmadığı için her zaman "Veri yok" görünür.',
+          description: 'Yapay zeka (GPT-5.6 Luna) tarafından her haber için üretilen duygu '
+              'skorunun (sentiment), modelin kendi güven düzeyiyle ağırlıklı ortalaması — '
+              'varsayılan ağırlığı %30. Bu varlık için hiç analiz edilmiş haber yoksa "Veri '
+              'yok" görünür.',
         ),
         _Term(
           term: 'Macro',
@@ -237,9 +249,13 @@ class _AnalizSection extends StatelessWidget {
               'skor — varsayılan ağırlığı %20.',
         ),
         _Note(
-          text: 'Eksik veri ne olur? News skoru hiç dolmadığı için sistem onu yok saymaz — '
-              'kalan bileşenlerin ağırlıklarını kendi aralarında yeniden %100\'e tamamlar ve '
-              'bunu güven değerine düşürerek yansıtır.',
+          text: 'Eksik veri ne olur? Örneğin haber skoru hiç yoksa o kanal Sinyal Mutabakatı '
+              'hesabından tamamen ÇIKARILIR — kalan kanalların ağırlıkları kendi aralarında '
+              'yeniden oranlanır; hiçbir zaman 0 (nötr) gibi uydurma bir değer varsayılmaz.',
+        ),
+        _Note(
+          text: 'Sinyal Mutabakatı ve Veri Kapsamı, kararın doğru çıkma olasılığı DEĞİLDİR — '
+              '"%80 = kararların %80\'i doğru çıkar" anlamına gelmez.',
         ),
       ],
     );
@@ -255,8 +271,12 @@ class _TeknikSection extends StatelessWidget {
       tag: 'Varlık Detayı · Teknik sekmesi',
       title: 'Teknik analiz nasıl hesaplanıyor',
       description:
-          'Son 6 aylık fiyat verisinden altı klasik teknik göstergenin ağırlıklı ortalaması '
-          'alınarak tek bir Teknik Skor üretilir.',
+          'Son 6 aylık fiyat verisinden yedi klasik teknik gösterge önce üç "aile"ye gruplanır: '
+          'Trend, Osilatör (RSI + Bollinger + EMA eğimi) ve Momentum (MACD + Momentum + ROC). '
+          'Her ailede mevcut göstergeler kendi gösterge ağırlıklarıyla birleştirilip bir aile '
+          'skoru oluşturur; sonra mevcut aile skorları kendi aile ağırlıklarıyla birleştirilip '
+          'tek bir Teknik Skor üretilir (düz/basit bir ortalama DEĞİLDİR). Bir gösterge veya '
+          'aile eksikse, kalan ağırlıklar kendi aralarında yeniden oranlanır.',
       children: const [
         _Term(
           term: 'Trend',
@@ -265,10 +285,20 @@ class _TeknikSection extends StatelessWidget {
               'arası NEUTRAL.',
         ),
         _Term(
-          term: 'Güven',
+          term: 'Sinyal Mutabakatı',
           range: '%0–100',
-          description: 'Altı göstergenin ne kadarının aynı yönü işaret ettiği ile işlem '
-              'hacminin 20 günlük ortalamaya göre teyit derecesinin birleşimi.',
+          description: 'Trend/Osilatör/Momentum ailelerinin, final teknik yönle -- BULLISH, '
+              'NEUTRAL veya BEARISH, üçü de gerçek bir durumdur -- ne kadar aynı fikirde olduğu. '
+              'İşlem hacmiyle İLİNTİLİ DEĞİLDİR — hacim Teknik Skor hesabında ayrı bir bağlam '
+              'bilgisi olarak kalır.',
+        ),
+        _Term(
+          term: 'Veri Kapsamı',
+          range: '%0–100',
+          description: 'Beklenen teknik göstergelerin, gösterge ve aile ağırlıkları dikkate '
+              'alındığında ne kadarının hesaplanabildiğini gösterir -- "7 göstergeden kaçı var" '
+              'gibi basit bir SAYIM değildir. Sinyal Mutabakatı ile ayrı okunmalıdır — kararın '
+              'doğru çıkma olasılığı DEĞİLDİR.',
         ),
         SizedBox(height: 4),
         Text('Gösterge katkıları (−100…+100)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
@@ -312,10 +342,12 @@ class _HaberlerSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _GuideSection(
       tag: 'Varlık Detayı · Haberler sekmesi',
-      title: 'Haberler ham listelenir',
-      description: 'Bu sekmedeki haberler Yahoo Finance\'ten çekilir ama henüz yapay zeka '
-          'ile analiz edilmez (duygu/etki puanı yok). Bu yüzden Analiz ekranındaki "News" '
-          'skoru hep boş kalır.',
+      title: 'Haberler yapay zeka ile analiz edilir',
+      description: 'Bu sekmedeki her haber, Yahoo Finance\'ten çekildikten sonra yapay zeka '
+          '(GPT-5.6 Luna modeli) tarafından okunup bir duygu skoruna (sentiment), önem '
+          'derecesine ve kısa bir gerekçeye dönüştürülür. Analiz ekranındaki "News" skoru, bu '
+          'haberlerin duygu skorlarının modelin kendi güven düzeyiyle ağırlıklı ortalamasıdır '
+          '— bu varlık için hiç analiz edilmiş haber yoksa boş kalır.',
       children: const [
         _Term(
           term: 'Güvenilirlik',
@@ -340,8 +372,10 @@ class _GecmisSection extends StatelessWidget {
       description: 'Bu ekran, o hisse için üretilmiş tüm AL/SAT/TUT kararlarının kronolojik '
           've değişmez (immutable) bir kaydıdır. Bir karar üretildikten sonra fiyat sonradan '
           'değişse bile o kayıt asla güncellenmez — yeni bir değerlendirme her zaman yeni bir '
-          'satır olarak eklenir. Her satırda karar tarihi/saati, final skor, güven ve etiket '
-          'yer alır.',
+          'satır olarak eklenir. Her satırda karar tarihi/saati, final skor ve etiket yer alır. '
+          'Güven değeri, kararın üretildiği motor sürümüne göre iki farklı etiketle gösterilir: '
+          'yeni kayıtlarda "Sinyal Mutabakatı", formül değişikliğinden önceki eski kayıtlarda '
+          '"Eski Güven Skoru" — ikisi aynı formülden üretilmediği için karıştırılmaz.',
       children: [],
     );
   }

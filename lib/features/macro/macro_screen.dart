@@ -4,6 +4,7 @@ import '../../widgets/gradient_app_bar.dart';
 
 import '../../models/macro_snapshot.dart';
 import '../../services/api/analysis_api.dart';
+import '../../utils/percent_format.dart';
 
 const Map<String, String> _macroLabels = {
   'dxy': 'Dolar Endeksi (DXY)',
@@ -71,7 +72,10 @@ class _MacroScreenState extends State<MacroScreen> {
                           'Makro Skor: ${data.macroScore >= 0 ? '+' : ''}${data.macroScore.toStringAsFixed(1)}',
                           style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18),
                         ),
-                        Text('Güven: %${data.confidence.toStringAsFixed(0)}'),
+                        // HATA 5C-UI1 (31.08.2026): confidence backend'de 0..1
+                        // raw -- ×100 olmadan doğrudan gösterilirse
+                        // 0.87 -> "%1" gibi yanlış bir yüzde çıkardı.
+                        Text('Güven: ${formatPercentFromFraction(data.confidence)}'),
                       ],
                     ),
                   ),

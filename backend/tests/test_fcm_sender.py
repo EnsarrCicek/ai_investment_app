@@ -47,7 +47,12 @@ def _no_real_firestore_for_notification_records(monkeypatch):
     monkeypatch.setattr(fcm_sender, "NotificationRecordRepository", _FakeRecordRepo)
 
 
-def _decision(decision="BUY", asset="THYAO", final_score=45.0, confidence=70.0):
+def _decision(decision="BUY", asset="THYAO", final_score=45.0, confidence=70.0, channel_completeness=0.8):
+    # HATA 5C-UI4 (31.08.2026): production'da `_compose_and_send()`'e
+    # geçirilen `decision` HER ZAMAN `decide_for_asset()`'in TAZE ürettiği
+    # bir nesne olduğundan `channel_completeness` HİÇBİR ZAMAN None değildir
+    # -- test fixture'ı bu gerçek contract'ı yansıtması için varsayılan bir
+    # değer taşır (fabricated fallback DEĞİL, gerçek çağıranın garantisi).
     now = datetime.now(timezone.utc)
     return AIDecision(
         asset=asset,
@@ -61,7 +66,8 @@ def _decision(decision="BUY", asset="THYAO", final_score=45.0, confidence=70.0):
         final_score=final_score,
         decision=decision,
         confidence=confidence,
-        decision_engine_version="1.0.0",
+        channel_completeness=channel_completeness,
+        decision_engine_version="1.1.0",
     )
 
 
@@ -172,6 +178,62 @@ def test_suggested_buy_quantity_included_in_notification_body(monkeypatch):
     assert "25 adet" in body
     assert "ALMANIZ" in body
     assert "5000 TL" in body
+
+
+def test_notification_body_uses_sinyal_mutabakati_and_veri_kapsami_not_guven(monkeypatch):
+    """HATA 5C-UI4 (31.08.2026): eski generic "Güven: %XX" ifadesi kaldırıldı
+    -- Sinyal Mutabakatı ve Veri Kapsamı AYRI AYRI, half-up rounding'le
+    (Flutter ile presentation-eşdeğer) gösterilmeli. `confidence=62.5` için
+    Python'un eski `f"{62.5:.0f}"` davranışı "%62" üretirdi (bkz. HATA
+    5C-UI3 raporu) -- `format_percent_value` "%63" üretir."""
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="BUY", confidence=62.5, channel_completeness=0.8),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+    )
+
+    body = sent_messages[0].notification.body
+    assert "Sinyal Mutabakatı: %63" in body
+    assert "Veri Kapsamı: %80" in body
+    assert "Güven:" not in body
+
+
+def test_notification_body_only_one_channel_shows_high_agreement_and_low_coverage_together(monkeypatch):
+    """HATA 5C-UI4 madde 4 -- 5C'nin ana semantic invariant'ı: yalnızca tek
+    kanal mevcutken Sinyal Mutabakatı yüksek/tam olsa bile Veri Kapsamı bunu
+    YANSITMAZ -- ikisi AYNI bildirim body'sinde birlikte görünmeli."""
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+
+    fcm_sender.notify_if_strong_decision(
+        "u1",
+        _decision(decision="BUY", confidence=100.0, channel_completeness=0.2),
+        token_repo=_FakeTokenRepo("tok"),
+        log_repo=_FakeLogRepo(),
+    )
+
+    body = sent_messages[0].notification.body
+    assert "Sinyal Mutabakatı: %100" in body
+    assert "Veri Kapsamı: %20" in body
+
+
+def test_notification_composition_does_not_mutate_stored_decision_values(monkeypatch):
+    """HATA 5C-UI4 madde 8 -- bu ticket yalnızca presentation string'i
+    değiştirir; `AIDecision.confidence`/`channel_completeness`'ın kendisi
+    (stored/calculated numeric değer) HİÇBİR ŞEKİLDE değişmemeli."""
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+
+    decision = _decision(decision="BUY", confidence=62.5, channel_completeness=0.8)
+    fcm_sender.notify_if_strong_decision(
+        "u1", decision, token_repo=_FakeTokenRepo("tok"), log_repo=_FakeLogRepo()
+    )
+
+    assert decision.confidence == 62.5
+    assert decision.channel_completeness == 0.8
 
 
 class _FakeAnalysisRepo:

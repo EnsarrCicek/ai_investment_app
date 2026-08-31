@@ -59,6 +59,28 @@ class _FakeTechnicalEngineUnavailableScore:
         return analysis, "tech-id-unavailable"
 
 
+class _FakeTechnicalEngineWithScore:
+    """HATA 5C-UI3 (31.08.2026): `summary`'nin gerçek `DecisionEngine` 1.1.0
+    formülünden ürettiği confidence/channel_completeness değerlerini elle
+    varsaymadan (gerçek `_classify()`/agreement hesabıyla) test edebilmek için
+    `technical_score` parametrik hale getirildi."""
+
+    def __init__(self, technical_score):
+        self._technical_score = technical_score
+
+    def analyze_with_id(self, symbol, persist=True):
+        analysis = TechnicalAnalysis(
+            asset=symbol,
+            technical_score=self._technical_score,
+            trend="up",
+            confidence=0.9,
+            components={"rsi": 20.0, "macd": -5.0},
+            indicators={},
+            created_at=datetime.now(timezone.utc),
+        )
+        return analysis, "tech-id"
+
+
 class _FakeMacroRepo:
     def get_latest_with_id(self):
         return None, None
@@ -138,3 +160,71 @@ def test_explain_does_not_crash_when_technical_score_is_unavailable():
 
     assert result["technical_reasons"] == []
     assert result["decision"] in {"BUY", "WEAK_BUY", "HOLD", "WEAK_SELL", "SELL"}
+
+
+def test_explain_summary_uses_sinyal_mutabakati_and_veri_kapsami_not_generic_guven():
+    """HATA 5C-UI3 (31.08.2026): eski "güven: %XX" ifadesi, DecisionEngine
+    1.1.0'ın iki AYRI metriğini (Sinyal Mutabakatı / Veri Kapsamı) tek bir
+    generic kelimeye sıkıştırıyordu -- artık ikisi de summary'de ayrı ayrı
+    görünmeli.
+
+    Fixture (gerçek `decide()` formülüyle DOĞRULANDI, elle varsayılmadı):
+    technical=+80, news=-80, macro=YOK (yalnızca 2 kanal mevcut).
+      available_weight = .5+.3 = .8
+      final_score = (80*.5 + (-80)*.3) / .8 = (40-24)/.8 = 20.0 -> WEAK_BUY (POSITIVE)
+      technical(+80) -> BUY (POSITIVE, final ile AYNI) -> dahil (.5)
+      news(-80)      -> SELL (NEGATIVE, final ile FARKLI) -> hariç
+      agreement = .5 / .8 = .625 -> confidence = 62.5
+      channel_completeness = .8 / 1.0 = .8 -> "%80"
+
+    HATA 5C-UI4 (31.08.2026): önceki turda `f"%{62.5:.0f}"` Python'un
+    round-half-to-even (banker's rounding) davranışı yüzünden "%62" üretmişti
+    (62 çift, 63 tek) -- Flutter/Dart'ın `toStringAsFixed(0)`'ı ise 62.5 için
+    "63" üretir (round-half-away-from-zero). `format_percent_value()` artık
+    `Decimal`/`ROUND_HALF_UP` ile Flutter'la PRESENTATION-EŞDEĞER "%63"
+    üretir -- bu değişiklik STORED `decision.confidence` değerini (hâlâ tam
+    olarak 62.5) DEĞİŞTİRMEZ, yalnızca gösterim string'ini düzeltir.
+    """
+    decision_engine = DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+    engine = ExplanationEngine(
+        decision_engine=decision_engine,
+        technical_engine=_FakeTechnicalEngineWithScore(80.0),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=_FakeNewsRepo([_news(-80.0, 0.9, 0.9, "Beklenenden kötü sonuç açıklandı.")]),
+    )
+
+    result = engine.explain("TEST")
+
+    assert result["confidence"] == 62.5
+    assert "sinyal mutabakatı: %63" in result["summary"].lower()
+    assert "veri kapsamı: %80" in result["summary"].lower()
+    assert "güven:" not in result["summary"].lower()
+
+
+def test_explain_summary_only_one_channel_shows_high_agreement_and_low_coverage_together():
+    """HATA 5C-UI3 madde 7 -- 5C'nin ana semantic invariant'ı: yalnızca TEK
+    kanal mevcutken Sinyal Mutabakatı yüksek/tam olsa bile Veri Kapsamı bunu
+    YANSITMAZ -- ikisi AYNI cümlede birlikte görünmeli, tek başına "%100
+    sinyal mutabakatı" yanıltıcı bırakılmamalı.
+
+    Fixture (gerçek `decide()` formülüyle DOĞRULANDI): yalnızca technical=+100
+    mevcut (news=[] -> None, macro=YOK).
+      available_weight = .5 (yalnızca technical)
+      final_score = 100*.5/.5 = 100.0 -> BUY (POSITIVE)
+      technical(+100) -> BUY (POSITIVE, final ile AYNI) -> agreement = .5/.5 = 1.0 -> confidence=100.0 -> "%100"
+      channel_completeness = .5 / 1.0 = .5 -> "%50"
+    """
+    decision_engine = DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+    engine = ExplanationEngine(
+        decision_engine=decision_engine,
+        technical_engine=_FakeTechnicalEngineWithScore(100.0),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=_FakeNewsRepo([]),
+    )
+
+    result = engine.explain("TEST")
+
+    assert result["confidence"] == 100.0
+    summary_lower = result["summary"].lower()
+    assert "sinyal mutabakatı: %100" in summary_lower
+    assert "veri kapsamı: %50" in summary_lower

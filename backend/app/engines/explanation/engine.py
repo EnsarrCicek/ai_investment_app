@@ -14,6 +14,7 @@ from app.engines.technical.engine import TechnicalAnalysisEngine
 from app.models.news_analysis import NewsAnalysis
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
+from app.utils.percent_format import format_percent_fraction, format_percent_value
 
 _DECISION_LABELS = {
     "BUY": "AL",
@@ -107,9 +108,23 @@ class ExplanationEngine:
         )
 
         label = _DECISION_LABELS.get(decision.decision, decision.decision)
+        # HATA 5C-UI3 (31.08.2026): eski "güven: %XX" ifadesi DecisionEngine
+        # 1.1.0'ın iki AYRI metriğini (bkz. 5C3B) tek bir generic kelimeye
+        # sıkıştırıyordu. `decision` burada zaten `decide(persist=False)`'in
+        # ürettiği TAM AIDecision nesnesi -- `channel_completeness` HER ZAMAN
+        # (persist=False dahil) hesaplanmış haldedir (bkz. `decision/engine.py`
+        # `decide()` -- `persist` yalnızca `_decision_repo.add()` çağrısını
+        # etkiler, alanları DEĞİL), bu yüzden ek bir None fallback GEREKMEZ.
+        # HATA 5C-UI4 (31.08.2026): `%{value:.0f}` YERİNE `format_percent_*`
+        # kullanılıyor -- Python'un `.0f}` formatı round-half-to-EVEN (62.5 ->
+        # "62"), Flutter'ın `toStringAsFixed(0)`'ı ise round-half-UP (62.5 ->
+        # "63") kullanıyordu; bu, aynı kararın ekranlar arasında farklı
+        # yüzdeyle görünmesine yol açıyordu (bkz. HATA 5C-UI3 raporu).
         summary = (
             f"{asset} için '{label}' kararı verildi "
-            f"(final skor: {decision.final_score:+.1f}, güven: %{decision.confidence:.0f})."
+            f"(final skor: {decision.final_score:+.1f}, "
+            f"sinyal mutabakatı: {format_percent_value(decision.confidence)}, "
+            f"veri kapsamı: {format_percent_fraction(decision.channel_completeness)})."
         )
 
         missing = []

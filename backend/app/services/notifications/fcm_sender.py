@@ -53,6 +53,7 @@ from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
+from app.utils.percent_format import format_percent_fraction, format_percent_value
 
 STRONG_DECISIONS = {"BUY", "SELL"}
 _DECISION_LABELS = {"BUY": "AL", "SELL": "SAT"}
@@ -83,7 +84,18 @@ def _compose_and_send(
         return False
 
     label = _DECISION_LABELS[decision.decision]
-    score_line = f"Final skor: {decision.final_score:+.1f}, Güven: %{decision.confidence:.0f}"
+    # HATA 5C-UI4 (31.08.2026): eski "Güven: %XX" ifadesi generic/eski
+    # semantik taşıyordu -- bu fonksiyona geçirilen `decision` HER ZAMAN
+    # `decide_for_asset()`'in TAZE ürettiği bir DecisionEngine 1.1.0 nesnesi
+    # (bkz. `api/decisions.py::get_decision` -- `channel_completeness` bu
+    # yüzden HER ZAMAN mevcuttur, version-aware bir legacy dal GEREKMEZ).
+    # `format_percent_value`/`format_percent_fraction`, Flutter'ın
+    # `toStringAsFixed(0)` ile presentation-eşdeğer half-up rounding kullanır.
+    score_line = (
+        f"Final skor: {decision.final_score:+.1f}, "
+        f"Sinyal Mutabakatı: {format_percent_value(decision.confidence)}, "
+        f"Veri Kapsamı: {format_percent_fraction(decision.channel_completeness)}"
+    )
 
     if decision.decision == "SELL" and quantity_held is not None:
         action = f"Elinizdeki {quantity_held:.0f} adet {decision.asset} hissesini SATMANIZ öneriliyor."

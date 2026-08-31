@@ -20,7 +20,9 @@ import '../../services/api/market_data_api.dart';
 import '../../services/api/news_analysis_api.dart';
 import '../../services/api/news_api.dart';
 import '../../services/api/portfolio_api.dart';
+import '../../utils/decision_engine_version.dart';
 import '../../utils/decision_style.dart';
+import '../../utils/percent_format.dart';
 import '../../utils/url_launch.dart';
 
 const Map<String, ({String period, String interval})> _chartPeriods = {
@@ -272,13 +274,19 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         Text(
-                          // 28.08.2026 (HATA 5C3A): `confidence` `null` ise
-                          // (`technicalScore` de `null` -- mutabakat hesaplanacak
-                          // kullanılabilir kanıt yok) 0 gibi sahte bir mutabakat
-                          // GÖSTERİLMEZ -- dürüst bir "veri yetersiz" mesajı verilir.
-                          data.confidence != null
-                              ? 'Güven: %${(data.confidence! * 100).toStringAsFixed(0)}'
-                              : 'Güven: Veri yetersiz',
+                          // 28.08.2026 (HATA 5C3A), 31.08.2026 (HATA 5C-UI2):
+                          // `confidence` `null` ise (`technicalScore` de `null`
+                          // -- mutabakat hesaplanacak kullanılabilir kanıt yok)
+                          // 0 gibi sahte bir mutabakat GÖSTERİLMEZ -- dürüst bir
+                          // "veri yetersiz" mesajı verilir.
+                          'Sinyal Mutabakatı: ${formatTechnicalSignalAgreementPercent(data.confidence)}',
+                        ),
+                        Text(
+                          // HATA 5C-UI2: `evidenceCoverage` `null` olması
+                          // "veri yetersiz" DEĞİL, bu metriğin eklenmesinden
+                          // ÖNCEKİ bir kayıt olduğu anlamına gelir -- ayrı bir
+                          // mesajla ifade edilir (bkz. `formatCoveragePercent`).
+                          'Veri Kapsamı: ${formatCoveragePercent(data.evidenceCoverage)}',
                         ),
                         if (data.marketDataAsOf != null) ...[
                           const SizedBox(height: 4),
@@ -882,7 +890,9 @@ class _NewsTabState extends State<_NewsTab> {
                               Expanded(
                                 child: Text(
                                   'AI Kararımız: ${decisionLabel(d.decision)} (skor ${d.finalScore >= 0 ? '+' : ''}'
-                                  '${d.finalScore.toStringAsFixed(1)}, güven %${d.confidence.toStringAsFixed(0)})',
+                                  '${d.finalScore.toStringAsFixed(1)}, sinyal mutabakatı '
+                                  '${formatDecisionConfidencePercent(d.confidence)}, veri kapsamı '
+                                  '${formatCoveragePercent(d.channelCompleteness)})',
                                   style: TextStyle(fontWeight: FontWeight.bold, color: color),
                                 ),
                               ),
@@ -1195,7 +1205,9 @@ class _AnalystsTabState extends State<_AnalystsTab> {
                           Expanded(
                             child: Text(
                               'AI Kararımız: ${decisionLabel(d.decision)} (skor ${d.finalScore >= 0 ? '+' : ''}'
-                              '${d.finalScore.toStringAsFixed(1)}, güven %${d.confidence.toStringAsFixed(0)}) — '
+                              '${d.finalScore.toStringAsFixed(1)}, sinyal mutabakatı '
+                              '${formatDecisionConfidencePercent(d.confidence)}, veri kapsamı '
+                              '${formatCoveragePercent(d.channelCompleteness)}) — '
                               'yukarıdaki analist konsensüsüyle karşılaştırıp kendi değerlendirmenizi yapın.',
                               style: TextStyle(fontWeight: FontWeight.bold, color: dColor, fontSize: 13),
                             ),
@@ -1535,6 +1547,8 @@ class _JournalEntryCard extends StatelessWidget {
     final label = decisionLabel(d.decision);
     final color = decisionColor(d.decision);
     final factor = entry.dominantFactor;
+    final isNewSemantics = isNewDecisionConfidenceSemantics(d.decisionEngineVersion);
+    final confidenceLabel = journalConfidenceLabel(d.decisionEngineVersion);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1551,7 +1565,14 @@ class _JournalEntryCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Skor: ${d.finalScore.toStringAsFixed(1)}   Güven: %${d.confidence.toStringAsFixed(0)}'
+              // HATA 5C-UI2 (31.08.2026): DecisionEngine 1.1.0 öncesi kayıtlarda
+              // `confidence` eski heuristik anlam taşır -- "Sinyal Mutabakatı"
+              // etiketiyle göstermek metodolojik olarak YANLIŞ olur (o sayı
+              // yeni agreement formülünden üretilmedi). `channel_completeness`
+              // de yalnızca >=1.1.0 kayıtlarda mevcuttur (`null` = eski kayıt).
+              'Skor: ${d.finalScore.toStringAsFixed(1)}   $confidenceLabel: '
+              '${formatDecisionConfidencePercent(d.confidence)}'
+              '${isNewSemantics && d.channelCompleteness != null ? '   Veri Kapsamı: ${formatCoveragePercent(d.channelCompleteness)}' : ''}'
               '${factor != null ? '   Ağırlıklı sebep: ${dominantFactorLabelsTr[factor] ?? factor}' : ''}',
               style: const TextStyle(fontSize: 12),
             ),
