@@ -100,7 +100,6 @@ class ExplanationEngine:
             technical_score=analysis.technical_score,
             news_score=_aggregate_news_score(news_analyses),
             macro_score=macro.macro_score if macro else None,
-            technical_confidence=analysis.confidence,
             technical_analysis_id=analysis_id,
             news_analysis_ids=[a.news_id for a in news_analyses],
             macro_snapshot_id=macro_id,

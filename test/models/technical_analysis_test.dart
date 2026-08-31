@@ -145,4 +145,56 @@ void main() {
 
     expect(detail.familyScores, {'trend': 30.0, 'oscillator_position': 15.0, 'momentum_rate': 38.32});
   });
+
+  test('28.08.2026 (HATA 5C3A): confidence null iken crash olmadan ayrıştırılır', () {
+    // Backend technical_score None olduğunda (mutabakat hesaplanacak
+    // kullanılabilir kanıt yok) confidence de null döner -- 0.0 (gerçek, ölçülmüş
+    // tam uyuşmazlık) İLE KARIŞTIRILMAMALI. Eski `(json['confidence'] as num)
+    // .toDouble()` deseni bu durumda Dart runtime TypeError fırlatırdı.
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': null,
+      'trend': null,
+      'confidence': null,
+      'components': <String, dynamic>{},
+      'indicators': {'rsi': 40.0},
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.confidence, isNull);
+    expect(detail.evidenceCoverage, isNull);
+  });
+
+  test('28.08.2026 (HATA 5C3A): evidence_coverage mevcutken doğru ayrıştırılır', () {
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': 27.77,
+      'trend': 'NEUTRAL',
+      'confidence': 0.67,
+      'evidence_coverage': 0.4375,
+      'components': {'rsi': 40.0},
+      'indicators': {'rsi': 55.0},
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.confidence, 0.67);
+    expect(detail.evidenceCoverage, 0.4375);
+  });
+
+  test('28.08.2026 (HATA 5C3A): evidence_coverage eklenmeden önceki kayıtlarda null olarak geriye dönük uyumludur', () {
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': -29.02,
+      'trend': 'BEARISH',
+      'confidence': 0.72,
+      'components': {'rsi': -10.0},
+      'indicators': {'rsi': 40.0},
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.evidenceCoverage, isNull);
+  });
 }

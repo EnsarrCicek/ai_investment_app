@@ -21,16 +21,34 @@ class TechnicalAnalysis(BaseModel):
     # olur. Eski Firestore kayıtlarının TAMAMI gerçek bir `str` taşıdığından
     # geriye dönük okuma BOZULMAZ, migration YAPILMADI.
     trend: str | None
-    # 27.08.2026 (HATA 5B1 FINAL PRE-COMMIT GATE, madde 3): `technical_score
-    # is None` olduğunda `confidence=0.0` KALIR (nullable YAPILMADI) --
-    # burada `confidence`'ın anlamı "üretilebilir bir teknik skora ne kadar
-    # güveniliyor" demektir; skor hiç üretilemediğinde %0 güven DÜRÜST bir
-    # değerdir, "nötr skor" anlamına GELMEZ. `DecisionEngine.decide()` zaten
-    # bu semantiği kullanıyor: `technical_confidence=0.0` overall confidence'ı
-    # sıfırlar (bkz. engines/decision/engine.py, `base_confidence` satırı) --
-    # None ile karıştırılmaz çünkü `technical_confidence: float | None`
-    # parametresi yalnızca HİÇ değer verilmediğinde (0.6) varsayılana düşer.
-    confidence: float
+    # 28.08.2026 (HATA 5C3A): `confidence` artık "Sinyal Mutabakatı" (signal
+    # agreement) -- mevcut technical family'lerinin final teknik yönle ne
+    # kadar uyuştuğunu ölçer (bkz. engines/technical/scoring.py::
+    # compute_family_agreement). Skor büyüklüğüne DEĞİL, veri eksiksizliğine
+    # DEĞİL, olasılığa DEĞİL -- yalnızca directional agreement'a bağlıdır
+    # (bkz. HATA 5C2/5C2A/5C2B/5C2C audit zinciri). `technical_score is None`
+    # olduğunda `confidence=None` -- HATA 5B1'in "0.0 valid / None
+    # unavailable" sözleşmesi burada da AYNEN korunur: `0.0` GERÇEK, ölçülmüş
+    # bir TAM UYUŞMAZLIKTIR (mevcut family'ler final yönle hiç uyuşmuyor),
+    # `None` ise mutabakat hesaplanacak KULLANILABİLİR weighted evidence
+    # OLMADIĞI anlamına gelir -- ikisi KARIŞTIRILMAZ. `DecisionEngine.decide()`
+    # artık bu alanı hiç TÜKETMİYOR (Decision confidence kendi cross-engine
+    # agreement'ını hesaplıyor, bkz. HATA 5C2A) -- nullable olması decision
+    # tarafında hiçbir null-check GEREKTİRMEZ. Eski Firestore kayıtlarının
+    # TAMAMI gerçek bir float taşıdığından (`float` bu tip birleşiminin bir
+    # alt kümesidir) geriye dönük okuma BOZULMAZ, migration YAPILMADI.
+    confidence: float | None
+    # 28.08.2026 (HATA 5C3A): "Veri Kapsamı" -- beklenen 7 component/3
+    # family'nin ne kadarının mevcut olduğunu ölçen, `confidence`'tan TAMAMEN
+    # AYRI bir metrik (tek sayıya birleştirilmez, çarpılmaz, ortalaması
+    # alınmaz -- bkz. HATA 5C2A/5C2B). Hiyerarşik ağırlıklı bir orandır (bkz.
+    # scoring.py::compute_evidence_coverage); config geçerli olduğu sürece
+    # HER ZAMAN hesaplanabilir [0,1] -- `technical_score`/`confidence` `None`
+    # olsa BİLE (7/7 component unavailable) `evidence_coverage=0.0` dürüst,
+    # her zaman üretilen bir değerdir, `None` DEĞİLDİR. Bu alan eklenmeden
+    # önceki Firestore kayıtlarında yoktur; `None` bunu geriye dönük uyumlu
+    # şekilde ifade eder -- migration YAPILMADI.
+    evidence_coverage: float | None = None
     components: dict[str, float]
     # 27.08.2026 (HATA 5B2D): `technical_score` artık iki seviyeli (component
     # -> family -> technical_score) aggregation'dır (bkz. engines/technical/

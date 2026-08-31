@@ -81,11 +81,14 @@ from app.engines.technical.scoring import (
     FAMILY_MEMBERSHIP,
     aggregate_available_scores,
     clamp_component,
+    compute_evidence_coverage,
+    compute_family_agreement,
     compute_scoring_config_hash,
     is_available,
     resolve_family_weights,
     resolve_indicator_weights,
     safe_ratio,
+    technical_direction,
 )
 from app.engines.technical.market_structure import analyze_market_structure
 from app.services.market_data.completed_bars import filter_completed_daily_bars
@@ -211,7 +214,18 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # DEĞİŞTİRİLMEDİ/SİLİNMEDİ — migration YOK; 15 dakikalık cache artık yalnızca
 # `engine_version == ENGINE_VERSION` olan kayıtları geçerli sayar (aşağıda,
 # `analyze_with_id`).
-ENGINE_VERSION = "1.7.0"
+#
+# HATA 5C3A (28.08.2026): 1.7.0 -> 1.8.0 -- technical_score'un FORMULU
+# (component/family aggregation, scoring_config_hash'in kapsadigi her sey)
+# DEGISMEDI; yalnizca confidence'in semantics'i degisti (eski component
+# sign-count + volume heuristic -> yeni "Sinyal Mutabakati" = weighted family
+# directional agreement, bkz. scoring.py::compute_family_agreement) ve yeni
+# evidence_coverage ("Veri Kapsami") alani eklendi. scoring_config_hash
+# BILINCLI OLARAK DEGISMEDI (score'u etkileyen hicbir sey degismedi) --
+# "ayni scoring hash + yeni engine_version" kombinasyonu KABUL EDILEBILIR
+# (bkz. HATA 5C2A). Eski 1.7.0 kayitlari AYNEN kalir (migration YOK); cache
+# bu bump nedeniyle onlari otomatik MISS eder.
+ENGINE_VERSION = "1.8.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`
@@ -235,10 +249,6 @@ DEFAULT_WEIGHTS = {
 
 MIN_HISTORY_DAYS = 60
 TECHNICAL_CACHE_TTL_SECONDS = 900  # 15 dakika
-
-
-def _clamp(value: float, low: float = -100.0, high: float = 100.0) -> float:
-    return max(low, min(high, value))
 
 
 # Grafikte çizilecek destek/direnç bölgesi sayısı — kullanıcı isteği: "grafikte
@@ -617,6 +627,13 @@ class TechnicalAnalysisEngine:
         # dict'ten ASLA yeniden hesaplanmaz/okunmaz.
         stored_family_scores = {k: round(v, 2) for k, v in raw_family_scores.items() if is_available(v)}
 
+        # HATA 5C3A (28.08.2026): "Veri Kapsamı" (evidence_coverage) skor/
+        # confidence'tan BAĞIMSIZ, HER ZAMAN hesaplanabilir bir orandır (config
+        # geçerli olduğu sürece None ASLA üretilmez, bkz. scoring.py::
+        # compute_evidence_coverage) -- final_score None olsa BİLE (7/7
+        # component unavailable) coverage=0.0 dürüst bir değerdir.
+        evidence_coverage = compute_evidence_coverage(stored_components, weights, family_weights)
+
         if final_score is None:
             # Tüm 7 component birden unavailable — son derece nadir (HATA 5B1
             # audit'i: gerçek 5-sembol/2-yıl veri setinde 0 gözlem), ama
@@ -626,17 +643,35 @@ class TechnicalAnalysisEngine:
             # HESAPLANDIĞI ama [-15, 15] aralığında kaldığı GERÇEK bir teknik
             # yön bilgisidir; skor hiç hesaplanamadığında `trend=None` (bkz.
             # models/technical_analysis.py, `trend: str | None`).
-            confidence = 0.0
+            #
+            # HATA 5C3A: `confidence=None` -- "Sinyal Mutabakatı" ("mevcut
+            # kanıt final yönle ne kadar uyuşuyor") hesaplanacak KULLANILABİLİR
+            # weighted family evidence yok. `0.0` (gerçek, ölçülmüş TAM
+            # uyuşmazlık) ile KARIŞTIRILMAZ -- HATA 5B1'in "0.0 valid / None
+            # unavailable" sözleşmesi confidence tarafında da AYNEN korunur
+            # (bkz. HATA 5C2B, madde 1).
+            confidence = None
             trend = None
         else:
-            agreement = (
-                sum(1 for s in stored_components.values() if (s >= 0) == (final_score >= 0)) / len(stored_components)
-                if stored_components
-                else 0.0
-            )
-            volume_confirmation = min(current_volume / volume_sma_val, 2.0) / 2.0 if volume_sma_val else 0.5
-            confidence = round(_clamp(0.4 + 0.4 * agreement + 0.2 * volume_confirmation, 0.0, 1.0), 2)
-            trend = "BULLISH" if final_score > 15 else "BEARISH" if final_score < -15 else "NEUTRAL"
+            # HATA 5C3A: eski component sign-count agreement + volume
+            # confirmation heuristic (0.4 taban, 0.4/0.2 katsayılar) TAMAMEN
+            # KALDIRILDI. Yeni confidence yalnızca mevcut family'lerin
+            # `technical_family_weights` ile ağırlıklandırılmış directional
+            # agreement'ıdır (bkz. scoring.py::compute_family_agreement) --
+            # skor büyüklüğüne VE volume'e bağlı DEĞİLDİR (HATA 5C2/5C2A audit
+            # zincirinin kilitlediği contract). Volume, `relative_volume_class`
+            # zenginleştirmesinde (aşağıda, `_compute_enrichment`) AYRI bir
+            # sinyal/context olarak kalmaya devam ediyor -- yalnızca
+            # confidence'la bağlantısı kesildi, volume analizi SİLİNMEDİ.
+            agreement = compute_family_agreement(raw_family_scores, final_score, family_weights)
+            confidence = round(agreement, 2)
+            # `trend` alanı AYNI `technical_direction()` helper'ından üretilir
+            # -- dış sözleşme (BULLISH/BEARISH/NEUTRAL string'leri) DEĞİŞMEDİ,
+            # yalnızca +15/-15 sınırının tekilleştirilmiş (tek yerde tanımlı)
+            # hali kullanılıyor (bkz. HATA 5C2B, madde 3).
+            trend = {"POSITIVE": "BULLISH", "NEGATIVE": "BEARISH", "NEUTRAL": "NEUTRAL"}[
+                technical_direction(final_score)
+            ]
 
         enrichment = _compute_enrichment(
             df,
@@ -654,6 +689,7 @@ class TechnicalAnalysisEngine:
             technical_score=final_score,
             trend=trend,
             confidence=confidence,
+            evidence_coverage=evidence_coverage,
             components=stored_components,
             family_scores=stored_family_scores,
             scoring_config_hash=current_scoring_config_hash,

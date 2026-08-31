@@ -221,10 +221,10 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_7_0():
-    # HATA 5B2D madde 34-P/19: structural scoring semantic değişikliği
-    # ENGINE_VERSION bump'ını ZORUNLU kılar (1.6.0 -> 1.7.0).
-    assert ENGINE_VERSION == "1.7.0"
+def test_engine_version_is_1_8_0():
+    # HATA 5C3A: confidence semantics değişikliği ENGINE_VERSION bump'ını
+    # ZORUNLU kılar (1.7.0 -> 1.8.0) -- technical_score formülü DEĞİŞMEDİ.
+    assert ENGINE_VERSION == "1.8.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -357,7 +357,9 @@ def test_technical_score_zero_vs_none_trend_signal_and_persistence_contract(fake
 
     assert case_b.technical_score is None
     assert case_b.trend is None  # "NEUTRAL" UYDURULMADI
-    assert case_b.confidence == 0.0
+    # HATA 5C3A: confidence=None -- mutabakat hesaplanacak kullanılabilir
+    # weighted evidence yok, "0.0" (gerçek tam uyuşmazlık) İLE KARIŞTIRILMAZ.
+    assert case_b.confidence is None
     assert case_b.signal_class is None  # sahte WATCHLIST/BULLISH/BEARISH YOK
     assert case_b.investment_horizon is None
     assert case_b.investment_horizon_reason == ""
@@ -1197,3 +1199,188 @@ def test_pre_roll_region_with_real_evidence_plus_phantom_bar_still_verifies(fake
     assert len(analysis_repo.added) == 1
     dropped = {d["date"]: d["classification"] for d in analysis.normalized_dropped_sessions}
     assert dropped.get("2026-01-01") == "PLANNED_FULL_DAY_CLOSURE"
+
+
+# ---------------------------------------------------------------------------
+# HATA 5C3A (28.08.2026) — "Sinyal Mutabakatı" (confidence) + "Veri Kapsamı"
+# (evidence_coverage) implementasyonu: gerçek analyze_with_id() akışında
+# permanent regresyon kilitleri.
+# ---------------------------------------------------------------------------
+
+
+def test_technical_analysis_old_confidence_float_document_still_parses_after_5c3a():
+    # HATA 5C3A: `confidence: float | None`'a geçiş -- eski TÜM kayıtlar
+    # gerçek bir float taşıdığından geriye dönük okuma BOZULMAZ, migration YOK.
+    old_style_doc = {
+        "asset": "TEST",
+        "technical_score": 42.0,
+        "trend": "BULLISH",
+        "confidence": 0.9,
+        "components": {"rsi": 42.0},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+    }
+    analysis = TechnicalAnalysis(**old_style_doc)
+    assert analysis.confidence == 0.9
+    # `evidence_coverage` bu alan eklenmeden önceki kayıtlarda yok -- None.
+    assert analysis.evidence_coverage is None
+
+
+def test_technical_analysis_new_none_confidence_document_parses():
+    # HATA 5C3A: `technical_score is None` iken üretilen YENİ `confidence:
+    # null` kaydı hatasız parse edilmeli (0.0 UYDURULMADI).
+    new_style_doc = {
+        "asset": "TEST",
+        "technical_score": None,
+        "trend": None,
+        "confidence": None,
+        "evidence_coverage": 0.0,
+        "components": {},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+    }
+    analysis = TechnicalAnalysis(**new_style_doc)
+    assert analysis.confidence is None
+    assert analysis.evidence_coverage == 0.0
+
+
+def test_analyze_with_id_evidence_coverage_matches_full_availability(fake_provider):
+    # `_FakeConfigRepo` -> DEFAULT_WEIGHTS (indicator) + eşit 1/3 (family,
+    # doküman yok). Gerçek fiyat serisinde 7/7 component available olduğundan
+    # (bkz. `test_analyze_with_id_includes_ema_slope_component`) evidence_
+    # coverage tam olmalı.
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert len(analysis.components) == 7
+    assert analysis.evidence_coverage == pytest.approx(1.0, abs=1e-9)
+    assert analysis.confidence is not None
+    assert 0.0 <= analysis.confidence <= 1.0
+
+
+def test_analyze_with_id_evidence_coverage_is_zero_when_technical_score_unavailable(fake_provider, monkeypatch):
+    # HATA 5C2B madde 4: `technical_score is None` olsa BİLE evidence_coverage
+    # HER ZAMAN hesaplanabilir bir [0,1] orandır, None DEĞİLDİR.
+    monkeypatch.setattr(
+        "app.engines.technical.engine.aggregate_available_scores",
+        lambda *args, **kwargs: None,
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert analysis.technical_score is None
+    assert analysis.confidence is None
+    assert analysis.evidence_coverage is not None
+    assert 0.0 <= analysis.evidence_coverage <= 1.0
+
+
+def test_analyze_with_id_confidence_uses_full_precision_family_scores_not_rounded(fake_provider, monkeypatch):
+    # HATA 5C3A madde 7 (double-rounding regresyon kilidi): compute_family_
+    # agreement() PERSISTED (round(2)) stored_family_scores DEĞİL, tam-
+    # hassasiyetli raw_family_scores ile çağrılmalı -- aksi halde bir
+    # family'nin skoru ±15 sınırına çok yakınken persisted rounding,
+    # agreement'ın yönünü YANLIŞLIKLA değiştirebilirdi (HATA 5B2D'nin "double
+    # rounding" dersi, bkz. scoring.py::aggregate_available_components).
+    import app.engines.technical.engine as engine_module
+
+    real_compute_family_agreement = engine_module.compute_family_agreement
+    captured = {}
+
+    def _spy(raw_family_scores, final_score, family_weights):
+        captured["raw_family_scores"] = dict(raw_family_scores)
+        return real_compute_family_agreement(raw_family_scores, final_score, family_weights)
+
+    monkeypatch.setattr(engine_module, "compute_family_agreement", _spy)
+
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=None, cached_id=None)
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    assert "raw_family_scores" in captured
+    rounded_would_be = {k: round(v, 2) for k, v in captured["raw_family_scores"].items()}
+    # Sabit seed'li (`_real_history_df`, seed=42) gerçek piyasa verisiyle en az
+    # bir family skoru zaten kendi 2-ondalık yuvarlamasına TAM EŞİT DEĞİLDİR --
+    # bu, motorun GERÇEKTEN tam-hassasiyetli değeri kullandığını, persisted
+    # (`analysis.family_scores`) rounded değerleri DEĞİL, kanıtlar.
+    assert captured["raw_family_scores"] != rounded_would_be
+    assert any(
+        captured["raw_family_scores"][k] != analysis.family_scores.get(k) for k in captured["raw_family_scores"]
+    )
+
+
+def test_analyze_with_id_confidence_is_independent_of_volume(fake_provider):
+    # HATA 5C3A madde 9: eski "volume_confirmation" (0.2 katsayı, volume_sma
+    # fallback 0.5) confidence'tan TAMAMEN KALDIRILDI -- AYNI fiyat serisiyle,
+    # yalnızca Volume sütunu dramatik şekilde farklı iki DataFrame AYNI
+    # confidence'ı üretmeli (volume artık confidence'ı hiç ETKİLEMEZ).
+    low_volume_df = _real_history_df()
+    high_volume_df = low_volume_df.copy()
+    high_volume_df["Volume"] = high_volume_df["Volume"] * 1000
+
+    analysis_low, _ = TechnicalAnalysisEngine(
+        provider=fake_provider(history_df=low_volume_df),
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    ).analyze_with_id("TEST")
+
+    analysis_high, _ = TechnicalAnalysisEngine(
+        provider=fake_provider(history_df=high_volume_df),
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    ).analyze_with_id("TEST")
+
+    assert analysis_low.confidence == analysis_high.confidence
+    assert analysis_low.technical_score == analysis_high.technical_score
+    # Volume enrichment/sinyal tarafında YAŞAMAYA DEVAM ediyor -- yalnızca
+    # confidence'la bağlantısı kesildi, volume analizi SİLİNMEDİ.
+    assert "volume" in analysis_low.indicators
+    assert "volume_sma" in analysis_low.indicators
+
+
+def test_analyze_with_id_recomputes_1_7_record_as_1_8_and_parses_both_confidence_shapes(fake_provider):
+    # HATA 5C3A madde 20: eski 1.7.0 kaydı (float confidence) fresh olsa BİLE
+    # cache HIT olmamalı (ENGINE_VERSION artık 1.8.0) -- yeniden hesaplanan
+    # 1.8.0 kaydı `confidence`'ı (float veya None) VE `evidence_coverage`'ı
+    # taşımalı.
+    old_1_7_cache = _cached_analysis(age_seconds=60, engine_version="1.7.0")
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_7_cache, cached_id="old-1-7-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert analysis is not old_1_7_cache  # cache MISS -- yeniden hesaplandı
+    assert analysis.engine_version == "1.8.0"
+    assert doc_id == "new-id"
+    assert old_1_7_cache.confidence == 0.9  # eski float kayıt hâlâ parse edilebiliyor
+    assert analysis.evidence_coverage is not None

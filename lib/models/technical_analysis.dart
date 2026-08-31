@@ -57,7 +57,18 @@ class TechnicalAnalysisDetail {
   // hesaplanamadı" ile AYNI şey DEĞİLDİR. `technicalScore == 0.0` hâlâ
   // `trend == 'NEUTRAL'` üretir.
   final String? trend;
-  final double confidence;
+  // 28.08.2026 (HATA 5C3A): "Sinyal Mutabakatı" -- mevcut technical
+  // family'lerinin final teknik yönle ne kadar uyuştuğunu ölçer, skor
+  // büyüklüğüne/veri eksiksizliğine/olasılığa bağlı DEĞİLDİR. `technicalScore`
+  // `null` olduğunda `confidence` da `null` olur -- `0.0` (gerçek, ölçülmüş
+  // TAM UYUŞMAZLIK) İLE KARIŞTIRILMAZ (HATA 5B1'in "0.0 valid / null
+  // unavailable" sözleşmesi confidence tarafında da AYNEN korunur).
+  final double? confidence;
+  // 28.08.2026 (HATA 5C3A): "Veri Kapsamı" -- beklenen 7 component/3
+  // family'nin ne kadarının mevcut olduğunu ölçer, `confidence`'tan TAMAMEN
+  // AYRI bir metrik (tek sayıya birleştirilmez). Bu alan eklenmeden önceki
+  // kayıtlarda yoktur; `null` bunu geriye dönük uyumlu şekilde ifade eder.
+  final double? evidenceCoverage;
   final Map<String, double> components;
   // 27.08.2026 (HATA 5B2D): backend artık iki seviyeli (component -> family
   // -> technicalScore) aggregation kullanıyor (trend/oscillator_position/
@@ -106,6 +117,7 @@ class TechnicalAnalysisDetail {
     required this.technicalScore,
     required this.trend,
     required this.confidence,
+    this.evidenceCoverage,
     required this.components,
     this.familyScores = const {},
     required this.indicators,
@@ -134,7 +146,8 @@ class TechnicalAnalysisDetail {
       asset: json['asset'] as String,
       technicalScore: (json['technical_score'] as num?)?.toDouble(),
       trend: json['trend'] as String?,
-      confidence: (json['confidence'] as num).toDouble(),
+      confidence: (json['confidence'] as num?)?.toDouble(),
+      evidenceCoverage: (json['evidence_coverage'] as num?)?.toDouble(),
       components: (json['components'] as Map<String, dynamic>).map(
         (key, value) => MapEntry(key, (value as num).toDouble()),
       ),

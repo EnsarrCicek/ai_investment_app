@@ -114,7 +114,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from app.engines.backtest.completed_history import prepare_backtest_history
-from app.engines.decision.engine import DEFAULT_THRESHOLDS, _classify
+from app.engines.decision.engine import _classify, resolve_decision_thresholds
 from app.engines.technical import indicators as ind
 from app.engines.technical.engine import ENGINE_VERSION as TECHNICAL_ENGINE_VERSION
 from app.engines.technical.scoring import (
@@ -466,7 +466,12 @@ class BacktestEngine:
         # indicator_weights()` (fail-fast, doküman eksikse DE ValueError) --
         # bkz. `technical/engine.py`'deki AYNI gerekçe.
         weights = resolve_indicator_weights(self._config_repo.get_raw("technical_indicator_weights"))
-        thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
+        # HATA 5C3B: `decision_thresholds` de artık `get()` DEĞİL `get_raw()` +
+        # `resolve_decision_thresholds()` (fail-fast) ile okunur -- AYNI config
+        # dokümanının `DecisionEngine` ve `BacktestEngine` arasında farklı
+        # (biri strict, biri sessiz-merge) okunması HATA 5B2C'nin kök nedeniyle
+        # AYNI governance riskini taşırdı.
+        thresholds = resolve_decision_thresholds(self._config_repo.get_raw("decision_thresholds"))
         # HATA 5B2D: `technical_family_weights` HATA 5B2C'nin kök nedenini
         # (sessiz partial-merge) tekrarlamamak için `get()` DEĞİL `get_raw()`
         # + `resolve_family_weights()` (fail-fast) ile okunur.
@@ -517,7 +522,12 @@ class BacktestEngine:
     ) -> dict:
         prepared = prepare_backtest_history(self._provider, symbol, period, now=now)
 
-        thresholds = self._config_repo.get("decision_thresholds", DEFAULT_THRESHOLDS)
+        # HATA 5C3B: `decision_thresholds` de artık `get()` DEĞİL `get_raw()` +
+        # `resolve_decision_thresholds()` (fail-fast) ile okunur -- AYNI config
+        # dokümanının `DecisionEngine` ve `BacktestEngine` arasında farklı
+        # (biri strict, biri sessiz-merge) okunması HATA 5B2C'nin kök nedeniyle
+        # AYNI governance riskini taşırdı.
+        thresholds = resolve_decision_thresholds(self._config_repo.get_raw("decision_thresholds"))
         # FINAL PRE-COMMIT GATE (madde 3): `BacktestEngine.run()` ile AYNI
         # config semantics -- önceki sürüm bu satırı HİÇ İÇERMİYORDU, modül
         # seviyesi `compare_strategies()` de `family_weights` almadığından

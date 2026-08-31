@@ -271,7 +271,15 @@ class _TechnicalTabState extends State<_TechnicalTab> {
                               : 'Teknik Skor: Veri yetersiz',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
-                        Text('Güven: %${(data.confidence * 100).toStringAsFixed(0)}'),
+                        Text(
+                          // 28.08.2026 (HATA 5C3A): `confidence` `null` ise
+                          // (`technicalScore` de `null` -- mutabakat hesaplanacak
+                          // kullanılabilir kanıt yok) 0 gibi sahte bir mutabakat
+                          // GÖSTERİLMEZ -- dürüst bir "veri yetersiz" mesajı verilir.
+                          data.confidence != null
+                              ? 'Güven: %${(data.confidence! * 100).toStringAsFixed(0)}'
+                              : 'Güven: Veri yetersiz',
+                        ),
                         if (data.marketDataAsOf != null) ...[
                           const SizedBox(height: 4),
                           Text(

@@ -33,6 +33,11 @@ class _FakeConfigRepo:
         # `None` (dokümanı henüz production'da yok, pre-deploy gate ayrı).
         if key == "technical_indicator_weights":
             return dict(DEFAULT_WEIGHTS)
+        # HATA 5C3B: `decision_thresholds` de artık REQUIRED (get_raw() +
+        # strict resolver, bkz. decision/engine.py) -- backtest'in KENDİ
+        # trade-classification'ı için gerçek production'ı simüle eder.
+        if key == "decision_thresholds":
+            return dict(DEFAULT_THRESHOLDS)
         return None
 
 
@@ -159,6 +164,8 @@ class _CustomFamilyWeightsConfigRepo:
             return dict(DEFAULT_WEIGHTS)
         if key == "technical_family_weights":
             return self.CUSTOM_FAMILY_WEIGHTS
+        if key == "decision_thresholds":
+            return dict(DEFAULT_THRESHOLDS)
         return None
 
 
@@ -203,7 +210,7 @@ def test_backtest_engine_run_reports_technical_engine_version(fake_provider):
 
     result = engine.run("TEST", period="1y", now=_NOW_MARKET_OPEN)
 
-    assert result["technical_engine_version"] == TECHNICAL_ENGINE_VERSION == "1.7.0"
+    assert result["technical_engine_version"] == TECHNICAL_ENGINE_VERSION == "1.8.0"
 
 
 def test_backtest_engine_compare_strategies_reports_technical_engine_version(fake_provider):

@@ -359,6 +359,94 @@ def compute_scoring_config_hash(indicator_weights: dict[str, float], family_weig
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+# HATA 5C3A (28.08.2026) -- confidence artık "Sinyal Mutabakatı" (signal
+# agreement): SKOR BÜYÜKLÜĞÜNDEN bağımsız, YALNIZCA mevcut technical
+# family'lerinin final teknik yönle ne kadar uyuştuğunu ölçen, ayrı bir
+# metrik (bkz. HATA 5C2/5C2A/5C2B/5C2C audit zinciri). Eşik AYNEN mevcut
+# `trend` alanının (BULLISH/NEUTRAL/BEARISH) semantics'idir -- +15/-15 YENİ
+# bir parametre DEĞİL, zaten var olan sınır TEK bir helper'da merkezileşir.
+TECHNICAL_DIRECTION_POSITIVE_THRESHOLD = 15.0
+TECHNICAL_DIRECTION_NEGATIVE_THRESHOLD = -15.0
+
+
+def technical_direction(score: float) -> str:
+    """`score > +15` POSITIVE, `score < -15` NEGATIVE, aksi halde NEUTRAL --
+    tam olarak `trend` alanının (BULLISH/BEARISH/NEUTRAL) sınırıdır, +15 ve
+    -15'in KENDİSİ NEUTRAL'a düşer (dışlayıcı/exclusive boundary). Hem `trend`
+    türetimi hem `compute_family_agreement()` AYNI bu helper'ı kullanır --
+    sınır iki ayrı yerde tekrar YAZILMAZ (HATA 5C2B, madde 7).
+    """
+    if score > TECHNICAL_DIRECTION_POSITIVE_THRESHOLD:
+        return "POSITIVE"
+    if score < TECHNICAL_DIRECTION_NEGATIVE_THRESHOLD:
+        return "NEGATIVE"
+    return "NEUTRAL"
+
+
+def compute_family_agreement(
+    raw_family_scores: dict[str, float | None],
+    final_score: float,
+    family_weights: dict[str, float],
+) -> float:
+    """"Sinyal Mutabakatı": mevcut (available) family'lerin, `technical_
+    family_weights` ile AĞIRLIKLANDIRILMIŞ olarak, final teknik yönle ne
+    kadar uyuştuğu (bkz. HATA 5C2A, madde 3-5). Yalnızca `final_score is not
+    None` iken çağrılmalıdır (çağıran sorumluluğu, bkz. `engine.py`).
+
+    Denominator (`Σ family_weights[f], f ∈ available`) `final_score`'u
+    ÜRETEN `aggregate_available_scores()` çağrısının KENDİ weight_sum'ıyla
+    MATEMATİKSEL OLARAK ÖZDEŞTİR -- `final_score` `None` DEĞİLSE bu payda
+    YAPISAL OLARAK sıfır olamaz (HATA 5C2B'de kanıtlanan garanti), bu yüzden
+    ayrı bir sıfır-bölme guard'ı GEREKMEZ.
+    """
+    final_direction = technical_direction(final_score)
+    available = {f: s for f, s in raw_family_scores.items() if is_available(s)}
+    denominator = sum(family_weights.get(f, 0.0) for f in available)
+    numerator = sum(
+        family_weights.get(f, 0.0)
+        for f, s in available.items()
+        if technical_direction(s) == final_direction
+    )
+    return numerator / denominator
+
+
+def compute_evidence_coverage(
+    stored_components: dict[str, float],
+    indicator_weights: dict[str, float],
+    family_weights: dict[str, float],
+) -> float:
+    """"Veri Kapsamı": mevcut indicator evidence'in, beklenen 7 component/3
+    family'nin ne kadarını kapsadığını ölçen, hiyerarşik ağırlıklı bir oran
+    (bkz. HATA 5C2A, madde 6-8). Confidence'a (agreement) KARIŞTIRILMAZ --
+    ayrı, bağımsız bir metrik.
+
+        member_coverage[f] = Σ(indicator_weight[m], m ∈ available members of f)
+                              / Σ(indicator_weight[m], m ∈ ALL members of f)
+        evidence_coverage  = Σ(family_weight[f] * member_coverage[f], f ∈ ALL families)
+                              / Σ(family_weight[f], f ∈ ALL families)
+
+    `indicator_weights`/`family_weights` `resolve_indicator_weights()`/
+    `resolve_family_weights()`'ten geçmiş RESOLVED (validated) dict'ler
+    OLMALIDIR -- bu fonksiyon kendi başına validasyon YAPMAZ. Bu garantiler
+    sayesinde her iki payda da (`member_total`, `family_total`) HİÇBİR ZAMAN
+    sıfır olamaz: `resolve_indicator_weights` her family'de en az bir pozitif
+    weight, `resolve_family_weights` toplamda en az bir pozitif family weight
+    zorunlu kılar (FAIL-FAST, bkz. o fonksiyonların docstring'i).
+
+    Zero-weight bir member'ın mevcut/mevcut-olmama durumu `member_coverage`'ı
+    HİÇ ETKİLEMEZ (hem numerator hem denominator'a katkısı 0'dır) -- bu,
+    "disabled/zero-weight evidence eksik sayılmaz" ilkesini (HATA 5C2C, madde
+    8) ayrı bir özel-durum kodu OLMADAN, formülün doğal sonucu olarak sağlar.
+    """
+    family_total = sum(family_weights.values())
+    coverage_sum = 0.0
+    for family, members in FAMILY_MEMBERSHIP.items():
+        member_total = sum(indicator_weights.get(m, 0.0) for m in members)
+        available_total = sum(indicator_weights.get(m, 0.0) for m in members if m in stored_components)
+        coverage_sum += family_weights.get(family, 0.0) * (available_total / member_total)
+    return coverage_sum / family_total
+
+
 def clamp_components_df(raw_components: pd.DataFrame, low: float = -100.0, high: float = 100.0) -> pd.DataFrame:
     """Her hücreyi, KENDİ ham (unclamped) finiteliğine göre ele alır:
     finite hücreler `[low, high]`'a sıkıştırılır; NaN/±inf hücreler `clip()`

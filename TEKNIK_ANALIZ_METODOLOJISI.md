@@ -59,9 +59,7 @@ Her gösterge kendi formülüyle hesaplanır (ör. MACD = EMA(12)-EMA(26) ve onu
 - Uç durumlar (14. bardan itibaren): yalnızca kazanç varsa (`avg_loss=0`) → **RSI=100**; yalnızca kayıp varsa (`avg_gain=0`) → **RSI=0**; fiyat tamamen düzse (`avg_gain=avg_loss=0`) → **RSI=50** (gerçekten tanımsız/nötr durum, tek istisna). Normal durumda standart `100 - 100/(1+avg_gain/avg_loss)` formülü kullanılır.
 - **Not (önceki sürüm):** 25.08.2026'dan önceki sürüm, seed için `pandas.ewm(alpha=1/14, adjust=False)` kısayolunu kullanıyordu — recursion adımı doğru olsa da seed farklıydı (tek bir gözlemden başlıyordu) ve `avg_loss=0` durumunda yanlışlıkla RSI=50 dönüyordu (olması gereken 100 yerine). Bu, `TechnicalAnalysisEngine`'in `ENGINE_VERSION`'ının `1.0.0`'dan `1.1.0`'a yükseltilmesine yol açtı; eski Firestore kayıtları değiştirilmedi (immutable), yalnızca bu tarihten sonraki yeni analizler düzeltilmiş yöntemi kullanır.
 
-**Güven (`confidence`, %0-100):** Yalnızca skorun büyüklüğüne değil, iki ek şeye bakar:
-1. **Yön uyumu:** 7 bileşenden kaçı final skorla aynı yöndeyse (hepsi AL yönündeyse güven yüksek, yarısı ters yöndeyse düşük).
-2. **Hacim doğrulaması:** Güncel hacim, 20 günlük ortalama hacme göre ne durumda (düşük hacimli bir hareket daha az güvenilir sayılır).
+**Güven (`confidence`, "Sinyal Mutabakatı", %0-100) — 28.08.2026 (HATA 5C3A) itibarıyla:** Aşağıdaki açıklama (yön uyumu + hacim doğrulaması) **1.7.0 ve öncesi için GEÇERLİYDİ, 1.8.0 ile TAMAMEN DEĞİŞTİ** — güncel exact contract için bkz. bölüm 2.3. Özet: `confidence` artık yalnızca mevcut 3 family'nin (trend/oscillator_position/momentum_rate) final teknik yönle ne kadar uyuştuğunu ölçer; hacim confidence'tan tamamen çıkarıldı (sinyal zenginleştirmesinde AYRI olarak yaşamaya devam ediyor), ve `technical_score is None` iken `confidence=None` olur (eskiden `0.0`'dı).
 
 **Önbellekleme:** Bir sembol için üretilen analiz 15 dakika boyunca (`TECHNICAL_CACHE_TTL_SECONDS`) saklanır ve tekrar istenirse Yahoo'ya gidilmeden aynı sonuç döndürülür — hem hız hem maliyet için.
 
@@ -146,6 +144,79 @@ Her iki seviye de AYNI paylaşılan fonksiyonları (`scoring.aggregate_available
 **MACD'nin family içi payının artması (bilinen, BİLİNÇLİ OLARAK dokunulmayan side-effect):** MACD'nin whole-score contribution share'i (~%2) family mimarisinde kendi family'si (momentum_rate) içinde ~%8'e çıkıyor — bu MACD'nin kendi amplitude/scaling sorununu (formülün `×25` katsayısının küçük bir output ürettiği, `momentum`/`roc`'un çok daha büyük bir amplitude'a sahip olduğu) DÜZELTMEZ, yalnızca MACD'yi 6 yerine 2 peer'e karşı yarıştırır. MACD scaling AYRI bir ticket'tır.
 
 **92-sembol migration diagnostic (gerçek production kodu, return kullanılmadan):** legacy flat vs yeni family-level implementation arasında pooled classification change medyanı ~%22 (sembol bazında %15-39 arası), yüksek-conviction (`|legacy_score|>40`) günlerde direction flip **%0** — mimari değişikliği anlamlı ama kontrollü, en güçlü sinyalleri asla ters çevirmiyor.
+
+### 2.3 Confidence Semantics Overhaul — "Sinyal Mutabakatı" + "Veri Kapsamı" (HATA 5C2/5C2A/5C2B/5C2C/5C3A, 28.08.2026)
+
+**Bulgu (audit zinciri):** 1.7.0'a kadar `confidence`, family mimarisine HİÇ geçmemiş eski bir component-level heuristic'ti (`0.4 taban + 0.4×component sign-count agreement + 0.2×hacim doğrulaması`) — momentum_rate/oscillator_position ailelerinin 3 üyesi, trend'in 1 üyesine karşı 3 kat oy gücüne sahipti (SCORE seviyesinde 5B2D'nin çözdüğü double-counting, CONFIDENCE'ta AYNEN devam ediyordu); 1/7 component mevcutken confidence, 7/7 mevcutken ÜRETİLEN confidence ile AYNI çıkabiliyordu (completeness'e sıfır duyarlılık); `final_score==0` sınırında agreement keskin bir süreçsizlik (discontinuity) taşıyordu (`(s>=0)==(final_score>=0)` predicate'i sıfırı "pozitif" tarafına yazıyordu).
+
+**Yeni contract — iki AYRI, birbirine KARIŞTIRILMAYAN metrik:**
+
+1. **`confidence` ("Sinyal Mutabakatı"):** mevcut family'lerin, `technical_family_weights` ile ağırlıklandırılmış olarak, final teknik yönle ne kadar uyuştuğu.
+   ```
+   direction(x) = POSITIVE  eğer x > +15
+                = NEGATIVE  eğer x < -15
+                = NEUTRAL   aksi halde         (AYNI sınır, trend alanının BULLISH/BEARISH/NEUTRAL'ıyla BİREBİR — technical_direction())
+
+   agreement = Σ(family_weight_f, f ∈ available, direction(family_score_f) == direction(final_score))
+               / Σ(family_weight_f, f ∈ available)
+   confidence = round(agreement, 2)     -- technical_score is None ⟹ confidence = None (0.0 UYDURULMAZ)
+   ```
+   Skor büyüklüğüne, veri eksikliğine, olasılığa bağlı DEĞİLDİR. Hacim TAMAMEN ÇIKARILDI (eski `volume_confirmation` — sinyal zenginleştirmesinde `relative_volume_class` olarak AYRI yaşamaya devam ediyor, yalnızca confidence'la bağlantısı kesildi). `direction()` predicate'i sıfırı NEUTRAL'a yazdığından eski sıfır-sınırı süreksizliği de giderildi.
+
+2. **`evidence_coverage` ("Veri Kapsamı"):** beklenen 7 component/3 family'nin ne kadarının mevcut olduğu — `confidence`'a HİÇ KARIŞTIRILMAZ (çarpılmaz, ortalaması alınmaz, tek sayıya birleştirilmez).
+   ```
+   member_coverage_f = Σ(indicator_weight_m, m ∈ available members of f) / Σ(indicator_weight_m, m ∈ ALL members of f)
+   evidence_coverage  = Σ(family_weight_f × member_coverage_f, f ∈ ALL families) / Σ(family_weight_f, f ∈ ALL families)
+   ```
+   Config geçerli olduğu sürece HER ZAMAN [0,1] hesaplanabilir (`technical_score`/`confidence` `None` olsa BİLE `evidence_coverage=0.0` — bir "availability ratio" `None` olamaz). Zero-weight bir member'ın mevcut/mevcut-olmama durumu (hem numerator hem denominator'a 0 katkı yaptığından) coverage'ı HİÇ ETKİLEMEZ — ayrı bir özel-durum kodu GEREKMEDEN.
+
+**DÜZELTME (HATA 5C3A — TRANSITIONAL DECISION DEPENDENCY CORRECTION, 28.08.2026):** Önceki sürümde burada "`DecisionEngine` davranışı değişmedi, sıfır kod değişikliği gerekti" deniyordu — bu YANLIŞTI/eksikti, iki AYRI durumu birbirine karıştırıyordu:
+
+- **`technical_score is None` (unavailable) durumu — GERÇEKTEN değişmedi:** `DecisionEngine.decide()`, `technical_available = technical_score is not None` kontrolüyle zaten `base_confidence`'ı `0.6` sabit fallback'ine düşürüyor — bu koşul, `technical_confidence`'ın kendisinin `0.0` mı `None` mı olduğundan BAĞIMSIZ olarak AYNI şekilde tetikleniyor. Gerçek `DecisionEngine.decide()` ile doğrulandı: `technical_score=None, news=+60, macro=+20` iken `technical_confidence=0.0` (eski sentinel) VEYA `technical_confidence=None` (yeni) fark etmeksizin `AIDecision.confidence=30.0` — BİREBİR aynı.
+- **`technical_score` mevcutken (available) — `AIDecision.confidence` GEÇİCİ OLARAK DEĞİŞİYOR:** `DecisionEngine` koduna dokunulmamış olsa da, TÜKETTİĞİ `TechnicalAnalysis.confidence`'ın SAYISAL anlamı HATA 5C3A ile değişti (eski: component sign-agreement + hacim heuristic; yeni: weighted family directional agreement) — aynı `technical_score`/`news_score`/`macro_score`/`decision_weights` ile bile `AIDecision.confidence` farklı bir sayı üretebilir. Gerçek production formülleriyle (indicator/family weights, `DEFAULT_WEIGHTS`, `DEFAULT_THRESHOLDS`) hesaplanan deterministik örnek: `raw_components={rsi:-50,macd:+50,trend:+80,ema_slope:-50,bollinger:-50,momentum:+50,roc:+50}` → `final_score=26.67` (DEĞİŞMEDİ), `news_score=+60,macro_score=+20` → **eski technical confidence=0.73 → `AIDecision.confidence=73.0`, yeni technical confidence=0.67 → `AIDecision.confidence=67.0`** — final skor (`35.34`) VE sınıflandırma (`WEAK_BUY`) İKİSİNDE DE AYNI kaldı, yalnızca `confidence` sayısı değişti.
+
+**Sonuç — dağıtım (deploy) kısıtı:** HATA 5C3A **tek başına production'a alınmamalıdır** — `AIDecision.confidence`, 5C3B (`DecisionEngine`'in `technical_confidence` bağımlılığının kaldırılıp cross-engine weighted agreement + ayrı `channel_completeness` ile değiştirilmesi, `0.6` fallback'in kaldırılması) tamamlanana kadar geçici/istenmeyen bir şekilde etkilenir. Production release'i ancak **5C3A + 5C3B (backend) + 5C-UI1 (macro ×100 bug) + 5C-UI2 (UI label/guide temizliği)** BİRLİKTE hazır olduğunda değerlendirilecektir. Bu geçiş dönemi davranışı için KALICI bir regresyon testi YAZILMADI (5C3B onu bilinçli olarak kaldıracağı için) — yalnızca bu doküman ve ilgili audit raporuyla (HATA 5C3A Transitional Dependency Correction) kanıtlandı.
+
+**Versioning:** `TechnicalAnalysisEngine.ENGINE_VERSION`: `1.7.0 → 1.8.0` — `technical_score` FORMÜLÜ (dolayısıyla `scoring_config_hash`) DEĞİŞMEDİ, yalnızca `confidence` semantics'i değişti; "aynı scoring hash + yeni engine_version" kombinasyonu KABUL EDİLEBİLİR (cache bu bump nedeniyle eski 1.7.0 kayıtlarını otomatik MISS eder). `DecisionEngine`/`decision_thresholds`/`decision_weights`/`0.6` fallback'e bu ticket'ta DOKUNULMADI — o, ayrı bir (5C3B) ticket'tır.
+
+**Eski kayıtlar:** `TechnicalAnalysis.confidence: float | None` (eskiden `float`) — geriye dönük okuma BOZULMAZ (eski kayıtların TAMAMI gerçek bir float taşıyor). `evidence_coverage: float | None = None` yeni alan, bu alan eklenmeden önceki kayıtlarda yoktur — migration YAPILMADI.
+
+### 2.4 Decision Confidence Overhaul — `DecisionEngine` 1.1.0 (HATA 5C3B, 28.08.2026)
+
+5C3A'nın bıraktığı geçici bağımlılık (bölüm 2.3) burada kapatıldı: `AIDecision.confidence` artık `TechnicalAnalysis.confidence`'a (veya herhangi bir kanalın kendi confidence'ına) **HİÇ bağımlı DEĞİL** — `DecisionEngine.decide()`'ın `technical_confidence` parametresi **tamamen kaldırıldı** (kod seviyesinde imkânsız, `TypeError`).
+
+**Yeni contract — iki AYRI metrik (`TechnicalAnalysis`'teki 2.3 ile AYNI felsefe, decision seviyesinde):**
+
+1. **`confidence` ("Sinyal Mutabakatı"):** mevcut technical/news/macro kanallarının, `decision_weights` ile ağırlıklandırılmış olarak, final kararla YÖNSEL olarak ne kadar uyuştuğu.
+   ```
+   direction(score) = POSITIVE  eğer _classify(score, thresholds) ∈ {BUY, WEAK_BUY}
+                     = NEUTRAL   eğer _classify(score, thresholds) == HOLD
+                     = NEGATIVE  eğer _classify(score, thresholds) ∈ {WEAK_SELL, SELL}
+
+   agreement  = Σ(decision_weight_e, e ∈ available, direction(score_e) == direction(final_score))
+                / Σ(decision_weight_e, e ∈ available)
+   confidence = round(agreement × 100, 2)
+   ```
+   Threshold mantığı İKİNCİ KEZ YAZILMADI — her skor (`_classify()`, TEK source) üzerinden 3 duruma indirgeniyor; bu sayede `>=`/`<=` operatörleri VE eşik değerleri asla iki yerde birbirinden ayrışamaz. Kanal-özel confidence'lar (technical/news/macro) GİRDİ OLARAK KULLANILMIYOR.
+
+2. **`channel_completeness` ("Veri Kapsamı"):** `available_weight / Σ(tüm decision_weights)` — `confidence`'a KARIŞTIRILMAZ. `not available`/`available_weight==0` guard'ları sayesinde persist edilen bir karar için HER ZAMAN `(0,1]` aralığındadır.
+
+**`0.6` sabit fallback RETIRED:** Eski `base_confidence = technical_confidence if ... else 0.6` mantığı tamamen kaldırıldı — eksik bir kanal artık agreement hesabından basitçe DIŞLANIYOR (aynı `available`/renormalize prensibi `final_score` için zaten neyse, `confidence` için de şimdi AYNI), invented bir "nötr" değere ihtiyaç KALMADI.
+
+**Strict config resolver'lar (HATA 5C2C'nin kilitlediği contract'ın implementasyonu):** `decision_weights`/`decision_thresholds` artık `SystemConfigRepository.get()` (auto-seed + sessiz partial-merge) İLE OKUNMUYOR — `get_raw()` + `resolve_decision_weights()`/`resolve_decision_thresholds()` (fail-fast). İkisinin geçerlilik kuralları KASITLI OLARAK FARKLIDIR, birbirine karıştırılmamalıdır:
+
+- **`decision_weights`:** exact keys `{technical, news, macro}`; her değer numeric, finite (NaN/±inf reddedilir), bool reddedilir; **negatif değer reddedilir** (`ValueError`); individual `0.0` SERBEST (bkz. zero-positive-available-weight guard); toplam `>0` zorunlu.
+- **`decision_thresholds`:** exact keys `{buy, weak_buy, weak_sell, sell}`; her değer numeric, finite, bool reddedilir; **NEGATİF DEĞERLER SERBEST VE BEKLENEN** — production config'in kendisi `sell=-40, weak_sell=-15` gibi negatif değerler taşır, negatif olmak `ValueError` SEBEBİ DEĞİLDİR; tek zorunlu kural `sell < weak_sell < weak_buy < buy` sıralamasıdır; `[-100,100]` gibi yeni bir range kısıtı EKLENMEDİ (production örneği: `-40 < -15 < 15 < 40`).
+
+Aynı strict resolver, `BacktestEngine.run()`/`compare_strategies()`'in KENDİ `decision_thresholds` okumasında da kullanılıyor — AYNI config dokümanının iki motor arasında farklı (biri strict, biri sessiz-merge) okunması HATA 5B2C'nin kök nedeniyle AYNI riski taşırdı.
+
+**Zero-positive-available-weight guard:** Config geçerli olsa bile (`technical=0, news=.7, macro=.3` gibi) mevcut skorların TAMAMI sıfır-ağırlıklı kanallara aitse, eski kod guard'sız `ZeroDivisionError` fırlatırdı. Artık explicit `ValueError` (`NO_POSITIVE_WEIGHT_AVAILABLE`) — "veri yok" (INSUFFICIENT_DATA) İLE KARIŞTIRILMAZ, çünkü veri GERÇEKTEN var, yalnızca configured ağırlığı sıfır.
+
+**Versioning:** `DecisionEngine.ENGINE_VERSION`: `1.0.0 → 1.1.0`. `AIDecision.decision_engine_version` yeni kayıtlarda `1.1.0`; eski kayıtlar DEĞİŞTİRİLMEDİ (migration YOK). `AIDecision` için ayrı bir fresh-cache/reuse mekanizması YOKTUR (`decide_for_asset()` her çağrıda YENİDEN hesaplar, `TechnicalAnalysisEngine`'in 15dk cache'inin aksine) — bu yüzden versiyon-bazlı bir cache-invalidation guard'ına gerek YOKTUR.
+
+**Config provenance limitation (FUTURE GOVERNANCE, bu ticket'ın kapsamı DIŞINDA):** `AIDecision` hâlâ kullanılan RESOLVED ağırlıkları (`technical_weight`/`news_weight`/`macro_weight`) persist ediyor, ama `decision_thresholds`'un exact snapshot'ı/hash'i HÂLÂ persist edilmiyor — `TechnicalAnalysis.scoring_config_hash`'e benzer bir `decision_config_hash` bu turda EKLENMEDİ, bilinçli olarak ertelendi.
+
+**UI/deploy durumu DEĞİŞMEDİ:** Bu ticket yalnızca backend'dir — Flutter `Decision` modeline `channelCompleteness` alanı eklendi (API uyumluluğu için, henüz UI'da GÖSTERİLMİYOR), "Güven" label'ı "Sinyal Mutabakatı"na henüz DEĞİŞTİRİLMEDİ, macro UI ×100 bug'ı HÂLÂ DÜZELTİLMEDİ. Production release hâlâ **5C-UI1 + 5C-UI2** tamamlanmadan yapılmamalıdır.
 
 ---
 

@@ -11,11 +11,14 @@ from app.engines.technical.scoring import (
     aggregate_available_scores_series,
     clamp_component,
     clamp_components_df,
+    compute_evidence_coverage,
+    compute_family_agreement,
     compute_scoring_config_hash,
     is_available,
     resolve_family_weights,
     resolve_indicator_weights,
     safe_ratio,
+    technical_direction,
 )
 
 NAN = float("nan")
@@ -716,3 +719,186 @@ def test_scoring_config_hash_missing_family_default_equals_explicit_equal_docume
     assert compute_scoring_config_hash(indicator, missing_family_resolved) == compute_scoring_config_hash(
         indicator, explicit_family_resolved
     )
+
+
+# ---------------------------------------------------------------------------
+# HATA 5C3A (28.08.2026) — technical_direction / compute_family_agreement /
+# compute_evidence_coverage: "Sinyal Mutabakatı" (confidence) ve "Veri
+# Kapsamı" (evidence_coverage) permanent test planı (bkz. HATA 5C2A/5C2B/5C2C
+# audit zinciri).
+# ---------------------------------------------------------------------------
+
+EQUAL_FAMILY_WEIGHTS = dict(DEFAULT_TECHNICAL_FAMILY_WEIGHTS)  # trend/oscillator_position/momentum_rate hepsi 1/3
+
+# `WEIGHTS`'in family-içi toplamları (evidence_coverage fixture'ları bunlardan
+# TÜRETİLİR -- elle yuvarlanmış magic literal'ler DEĞİL).
+_TREND_TOTAL = WEIGHTS["trend"]
+_OSCILLATOR_TOTAL = WEIGHTS["rsi"] + WEIGHTS["bollinger"] + WEIGHTS["ema_slope"]
+_MOMENTUM_TOTAL = WEIGHTS["macd"] + WEIGHTS["momentum"] + WEIGHTS["roc"]
+
+
+def test_technical_direction_exact_positive_boundary():
+    # HATA 5C2B, madde 4: +15'in KENDİSİ NEUTRAL'dır (exclusive boundary) --
+    # mevcut `trend` alanının (`final_score > 15`) sınırıyla BİREBİR aynı.
+    assert technical_direction(15.0) == "NEUTRAL"
+    assert technical_direction(15.01) == "POSITIVE"
+
+
+def test_technical_direction_exact_negative_boundary():
+    assert technical_direction(-15.0) == "NEUTRAL"
+    assert technical_direction(-15.01) == "NEGATIVE"
+
+
+def test_technical_direction_zero_is_neutral():
+    assert technical_direction(0.0) == "NEUTRAL"
+
+
+# --- compute_family_agreement: HATA 5C2A madde 15 fixture'ları -------------
+
+
+def test_family_agreement_all_families_agree_positive():
+    # Fixture A: +80 / +80 / +80, final pozitif -> tam mutabakat.
+    raw_family_scores = {"trend": 80.0, "oscillator_position": 80.0, "momentum_rate": 80.0}
+    final_score = aggregate_available_scores(raw_family_scores, EQUAL_FAMILY_WEIGHTS)
+    assert final_score == pytest.approx(80.0)
+    agreement = compute_family_agreement(raw_family_scores, final_score, EQUAL_FAMILY_WEIGHTS)
+    assert round(agreement, 2) == 1.00
+
+
+def test_family_agreement_two_of_three_disagree():
+    # Fixture B: +100 / -100 / +100 -- final pozitif (33.33), yalnız trend VE
+    # momentum_rate eşleşir (oscillator_position final ile ZIT yönde) -> 2/3.
+    raw_family_scores = {"trend": 100.0, "oscillator_position": -100.0, "momentum_rate": 100.0}
+    final_score = aggregate_available_scores(raw_family_scores, EQUAL_FAMILY_WEIGHTS)
+    assert technical_direction(final_score) == "POSITIVE"
+    agreement = compute_family_agreement(raw_family_scores, final_score, EQUAL_FAMILY_WEIGHTS)
+    assert round(agreement, 2) == 0.67
+
+
+def test_family_agreement_weak_but_unanimous_signal_matches_strong_case():
+    # Fixture C: +20 / +20 / +20 (zayıf ama final YİNE +15 sınırının üstünde)
+    # -> tam mutabakat, Fixture A ile AYNI confidence -- büyüklükten
+    # bağımsızlığın kanıtı (HATA 5C1A'nın kilitlediği contract).
+    raw_family_scores = {"trend": 20.0, "oscillator_position": 20.0, "momentum_rate": 20.0}
+    final_score = aggregate_available_scores(raw_family_scores, EQUAL_FAMILY_WEIGHTS)
+    agreement = compute_family_agreement(raw_family_scores, final_score, EQUAL_FAMILY_WEIGHTS)
+    assert round(agreement, 2) == 1.00
+
+
+def test_family_agreement_only_trend_available_matches_full_agreement_but_coverage_is_low():
+    # Fixture D: yalnız trend mevcut (+80) -- agreement YİNE 1.00 (tek mevcut
+    # family final ile aynı yönde), AMA evidence_coverage DÜŞÜK olmalı. İki
+    # metric'in AYRILMASININ tam amacı bu (HATA 5C2A/5C2B) -- confidence
+    # yüksek olabilir, coverage düşük olabilir, AYNI ANDA.
+    raw_family_scores = {"trend": 80.0, "oscillator_position": None, "momentum_rate": None}
+    final_score = aggregate_available_scores(raw_family_scores, EQUAL_FAMILY_WEIGHTS)
+    assert final_score == pytest.approx(80.0)
+    agreement = compute_family_agreement(raw_family_scores, final_score, EQUAL_FAMILY_WEIGHTS)
+    assert round(agreement, 2) == 1.00
+
+    coverage = compute_evidence_coverage({"trend": 80.0}, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    assert coverage == pytest.approx(1.0 / 3.0, abs=1e-6)
+    assert coverage < agreement  # yüksek mutabakat + düşük kapsam AYNI ANDA
+
+
+def test_family_agreement_neutral_direction_only_neutral_family_matches():
+    # HATA 5C2A madde 5: +80 / -80 / 0 -- final pozitif VE negatif birbirini
+    # götürüp final_score'u NEUTRAL yapıyor (0.0); yalnızca gerçekten NEUTRAL
+    # oy veren family (momentum_rate) eşleşir -- pozitif/negatif family'lerin
+    # "iptalleşmesi" bir mutabakat SAYILMAZ (KASITLI davranış).
+    raw_family_scores = {"trend": 80.0, "oscillator_position": -80.0, "momentum_rate": 0.0}
+    final_score = aggregate_available_scores(raw_family_scores, EQUAL_FAMILY_WEIGHTS)
+    assert final_score == pytest.approx(0.0)
+    assert technical_direction(final_score) == "NEUTRAL"
+
+    agreement = compute_family_agreement(raw_family_scores, final_score, EQUAL_FAMILY_WEIGHTS)
+    assert round(agreement, 2) == 0.33
+
+
+def test_family_agreement_uses_resolved_family_weights_not_equal_count():
+    # HATA 5C2A madde 3/17: eşit-olmayan (non-equal) family weight config'i
+    # ile -- confidence "family SAYISINI" değil, GERÇEK config ağırlığını
+    # kullanmalı. trend=.5/oscillator=.3/momentum=.2; trend POZİTİF, diğer
+    # ikisi NEGATİF, ama trend'in baskın ağırlığı final'i pozitif yapıyor.
+    non_equal_family_weights = {"trend": 0.5, "oscillator_position": 0.3, "momentum_rate": 0.2}
+    raw_family_scores = {"trend": 100.0, "oscillator_position": -50.0, "momentum_rate": -50.0}
+    final_score = aggregate_available_scores(raw_family_scores, non_equal_family_weights)
+    assert final_score == pytest.approx(25.0)  # 100*.5 - 50*.3 - 50*.2 = 50 - 15 - 10 = 25
+    assert technical_direction(final_score) == "POSITIVE"
+
+    agreement = compute_family_agreement(raw_family_scores, final_score, non_equal_family_weights)
+    # Yalnız trend (ağırlık .5) final ile eşleşiyor -- eşit-sayım (1/3) OLSAYDI
+    # 0.33 çıkardı; gerçek ağırlıklı sonuç .5/1.0 = .50 OLMALI.
+    assert round(agreement, 2) == 0.50
+
+
+def test_family_agreement_zero_weight_family_available_but_score_becomes_none():
+    # HATA 5C2B madde 2/3: `trend` weight=0, yalnız trend family available --
+    # aggregate_available_scores() (final_score'u ÜRETEN AYNI fonksiyon) bu
+    # durumda `weight_sum==0` nedeniyle None döner (mevcut, DEĞİŞTİRİLMEMİŞ
+    # davranış) -- yani confidence'ın KENDİSİ hiç ÇAĞRILMAZ (engine.py'de
+    # `final_score is None` dalına düşer, bkz. test_technical_engine.py).
+    zero_trend_family_weights = {"trend": 0.0, "oscillator_position": 0.5, "momentum_rate": 0.5}
+    raw_family_scores = {"trend": 42.0, "oscillator_position": None, "momentum_rate": None}
+    final_score = aggregate_available_scores(raw_family_scores, zero_trend_family_weights)
+    assert final_score is None
+
+
+# --- compute_evidence_coverage: HATA 5C2A madde 14 fixture'ları -------------
+
+
+def test_evidence_coverage_full_7_of_7():
+    stored = {"rsi": 1.0, "macd": 1.0, "trend": 1.0, "ema_slope": 1.0, "bollinger": 1.0, "momentum": 1.0, "roc": 1.0}
+    coverage = compute_evidence_coverage(stored, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    assert coverage == pytest.approx(1.0, abs=1e-9)
+
+
+def test_evidence_coverage_only_trend_available():
+    stored = {"trend": 80.0}
+    coverage = compute_evidence_coverage(stored, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    expected = (1 / 3) * (WEIGHTS["trend"] / _TREND_TOTAL) + (1 / 3) * 0.0 + (1 / 3) * 0.0
+    assert coverage == pytest.approx(expected, abs=1e-9)
+    assert coverage == pytest.approx(1.0 / 3.0, abs=1e-6)
+
+
+def test_evidence_coverage_trend_plus_only_rsi():
+    stored = {"trend": 80.0, "rsi": 10.0}
+    coverage = compute_evidence_coverage(stored, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    expected = (1 / 3) * 1.0 + (1 / 3) * (WEIGHTS["rsi"] / _OSCILLATOR_TOTAL) + (1 / 3) * 0.0
+    assert coverage == pytest.approx(expected, abs=1e-9)
+    assert coverage == pytest.approx(0.4375, abs=1e-3)
+
+
+def test_evidence_coverage_trend_plus_full_oscillator_momentum_missing():
+    stored = {"trend": 80.0, "rsi": 10.0, "bollinger": 5.0, "ema_slope": 2.0}
+    coverage = compute_evidence_coverage(stored, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    expected = (1 / 3) * 1.0 + (1 / 3) * 1.0 + (1 / 3) * 0.0
+    assert coverage == pytest.approx(expected, abs=1e-9)
+    assert coverage == pytest.approx(2.0 / 3.0, abs=1e-6)
+
+
+def test_evidence_coverage_trend_missing_oscillator_and_momentum_full():
+    stored = {"rsi": 10.0, "bollinger": 5.0, "ema_slope": 2.0, "macd": 1.0, "momentum": 1.0, "roc": 1.0}
+    coverage = compute_evidence_coverage(stored, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    expected = (1 / 3) * 0.0 + (1 / 3) * 1.0 + (1 / 3) * 1.0
+    assert coverage == pytest.approx(expected, abs=1e-9)
+    assert coverage == pytest.approx(2.0 / 3.0, abs=1e-6)
+
+
+def test_evidence_coverage_no_evidence_at_all_is_zero_not_none():
+    # HATA 5C2B madde 4: evidence_coverage bir "availability ratio"dır --
+    # hiç weighted evidence mevcut değilse `0.0` (None DEĞİL) DÜRÜST bir
+    # değerdir, `technical_score`/`confidence` `None` olsa BİLE hesaplanabilir.
+    coverage = compute_evidence_coverage({}, WEIGHTS, EQUAL_FAMILY_WEIGHTS)
+    assert coverage == 0.0
+
+
+def test_evidence_coverage_zero_weight_member_missing_does_not_lower_coverage():
+    # HATA 5C2C madde 8: `roc` weight=0 (disabled/zero-weight evidence) --
+    # `roc` mevcut OLMASA BİLE momentum_rate'in member_coverage'ı 1.0 KALIR
+    # (hem numerator hem denominator'a zaten 0 katkı yapıyor), ayrı bir
+    # özel-durum kodu OLMADAN.
+    weights_with_disabled_roc = dict(WEIGHTS, roc=0.0)
+    stored_without_roc = {"rsi": 1.0, "macd": 1.0, "trend": 1.0, "ema_slope": 1.0, "bollinger": 1.0, "momentum": 1.0}
+    coverage = compute_evidence_coverage(stored_without_roc, weights_with_disabled_roc, EQUAL_FAMILY_WEIGHTS)
+    assert coverage == pytest.approx(1.0, abs=1e-9)

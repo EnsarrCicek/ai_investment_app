@@ -1,14 +1,21 @@
 from datetime import datetime, timezone
 
-from app.engines.decision.engine import DecisionEngine
+from app.engines.decision.engine import DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS, DecisionEngine
 from app.engines.explanation.engine import ExplanationEngine
 from app.models.news_analysis import NewsAnalysis
 from app.models.technical_analysis import TechnicalAnalysis
 
 
 class _FakeConfigRepo:
-    def get(self, key, defaults):
-        return defaults
+    # HATA 5C3B: production path artık `get()` DEĞİL `get_raw()` kullanıyor
+    # (`decision_weights`/`decision_thresholds` dahil) -- gerçek production'ı
+    # simüle etmek için geçerli/tam config'ler döner.
+    def get_raw(self, key):
+        if key == "decision_weights":
+            return dict(DEFAULT_WEIGHTS)
+        if key == "decision_thresholds":
+            return dict(DEFAULT_THRESHOLDS)
+        return None
 
 
 class _FakeDecisionRepo:
