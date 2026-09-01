@@ -1,4 +1,5 @@
 from app.engines.technical.breakout import BreakoutEvent
+from app.engines.technical.multi_timeframe import check_alignment
 from app.engines.technical.signal_classifier import SignalInputs, classify_signal
 from app.engines.technical.support_resistance import SRZone
 
@@ -20,6 +21,25 @@ def test_strong_bullish_initiation_requires_all_conditions():
         mtf_consensus="UP",
     )
     assert classify_signal(inputs) == "STRONG_BULLISH_INITIATION"
+
+
+def test_incomplete_mtf_evidence_cannot_produce_strong_bullish_initiation():
+    # HATA 7C-FIX: weekly zaman dilimi UNKNOWN'sa (ör. yetersiz haftalık
+    # geçmiş) check_alignment() artık aligned=False/consensus="UNKNOWN"
+    # döner -- bu, aksi halde STRONG_BULLISH_INITIATION için gereken TÜM
+    # diğer koşulları (skor, breakout, hacim) sağlayan bir senaryoyu bile
+    # eksik MTF kanıtı yüzünden bir alt sınıfa (BULLISH_CONFIRMED) düşürmeli.
+    alignment = check_alignment({"1d": "UP", "1wk": "UNKNOWN"})
+    inputs = SignalInputs(
+        technical_score=45.0,
+        market_structure="UPTREND",
+        breakout_event=_confirmed_breakout(retest_held=True),
+        relative_volume_class="HIGH",
+        relative_strength_class="OUTPERFORMING",
+        mtf_aligned=alignment["aligned"],
+        mtf_consensus=alignment["consensus"],
+    )
+    assert classify_signal(inputs) == "BULLISH_CONFIRMED"
 
 
 def test_falls_back_to_bullish_confirmed_without_high_volume():

@@ -35,6 +35,12 @@ def test_check_alignment_true_when_all_timeframes_agree():
     assert result["consensus"] == "UP"
 
 
+def test_check_alignment_true_when_all_timeframes_agree_down():
+    result = check_alignment({"1d": "DOWN", "1wk": "DOWN"})
+    assert result["aligned"] is True
+    assert result["consensus"] == "DOWN"
+
+
 def test_check_alignment_conflicting_when_directions_oppose():
     result = check_alignment({"1d": "UP", "1wk": "DOWN"})
     assert result["aligned"] is False
@@ -49,6 +55,38 @@ def test_check_alignment_mixed_for_partial_agreement():
 
 def test_check_alignment_unknown_when_no_timeframe_resolved():
     result = check_alignment({"1d": "UNKNOWN", "1wk": "UNKNOWN"})
+    assert result["aligned"] is False
+    assert result["consensus"] == "UNKNOWN"
+
+
+# HATA 7C-FIX (01.09.2026): eski sürüm, UNKNOWN olan zaman dilimini SESSİZCE
+# eleyip kalan TEK bilinen zaman dilimini "uyumlu" sayıyordu (ör. burada
+# {"1d":"UP","1wk":"UNKNOWN"} -> aligned=True, consensus="UP" dönüyordu) --
+# bu, dokümantasyonun ("günlük VE haftalık yönü karşılaştırılır") iddia
+# ettiği İKİ-taraflı karşılaştırmayı ihlal ediyordu (bkz. HATA 7C denetimi).
+# Artık configured zaman dilimlerinden HERHANGİ BİRİ UNKNOWN ise MTF kanıtı
+# EKSİK sayılır -- aligned/consensus İDDİA EDİLMEZ (UNKNOWN'a forward-fill
+# YOK, DOWN/FLAT'e çevrilmiyor).
+def test_check_alignment_incomplete_when_one_known_one_unknown_up():
+    result = check_alignment({"1d": "UP", "1wk": "UNKNOWN"})
+    assert result["aligned"] is False
+    assert result["consensus"] == "UNKNOWN"
+
+
+def test_check_alignment_incomplete_when_one_known_one_unknown_down():
+    result = check_alignment({"1d": "DOWN", "1wk": "UNKNOWN"})
+    assert result["aligned"] is False
+    assert result["consensus"] == "UNKNOWN"
+
+
+def test_check_alignment_incomplete_when_unknown_then_known_up():
+    result = check_alignment({"1d": "UNKNOWN", "1wk": "UP"})
+    assert result["aligned"] is False
+    assert result["consensus"] == "UNKNOWN"
+
+
+def test_check_alignment_incomplete_when_unknown_then_known_down():
+    result = check_alignment({"1d": "UNKNOWN", "1wk": "DOWN"})
     assert result["aligned"] is False
     assert result["consensus"] == "UNKNOWN"
 

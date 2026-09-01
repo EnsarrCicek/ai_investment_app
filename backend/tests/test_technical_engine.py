@@ -221,10 +221,11 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_8_0():
-    # HATA 5C3A: confidence semantics değişikliği ENGINE_VERSION bump'ını
-    # ZORUNLU kılar (1.7.0 -> 1.8.0) -- technical_score formülü DEĞİŞMEDİ.
-    assert ENGINE_VERSION == "1.8.0"
+def test_engine_version_is_1_9_0():
+    # HATA 7C-FIX: check_alignment()'in eksik (UNKNOWN) bir zaman dilimini
+    # artık "uyumlu" saymaması ENGINE_VERSION bump'ını ZORUNLU kılar
+    # (1.8.0 -> 1.9.0) -- technical_score formülü YİNE DEĞİŞMEDİ.
+    assert ENGINE_VERSION == "1.9.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -1362,11 +1363,17 @@ def test_analyze_with_id_confidence_is_independent_of_volume(fake_provider):
     assert "volume_sma" in analysis_low.indicators
 
 
-def test_analyze_with_id_recomputes_1_7_record_as_1_8_and_parses_both_confidence_shapes(fake_provider):
-    # HATA 5C3A madde 20: eski 1.7.0 kaydı (float confidence) fresh olsa BİLE
-    # cache HIT olmamalı (ENGINE_VERSION artık 1.8.0) -- yeniden hesaplanan
-    # 1.8.0 kaydı `confidence`'ı (float veya None) VE `evidence_coverage`'ı
-    # taşımalı.
+def test_analyze_with_id_recomputes_fresh_1_7_record_due_to_version_and_parses_legacy_float_confidence(fake_provider):
+    # RESPONSIBILITY A -- 1.7.0 GERİYE DÖNÜK UYUMLULUK / eski confidence
+    # şeklinin parse edilmesi. `age_seconds=60` -- kayıt TTL açısından TAZE
+    # (900s'lik pencerenin çok içinde); cache MISS zaman-bazlı bayatlıktan
+    # DEĞİL, `engine_version="1.7.0" != ENGINE_VERSION` uyuşmazlığından
+    # kaynaklanıyor (HATA 5C3A madde 20). Yeniden hesaplanan güncel kayıt
+    # `confidence`'ı (float veya None) VE `evidence_coverage`'ı taşımalı.
+    # Bu test SPESİFİK OLARAK 1.8->1.9 geçişini DEĞİL, 1.7'nin (herhangi bir
+    # sonraki sürüme göre) hâlâ eski float confidence şeklini doğru
+    # PARSE ETTİĞİNİ doğrular -- bkz. aşağıdaki AYRI 1.8->1.9 testi
+    # (RESPONSIBILITY B) spesifik cache-invalidation semantics'i için.
     old_1_7_cache = _cached_analysis(age_seconds=60, engine_version="1.7.0")
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_7_cache, cached_id="old-1-7-id")
     provider = fake_provider(history_df=_real_history_df())
@@ -1380,7 +1387,37 @@ def test_analyze_with_id_recomputes_1_7_record_as_1_8_and_parses_both_confidence
     analysis, doc_id = engine.analyze_with_id("TEST")
 
     assert analysis is not old_1_7_cache  # cache MISS -- yeniden hesaplandı
-    assert analysis.engine_version == "1.8.0"
+    assert analysis.engine_version == ENGINE_VERSION
     assert doc_id == "new-id"
     assert old_1_7_cache.confidence == 0.9  # eski float kayıt hâlâ parse edilebiliyor
     assert analysis.evidence_coverage is not None
+
+
+def test_analyze_with_id_cached_1_8_record_misses_under_1_9_engine_version(fake_provider):
+    # RESPONSIBILITY B -- HATA 7C-FIX'in SPESİFİK cache-invalidation
+    # semantics'i: `check_alignment()` düzeltmesi (eksik/UNKNOWN bir MTF
+    # zaman diliminin artık "uyumlu" sayılmaması) ENGINE_VERSION'ı 1.8.0'dan
+    # 1.9.0'a yükseltti (bkz. engine.py değişiklik geçmişi). Bu test, TTL
+    # içinde (fresh) bir 1.8.0 kaydının -- 1.7.0 testinin aksine eski bir
+    # confidence şekli parse etme senaryosu DEĞİL, doğrudan bu spesifik
+    # versiyon geçişi -- artık cache HIT ÜRETMEDİĞİNİ, gerçek 1.9.0
+    # motoruyla YENİDEN hesaplandığını ve dönen doküman kimliğinin eski
+    # (cache'lenmiş) kayıt DEĞİL, yeni persist edilen kayıt olduğunu kanıtlar.
+    old_1_8_cache = _cached_analysis(
+        age_seconds=60, engine_version="1.8.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_8_cache, cached_id="old-1-8-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert ENGINE_VERSION == "1.9.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert analysis is not old_1_8_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
+    assert analysis.engine_version == "1.9.0"
+    assert doc_id == "new-id"  # eski "old-1-8-id" DEĞİL -- gerçekten yeniden persist edildi

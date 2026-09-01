@@ -6,6 +6,7 @@ from app.engines.technical.horizon_classifier import (
     HorizonInputs,
     classify_horizon,
 )
+from app.engines.technical.multi_timeframe import check_alignment
 
 
 def test_strong_bullish_initiation_is_always_short_term():
@@ -89,6 +90,42 @@ def test_bearish_signal_without_any_structural_confirmation_is_short_term():
         mtf_aligned=False,
         mtf_consensus="UNKNOWN",
     )
+    assert classify_horizon(inputs) == KISA_VADELI
+
+
+# HATA 7C-FIX (01.09.2026): eksik (UNKNOWN) bir MTF zaman dilimi, gerçek
+# check_alignment() üzerinden artık aligned=False/consensus="UNKNOWN"
+# üretiyor -- full_confirmation'ın "günlük+haftalık uyumlu" şartını TEK
+# BAŞINA sağlayamamalı (diğer üç şart -- trend_regime/relative_strength --
+# tam olsa bile).
+def test_incomplete_mtf_evidence_cannot_satisfy_full_confirmation():
+    alignment = check_alignment({"1d": "UP", "1wk": "UNKNOWN"})
+    inputs = HorizonInputs(
+        signal_class="BULLISH_CONFIRMED",
+        market_structure="UPTREND",
+        trend_regime="TRENDING",
+        relative_strength_class="OUTPERFORMING",
+        mtf_aligned=alignment["aligned"],
+        mtf_consensus=alignment["consensus"],
+    )
+    # full_confirmation MTF şartı sağlanamıyor ama trend_regime=="TRENDING"
+    # partial_confirmation'ı (DEĞİŞMEYEN diğer dal) hâlâ sağlıyor.
+    assert classify_horizon(inputs) == ORTA_VADELI
+
+
+def test_incomplete_mtf_consensus_alone_cannot_satisfy_partial_confirmation():
+    alignment = check_alignment({"1d": "UP", "1wk": "UNKNOWN"})
+    inputs = HorizonInputs(
+        signal_class="BULLISH_CONFIRMED",
+        market_structure="UPTREND",
+        trend_regime="CHOPPY",  # partial_confirmation'ın trend_regime dalı da kapalı
+        relative_strength_class="UNKNOWN",
+        mtf_aligned=alignment["aligned"],
+        mtf_consensus=alignment["consensus"],
+    )
+    # Eski davranışta consensus="UP" olurdu ve mtf_consensus==expected_consensus
+    # partial_confirmation'ı sağlardı -- artık consensus="UNKNOWN", hiçbir
+    # partial_confirmation dalı sağlanamıyor.
     assert classify_horizon(inputs) == KISA_VADELI
 
 

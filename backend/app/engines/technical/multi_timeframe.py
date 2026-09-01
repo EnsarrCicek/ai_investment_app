@@ -109,17 +109,29 @@ def timeframe_direction(close: pd.Series, window: int = 20, slope_lookback: int 
 def check_alignment(directions: dict[str, str]) -> dict:
     """Farklı zaman dilimlerindeki yönleri karşılaştırıp genel bir uyum sonucu üretir.
 
-    - Tüm bilinen zaman dilimleri aynı yöndeyse (UP ya da DOWN): aligned=True.
+    - Configured TÜM zaman dilimleri aynı yöndeyse (UP ya da DOWN): aligned=True.
     - UP ve DOWN bir arada varsa: "CONFLICTING" (en riskli durum — sinyal
       zaman dilimine göre çelişiyor).
     - Diğer karışık durumlar (ör. UP+FLAT): "MIXED".
-    - Hiçbir zaman dilimi için yön belirlenemediyse: "UNKNOWN".
+
+    HATA 7C-FIX (01.09.2026): configured zaman dilimlerinden HERHANGİ BİRİ
+    "UNKNOWN" ise (yalnızca TÜMÜ UNKNOWN olduğunda DEĞİL) `aligned=False`,
+    `consensus="UNKNOWN"` döner — eski sürüm UNKNOWN olan zaman dilimini
+    SESSİZCE eleyip kalan TEK bilinen zaman dilimini "uyumlu" sayıyordu
+    (ör. `{"1d":"UP","1wk":"UNKNOWN"}` → `aligned=True, consensus="UP"`),
+    bu da dokümantasyonun ("günlük VE haftalık yönü karşılaştırılır, ikisi
+    de aynı yöndeyse uyumlu") iddia ettiği İKİ-taraflı karşılaştırmayı
+    tek-taraflı bir varsayıma indirgiyordu — eksik kanıtı (missing evidence)
+    sessizce "tam uyum" gibi sunan bir HATA 5B1-tarzı ihlaldi. `investment_
+    horizon`/`signal_class` (ör. STRONG_BULLISH_INITIATION, UZUN_VADELI) bu
+    dejenere "uyum"u gerçek çift-zaman-dilimi teyidiyle AYIRT EDEMİYORDU.
+    UNKNOWN, ne DOWN'a ne FLAT'e forward-fill EDİLMEZ — yalnızca "MTF
+    kanıtı eksik, uyum/consensus İDDİA EDİLEMEZ" anlamına gelir.
     """
-    known = {tf: d for tf, d in directions.items() if d != "UNKNOWN"}
-    if not known:
+    if any(direction == "UNKNOWN" for direction in directions.values()):
         return {"aligned": False, "consensus": "UNKNOWN", "directions": directions}
 
-    unique = set(known.values())
+    unique = set(directions.values())
     if len(unique) == 1:
         consensus = next(iter(unique))
         return {"aligned": consensus in ("UP", "DOWN"), "consensus": consensus, "directions": directions}

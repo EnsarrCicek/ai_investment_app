@@ -225,7 +225,21 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # "ayni scoring hash + yeni engine_version" kombinasyonu KABUL EDILEBILIR
 # (bkz. HATA 5C2A). Eski 1.7.0 kayitlari AYNEN kalir (migration YOK); cache
 # bu bump nedeniyle onlari otomatik MISS eder.
-ENGINE_VERSION = "1.8.0"
+#
+# HATA 7C-FIX (01.09.2026): 1.8.0 -> 1.9.0 -- technical_score'un FORMULU
+# (component/family aggregation, scoring_config_hash'in kapsadigi her sey)
+# YINE DEGISMEDI; degisen `multi_timeframe.py::check_alignment()`'in eksik
+# (UNKNOWN) bir zaman dilimini artik "diger zaman dilimiyle uyumlu" SAYMAMASI
+# -- bu, persist edilen/kullaniciya gosterilen enrichment alanlarini
+# (`signal_class`, `investment_horizon`, `investment_horizon_reason`,
+# `mtf_aligned`, `mtf_consensus`) GERIYE-GORUNUR sekilde degistirebilir (ör.
+# eskiden dejenere tek-zaman-dilimli "uyum" ile STRONG_BULLISH_INITIATION/
+# UZUN_VADELI uretebilen bir kayit, artik uretemeyebilir). scoring_config_hash
+# BILINCLI OLARAK DEGISMEDI (indicator/family weights'e dokunulmadi) -- "ayni
+# scoring hash + yeni engine_version" kombinasyonu yine KABUL EDILEBILIR (bkz.
+# HATA 5C2A emsali). Eski 1.8.0 kayitlari AYNEN kalir (migration YOK); cache
+# bu bump nedeniyle onlari otomatik MISS eder.
+ENGINE_VERSION = "1.9.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`
