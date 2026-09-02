@@ -116,26 +116,6 @@ const Map<String, String> _mtfConsensusLabels = {
   'UNKNOWN': 'Belirsiz',
 };
 
-const Map<String, String> _horizonLabels = {
-  'KISA_VADELI': 'Kısa Vadeli',
-  'ORTA_VADELI': 'Orta Vadeli',
-  'UZUN_VADELI': 'Uzun Vadeli',
-  'BELIRSIZ': 'Belirsiz',
-};
-
-Color _horizonColor(String? horizon) {
-  switch (horizon) {
-    case 'UZUN_VADELI':
-      return Colors.teal;
-    case 'ORTA_VADELI':
-      return Colors.indigo;
-    case 'KISA_VADELI':
-      return Colors.orange;
-    default:
-      return Colors.grey;
-  }
-}
-
 const Map<String, String> _candlestickLabels = {
   'DOJI': 'Doji',
   'HAMMER': 'Çekiç (Hammer)',
@@ -317,7 +297,7 @@ class _TechnicalTabState extends State<_TechnicalTab> {
             ),
             if (data.signalClass != null) ...[
               const SizedBox(height: 12),
-              _SignalSummaryCard(data: data),
+              SignalSummaryCard(data: data),
             ],
             if (data.narrative.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -461,9 +441,18 @@ class _DecisionBasisCard extends StatelessWidget {
   }
 }
 
-class _SignalSummaryCard extends StatelessWidget {
+// HATA 8C (02.09.2026): `investment_horizon`/`investment_horizon_reason`
+// ("Vade: ...") KASITLI OLARAK gösterilmiyor -- HATA 8/8A empirik doğrulaması,
+// mevcut KISA/ORTA/UZUN_VADELI etiketlerinin gerçek bir yatırım vadesi olarak
+// kalibre edilmediğini (hatta 40-90 günde UZUN_VADELI'nin KISA/ORTA'dan daha
+// kötü performans gösterdiğini) kanıtladı; ORTA_VADELI'nin gerekçe metni
+// ayrıca desteksiz bir pozisyon büyüklüğü tavsiyesi içeriyordu. Backend alanı
+// (`TechnicalAnalysisDetail.investmentHorizon`/`investmentHorizonReason`)
+// geriye dönük uyumluluk/araştırma için BİLİNÇLİ OLARAK hâlâ parse ediliyor
+// -- yalnızca bu ekranda GÖSTERİLMİYOR (bkz. HATA 8B remediation audit'i).
+class SignalSummaryCard extends StatelessWidget {
   final TechnicalAnalysisDetail data;
-  const _SignalSummaryCard({required this.data});
+  const SignalSummaryCard({super.key, required this.data});
 
   @override
   Widget build(BuildContext context) {
@@ -482,32 +471,6 @@ class _SignalSummaryCard extends StatelessWidget {
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
-            if (data.investmentHorizon != null && data.investmentHorizon != 'BELIRSIZ') ...[
-              const SizedBox(height: 10),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _horizonColor(data.investmentHorizon),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      'Vade: ${_horizonLabels[data.investmentHorizon] ?? data.investmentHorizon!}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-              if (data.investmentHorizonReason.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  data.investmentHorizonReason,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 20,
