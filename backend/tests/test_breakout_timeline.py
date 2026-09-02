@@ -443,6 +443,79 @@ def test_live_selector_falls_back_to_older_resolved_event_once_newer_one_is_inva
 
 
 # ---------------------------------------------------------------------------
+# HATA 9B-FIX: select_live_breakout_event_by_direction() -- AYNI (değişmemiş)
+# select_live_breakout_event() state/age/öncelik algoritmasını, yalnızca
+# `direction`e göre önceden filtrelenmiş bir alt kümede çalıştırır.
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_event(event_index, direction, confirmation_state, retest_state=None):
+    zone = SRZone(type="RESISTANCE" if direction == "BULLISH" else "SUPPORT", low=99.0, high=100.0, touch_count=2, last_touch_index=0)
+    return BreakoutTimelineEvent(
+        event_id=f"TEST:{direction}:{event_index}",
+        symbol="TEST", direction=direction,
+        event_index=event_index, event_at=date.fromisoformat("2026-01-01"),
+        level=100.0, zone_snapshot=zone, zone_known_at=event_index - 1,
+        breakout_strength_atr=1.0,
+        confirmation_state=confirmation_state, confirmed_at=(event_index + 3 if confirmation_state == ConfirmationState.CONFIRMED.value else None),
+        invalidated_at=None,
+        retest_state=retest_state, retest_event_at=None, retest_known_at=None, retest_deadline=None,
+        resolved_at=None,
+    )
+
+
+def test_direction_selector_both_live_requesting_bullish_selects_best_bullish():
+    from app.engines.technical.breakout_timeline import select_live_breakout_event_by_direction
+
+    older_bull = _synthetic_event(5, "BULLISH", ConfirmationState.CONFIRMED.value, RetestState.HELD.value)
+    newer_bear = _synthetic_event(8, "BEARISH", ConfirmationState.CONFIRMED.value, RetestState.HELD.value)
+    timeline = [older_bull, newer_bear]
+
+    generic = select_live_breakout_event(timeline, today_index=10)
+    bullish = select_live_breakout_event_by_direction(timeline, today_index=10, direction="BULLISH")
+
+    assert generic.direction == "BEARISH"  # genel seçim yön-bağımsız, en yeni kazanır
+    assert bullish.direction == "BULLISH"
+    assert bullish.event_id == older_bull.event_id  # daha eski ama tek bullish aday -- gölgelenmez
+
+
+def test_direction_selector_both_live_requesting_bearish_selects_best_bearish():
+    from app.engines.technical.breakout_timeline import select_live_breakout_event_by_direction
+
+    older_bear = _synthetic_event(5, "BEARISH", ConfirmationState.CONFIRMED.value, RetestState.HELD.value)
+    newer_bull = _synthetic_event(8, "BULLISH", ConfirmationState.CONFIRMED.value, RetestState.HELD.value)
+    timeline = [older_bear, newer_bull]
+
+    bearish = select_live_breakout_event_by_direction(timeline, today_index=10, direction="BEARISH")
+
+    assert bearish.direction == "BEARISH"
+    assert bearish.event_id == older_bear.event_id
+
+
+def test_direction_selector_returns_none_when_requested_direction_absent():
+    from app.engines.technical.breakout_timeline import select_live_breakout_event_by_direction
+
+    only_bull = _synthetic_event(5, "BULLISH", ConfirmationState.CONFIRMED.value, RetestState.HELD.value)
+    timeline = [only_bull]
+
+    assert select_live_breakout_event_by_direction(timeline, today_index=10, direction="BEARISH") is None
+
+
+def test_direction_selector_preserves_stage1_open_over_stage2_resolved_priority_within_one_direction():
+    from app.engines.technical.breakout_timeline import select_live_breakout_event_by_direction
+
+    # AYNI yön içinde: eski, tam ÇÖZÜLMÜŞ (resolved) bir event vs. yeni, henüz
+    # AÇIK (pending) bir event -- select_live_breakout_event()'in kendi
+    # Stage-1/Stage-2 önceliği, yön-filtrelemeden SONRA da AYNEN korunmalı.
+    older_resolved = _synthetic_event(3, "BULLISH", ConfirmationState.CONFIRMED.value, RetestState.HELD.value)
+    newer_open = _synthetic_event(9, "BULLISH", ConfirmationState.PENDING_CONFIRMATION.value)
+    timeline = [older_resolved, newer_open]
+
+    selected = select_live_breakout_event_by_direction(timeline, today_index=9, direction="BULLISH")
+    assert selected.event_id == newer_open.event_id  # Stage-1 (open) Stage-2'den (resolved) önce gelir, yön-filtreleme bunu değiştirmez
+
+
+# ---------------------------------------------------------------------------
 # HATA 4A causality regression: prefix view'da PENDING olan bir event, full
 # history'de sonradan CONFIRMED olsa bile "T'de zaten CONFIRMED" olarak
 # geriye YAZILMAMALI -- prefix ile sorgulanan timeline hâlâ PENDING göstermeli.

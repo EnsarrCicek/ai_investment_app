@@ -206,6 +206,10 @@ def test_root_cause_regression_confirmed_breakout_reaches_strong_bullish_initiat
     assert analysis.breakout["confirmed"] is True
     assert analysis.breakout_event_id is not None
     assert analysis.signal_class == "STRONG_BULLISH_INITIATION"
+    # HATA 9B-FIX: bu fixture'da hiçbir BEARISH event yok (gölgeleme YOK) --
+    # genel ve yön-özel seçim AYNI (tek) BULLISH event'e düşer, provenance
+    # genel event_id ile birebir eşleşmeli.
+    assert analysis.signal_breakout_event_id == analysis.breakout_event_id
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +228,12 @@ def test_end_to_end_new_opportunity_notification_from_real_pipeline(monkeypatch,
     log_repo = _FakeNewOpportunityLogRepo()
 
     def _notify(event_id):
-        a = analysis.model_copy(update={"breakout_event_id": event_id})
+        # HATA 9B-FIX: dedupe artık `signal_breakout_event_id` kullanır --
+        # bu test hiçbir gölgeleme senaryosu KURMUYOR (yalnızca "event
+        # değişti" simüle ediyor), bu yüzden iki alan BİRLİKTE güncellenir
+        # (gerçek, gölgelenmemiş pipeline'da ikisi zaten AYNI değeri taşır,
+        # bkz. yukarıdaki root-cause testinin yeni assertion'ı).
+        a = analysis.model_copy(update={"breakout_event_id": event_id, "signal_breakout_event_id": event_id})
         return fcm_sender.notify_if_new_opportunity(
             "u1", _decision(), analysis_repo=_FakeAnalysisRepo(a), provider=_FakeProvider(pd.DataFrame()),
             token_repo=_FakeTokenRepo(), new_opportunity_log_repo=log_repo,

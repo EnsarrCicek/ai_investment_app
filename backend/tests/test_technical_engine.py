@@ -221,12 +221,13 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_10_0():
-    # HATA 9A-FIX: classify_signal()'in bullish breakout onay/retest
-    # kontrollerinin artık `breakout.direction=="BULLISH"` da aramasını
-    # ZORUNLU kılması ENGINE_VERSION bump'ını gerektirir (1.9.0 -> 1.10.0)
-    # -- technical_score formülü YİNE DEĞİŞMEDİ.
-    assert ENGINE_VERSION == "1.10.0"
+def test_engine_version_is_1_11_0():
+    # HATA 9B-FIX: classify_signal()'in artık genel en son canlı breakout
+    # event'i (yön-bağımsız) yerine AYRI, yön-özel bir seçimden beslenmesi
+    # (select_live_breakout_event_by_direction(..., "BULLISH")) ENGINE_VERSION
+    # bump'ını gerektirir (1.10.0 -> 1.11.0) -- technical_score formülü YİNE
+    # DEĞİŞMEDİ.
+    assert ENGINE_VERSION == "1.11.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -1423,16 +1424,16 @@ def test_analyze_with_id_cached_1_8_record_misses_under_current_engine_version(f
     assert doc_id == "new-id"  # eski "old-1-8-id" DEĞİL -- gerçekten yeniden persist edildi
 
 
-def test_analyze_with_id_cached_1_9_record_misses_under_1_10_engine_version(fake_provider):
-    # RESPONSIBILITY B2 -- HATA 9A-FIX'in SPESİFİK cache-invalidation
-    # semantics'i: `classify_signal()`'in bullish breakout onay/retest
-    # kontrollerinin artık `breakout.direction=="BULLISH"` da araması
-    # ENGINE_VERSION'ı 1.9.0'dan 1.10.0'a yükseltti (bkz. engine.py değişiklik
-    # geçmişi). Bu test, TTL içinde (fresh) bir 1.9.0 kaydının -- yukarıdaki
-    # genel testin aksine, doğrudan BU spesifik versiyon geçişi -- artık cache
-    # HIT ÜRETMEDİĞİNİ, gerçek 1.10.0 motoruyla YENİDEN hesaplandığını ve
-    # dönen doküman kimliğinin eski (cache'lenmiş) kayıt DEĞİL, yeni persist
-    # edilen kayıt olduğunu kanıtlar.
+def test_analyze_with_id_cached_1_9_record_misses_under_current_engine_version(fake_provider):
+    # RESPONSIBILITY B2 -- eski (1.10.0'dan da ÖNCEki) bir engine_version'ın
+    # TTL içinde (fresh) olsa bile ASLA cache HIT üretmediğini genel olarak
+    # kilitler. HATA 9B-FIX (02.09.2026) ile ENGINE_VERSION 1.10.0'dan
+    # 1.11.0'a yükseldiğinden, bu test artık sabit "1.10.0" yerine canlı
+    # `ENGINE_VERSION` sabitini kullanır -- gelecekteki her bump'ta yeniden
+    # yazılmaya gerek kalmadan "eski bir kayıt her zaman günceli MISS eder"
+    # genel sözleşmesini doğrulamaya devam eder. Belirli bir versiyon
+    # GEÇİŞİNİN (ör. 1.10->1.11) SPESİFİK regresyonu için bkz. aşağıdaki
+    # AYRI test (RESPONSIBILITY B3).
     old_1_9_cache = _cached_analysis(
         age_seconds=60, engine_version="1.9.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
     )
@@ -1447,7 +1448,228 @@ def test_analyze_with_id_cached_1_9_record_misses_under_1_10_engine_version(fake
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
-    assert ENGINE_VERSION == "1.10.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
     assert analysis is not old_1_9_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
-    assert analysis.engine_version == "1.10.0"
+    assert analysis.engine_version == ENGINE_VERSION
     assert doc_id == "new-id"  # eski "old-1-9-id" DEĞİL -- gerçekten yeniden persist edildi
+
+
+def test_analyze_with_id_cached_1_10_record_misses_under_1_11_engine_version(fake_provider):
+    # RESPONSIBILITY B3 -- HATA 9B-FIX'in SPESİFİK cache-invalidation
+    # semantics'i: `classify_signal()`'in artık genel en son canlı breakout
+    # event'i yerine AYRI, yön-özel bir seçimden beslenmesi ENGINE_VERSION'ı
+    # 1.10.0'dan 1.11.0'a yükseltti (bkz. engine.py değişiklik geçmişi). Bu
+    # test, TTL içinde (fresh) bir 1.10.0 kaydının -- yukarıdaki genel testin
+    # aksine, doğrudan BU spesifik versiyon geçişi -- artık cache HIT
+    # ÜRETMEDİĞİNİ, gerçek 1.11.0 motoruyla YENİDEN hesaplandığını ve dönen
+    # doküman kimliğinin eski (cache'lenmiş) kayıt DEĞİL, yeni persist edilen
+    # kayıt olduğunu kanıtlar.
+    old_1_10_cache = _cached_analysis(
+        age_seconds=60, engine_version="1.10.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_10_cache, cached_id="old-1-10-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert ENGINE_VERSION == "1.11.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert analysis is not old_1_10_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
+    assert analysis.engine_version == "1.11.0"
+    assert doc_id == "new-id"  # eski "old-1-10-id" DEĞİL -- gerçekten yeniden persist edildi
+
+
+# ---------------------------------------------------------------------------
+# HATA 9B-FIX (02.09.2026) — integration: karşıt yönlü, daha yeni bir BEARISH
+# event genel seçimi kazansa bile, `classify_signal()` artık AYRI, yön-özel
+# bir seçimden (hâlâ canlı olan BULLISH event) beslenir; genel `breakout`/
+# `breakout_event_id` DEĞİŞMEDEN yön-bağımsız kalır; yalnızca signal_class'a
+# GERÇEKTEN katkıda bulunan event'in kimliği yeni `signal_breakout_event_id`
+# alanına yazılır (bkz. HATA 9B/9B2 audit'leri).
+# ---------------------------------------------------------------------------
+
+
+def _shadowing_scenario_df() -> pd.DataFrame:
+    # UPTREND market_structure için en az 2 HIGH + 2 LOW swing point'i gerekir
+    # (label_structure, ilk noktayı öncülsüz bırakır) -- 3 bacaklı bir yükseliş
+    # (iki HH/HL çifti) + son bar'da hacim sıçraması (VERY_HIGH relative volume).
+    up1 = np.linspace(90.0, 130.0, 40)
+    pb1 = np.linspace(128.0, 122.0, 8)
+    up2 = np.linspace(124.0, 150.0, 40)
+    pb2 = np.linspace(148.0, 140.0, 8)
+    up3 = np.linspace(142.0, 165.0, 24)
+    closes = np.concatenate([up1, pb1, up2, pb2, up3])
+    n = len(closes)
+    trading_days = _bist_trading_days((pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).date(), n)
+    idx = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days])
+    volume = np.full(n, 50000.0)
+    volume[-1] = 220000.0
+    return pd.DataFrame(
+        {"Open": closes - 0.3, "High": closes + 0.6, "Low": closes - 0.6, "Close": closes, "Volume": volume},
+        index=idx,
+    )
+
+
+def _shadowing_scenario_events(df: pd.DataFrame):
+    from app.engines.technical.breakout_timeline import BreakoutTimelineEvent, ConfirmationState, RetestState
+    from app.engines.technical.support_resistance import SRZone
+
+    today_index = len(df) - 1
+    zone_r = SRZone(type="RESISTANCE", low=128.0, high=130.0, touch_count=2, last_touch_index=0)
+    zone_s = SRZone(type="SUPPORT", low=122.0, high=124.0, touch_count=2, last_touch_index=0)
+    # Eski, hâlâ canlı (RESOLVED, age<=15) BULLISH event -- STRONG_BULLISH_
+    # INITIATION'ın gerektirdiği confirmed+retest-held kanıtı bunda vardır.
+    bull_event = BreakoutTimelineEvent(
+        event_id="TEST:BULLISH:older", symbol="TEST", direction="BULLISH",
+        event_index=today_index - 9, event_at=df.index[today_index - 9].date(),
+        level=130.0, zone_snapshot=zone_r, zone_known_at=today_index - 10,
+        breakout_strength_atr=1.0,
+        confirmation_state=ConfirmationState.CONFIRMED.value, confirmed_at=today_index - 6, invalidated_at=None,
+        retest_state=RetestState.HELD.value, retest_event_at=None, retest_known_at=None, retest_deadline=None,
+        resolved_at=today_index - 2,
+    )
+    # Daha YENİ BEARISH event -- pure recency ile GENEL seçimi kazanır.
+    bear_event = BreakoutTimelineEvent(
+        event_id="TEST:BEARISH:newer", symbol="TEST", direction="BEARISH",
+        event_index=today_index - 4, event_at=df.index[today_index - 4].date(),
+        level=124.0, zone_snapshot=zone_s, zone_known_at=today_index - 5,
+        breakout_strength_atr=1.0,
+        confirmation_state=ConfirmationState.CONFIRMED.value, confirmed_at=today_index - 1, invalidated_at=None,
+        retest_state=RetestState.HELD.value, retest_event_at=None, retest_known_at=None, retest_deadline=None,
+        resolved_at=today_index,
+    )
+    return bull_event, bear_event
+
+
+def test_signal_class_uses_directional_bullish_event_when_generic_selection_is_bearish(fake_provider, monkeypatch):
+    import app.engines.technical.engine as engine_module
+
+    df = _shadowing_scenario_df()
+    bull_event, bear_event = _shadowing_scenario_events(df)
+    monkeypatch.setattr(engine_module, "build_breakout_timeline", lambda df, symbol: [bull_event, bear_event])
+
+    provider = fake_provider(history_df=df)
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    analysis, _ = engine.analyze_with_id("TEST")
+
+    # Ön koşullar: fixture gerçekten STRONG-eligible bağlam üretiyor mu?
+    assert analysis.market_structure == "UPTREND"
+    assert analysis.technical_score >= 40
+    assert analysis.mtf_aligned is True and analysis.mtf_consensus == "UP"
+    assert analysis.relative_volume_class in ("HIGH", "VERY_HIGH")
+
+    # GENEL breakout alanları yön-bağımsız/DEĞİŞMEDEN kalır -- en yeni (BEARISH) event.
+    assert analysis.breakout["direction"] == "BEARISH"
+    assert analysis.breakout_event_id == bear_event.event_id
+
+    # Ama signal_class, gölgelenmiş (daha eski) BULLISH event kullanılarak üretilir.
+    assert analysis.signal_class == "STRONG_BULLISH_INITIATION"
+    assert analysis.signal_breakout_event_id == bull_event.event_id
+    assert analysis.signal_breakout_event_id != analysis.breakout_event_id  # KASITLI fark (HATA 9B2)
+
+
+def test_signal_breakout_event_id_is_none_when_bullish_confirmed_via_breakout_none():
+    from app.engines.technical.signal_classifier import SignalInputs, classify_signal
+
+    # Section 7/9 invariant: breakout=None ile ulaşılan BULLISH_CONFIRMED'de
+    # provenance YOKTUR -- bu, engine.py'nin `bullish_confirmed` hesabıyla
+    # (bullish_breakout_event is None -> False) AYNI mantığı doğrudan sınar.
+    inputs = SignalInputs(technical_score=20.0, market_structure="UPTREND", breakout_event=None)
+    assert classify_signal(inputs) == "BULLISH_CONFIRMED"
+    bullish_breakout_event = None
+    bullish_confirmed = bool(bullish_breakout_event and bullish_breakout_event.confirmed is True)
+    assert bullish_confirmed is False  # -> engine.py bu durumda signal_breakout_event_id=None üretir
+
+
+# ---------------------------------------------------------------------------
+# HATA 9B-FIX PRE-COMMIT BLOCKER (02.09.2026) — `bullish_breakout_event`
+# (yön-özel seçim) `None` olduğunda bunu DOĞRUDAN `SignalInputs.breakout_
+# event`e vermek, "canlı bir BEARISH olay var" durumunu "hiç breakout kanıtı
+# yok" (`breakout=None`) durumuna İNDİRGERDİ -- bu, HATA 9A'nın `breakout is
+# None OR breakout_confirmed` dalındaki `None` yolunu YANLIŞLIKLA açıp, salt
+# BEARISH bir olayın (yön kontrolüne hiç uğramadan) `BULLISH_CONFIRMED`
+# üretmesine yol açıyordu (regresyon, bu test grubuyla kanıtlandı/kilitlendi).
+# Düzeltme: `classifier_breakout_event = bullish_breakout_event if not None
+# else breakout_event` (genel event, yönü DEĞİŞTİRİLMEDEN) -- bu, aşağıdaki
+# 5 senaryonun TAMAMINI (HATA 9A + HATA 9B aynı anda) doğru üretir. Doğrudan
+# `_compute_enrichment()` çağrılır (`final_score` bir parametre olduğundan
+# farklı skor seviyelerini AYRI fiyat serileri inşa etmeden test etmeyi
+# sağlar) -- `build_breakout_timeline`/`get_benchmark_close_series` tek
+# monkeypatch ile izole edilir, geri kalan her şey (market_structure/MTF/
+# relative_volume) GERÇEK fonksiyonlarla, `_shadowing_scenario_df()` üzerinde
+# hesaplanır.
+# ---------------------------------------------------------------------------
+
+
+def _run_enrichment(df, timeline_events, final_score, monkeypatch):
+    import app.engines.technical.engine as engine_module
+    from app.engines.technical import indicators as ind
+
+    monkeypatch.setattr(engine_module, "build_breakout_timeline", lambda df, symbol: timeline_events)
+
+    def _raise_value_error(**kwargs):
+        raise ValueError("benchmark unavailable in test")
+
+    monkeypatch.setattr(engine_module, "get_benchmark_close_series", _raise_value_error)
+    atr_val = float(ind.atr(df).iloc[-1])
+    close_val = float(df["Close"].iloc[-1])
+    return engine_module._compute_enrichment(
+        df, "TEST", atr_val, close_val, final_score, provider=None, benchmark_cache_repo=None, now=None
+    )
+
+
+def test_regression_A_generic_bearish_only_no_bullish_moderate_score_is_candidate(monkeypatch):
+    df = _shadowing_scenario_df()
+    _, bear_event = _shadowing_scenario_events(df)
+    result = _run_enrichment(df, [bear_event], final_score=20.0, monkeypatch=monkeypatch)
+    assert result["signal_class"] == "BULLISH_CANDIDATE"
+    assert result["breakout"]["direction"] == "BEARISH"
+    assert result["breakout_event_id"] == bear_event.event_id
+    assert result["signal_breakout_event_id"] is None
+
+
+def test_regression_B_generic_bearish_only_no_bullish_strong_context_is_candidate(monkeypatch):
+    # KRİTİK: strong-eligible skor/hacim/MTF bağlamı bile, tek başına canlı
+    # bir BEARISH olayı bullish teyide ÇEVİRMEZ (ne CONFIRMED ne STRONG).
+    df = _shadowing_scenario_df()
+    _, bear_event = _shadowing_scenario_events(df)
+    result = _run_enrichment(df, [bear_event], final_score=45.0, monkeypatch=monkeypatch)
+    assert result["signal_class"] == "BULLISH_CANDIDATE"
+    assert result["signal_breakout_event_id"] is None
+
+
+def test_regression_C_shadowed_bullish_still_recovered_at_moderate_score(monkeypatch):
+    df = _shadowing_scenario_df()
+    bull_event, bear_event = _shadowing_scenario_events(df)
+    result = _run_enrichment(df, [bull_event, bear_event], final_score=20.0, monkeypatch=monkeypatch)
+    assert result["signal_class"] == "BULLISH_CONFIRMED"
+    assert result["breakout"]["direction"] == "BEARISH"  # genel seçim DEĞİŞMEDİ
+    assert result["breakout_event_id"] == bear_event.event_id
+    assert result["signal_breakout_event_id"] == bull_event.event_id  # provenance gölgelenmiş BULLISH'e işaret eder
+
+
+def test_regression_D_shadowed_bullish_still_recovered_at_strong_context(monkeypatch):
+    df = _shadowing_scenario_df()
+    bull_event, bear_event = _shadowing_scenario_events(df)
+    result = _run_enrichment(df, [bull_event, bear_event], final_score=45.0, monkeypatch=monkeypatch)
+    assert result["signal_class"] == "STRONG_BULLISH_INITIATION"
+    assert result["breakout_event_id"] == bear_event.event_id
+    assert result["signal_breakout_event_id"] == bull_event.event_id
+
+
+def test_regression_E_no_event_either_direction_none_semantics_preserved(monkeypatch):
+    df = _shadowing_scenario_df()
+    result = _run_enrichment(df, [], final_score=20.0, monkeypatch=monkeypatch)
+    assert result["signal_class"] == "BULLISH_CONFIRMED"  # mevcut breakout=None politikası DEĞİŞMEDİ
+    assert result["breakout"] is None
+    assert result["breakout_event_id"] is None
+    assert result["signal_breakout_event_id"] is None

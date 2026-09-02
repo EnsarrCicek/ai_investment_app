@@ -276,10 +276,23 @@ class _FakeSettingsConfigRepo:
         return self._settings if self._settings is not None else defaults
 
 
+_UNSET = object()
+
+
 def _strong_analysis(
     signal_class: str = "STRONG_BULLISH_INITIATION",
     breakout_event_id: str | None = "THYAO:BULLISH:2026-08-20",
+    signal_breakout_event_id=_UNSET,
 ) -> TechnicalAnalysis:
+    # HATA 9B-FIX: `signal_breakout_event_id` varsayılan olarak GENEL
+    # `breakout_event_id` ile AYNI değere ayarlanır (yön-özel/genel event'in
+    # AYNI olduğu -- gölgelenmenin OLMADIĞI -- normal/yaygın senaryo) -- bu,
+    # aşağıdaki mevcut dedupe testlerinin İKİSİNİ de AYRICA güncellemeye
+    # gerek kalmadan geçmeye devam etmesini sağlar. Testler bu iki alanı
+    # KASITLI OLARAK farklı tutmak istediğinde `signal_breakout_event_id`'yi
+    # açıkça geçer (bkz. provenance-specific testler).
+    if signal_breakout_event_id is _UNSET:
+        signal_breakout_event_id = breakout_event_id
     return TechnicalAnalysis(
         asset="THYAO",
         technical_score=50.0,
@@ -290,6 +303,7 @@ def _strong_analysis(
         created_at=datetime.now(timezone.utc),
         signal_class=signal_class,
         breakout_event_id=breakout_event_id,
+        signal_breakout_event_id=signal_breakout_event_id,
     )
 
 
@@ -356,14 +370,60 @@ def test_new_opportunity_skipped_when_signal_class_not_strong():
 
 
 def test_new_opportunity_skipped_when_no_breakout_event_id():
-    # HATA 4B: STRONG sinyal ama breakout_event_id yok (savunmacı kontrol) --
-    # normalde oluşmaz (STRONG_BULLISH_INITIATION zaten confirmed breakout
-    # gerektirir) ama event_id'siz dedupe imkansız olacağından açıkça bloklanır.
+    # HATA 4B -> HATA 9B-FIX: STRONG sinyal ama provenance
+    # (`signal_breakout_event_id`) yok (savunmacı kontrol) -- normalde
+    # oluşmaz (STRONG_BULLISH_INITIATION zaten confirmed BULLISH breakout
+    # gerektirir) ama provenance'sız dedupe imkansız olacağından açıkça
+    # bloklanır. Genel `breakout_event_id`'ye ASLA fallback YAPILMAZ (bkz.
+    # aşağıdaki AYRI provenance testleri, HATA 9B2).
     analysis = _strong_analysis(breakout_event_id=None)
     sent = fcm_sender.notify_if_new_opportunity(
         "u1", _decision(decision="BUY"), analysis_repo=_FakeAnalysisRepo(analysis)
     )
     assert sent is False
+
+
+def test_new_opportunity_skipped_when_signal_breakout_event_id_is_none_even_if_generic_exists(monkeypatch):
+    # HATA 9B2 invariant: genel `breakout_event_id` DOLU olsa bile (ör.
+    # gölgeleyen bir BEARISH event genel seçimi kazandığından), STRONG
+    # sinyali GERÇEKTEN üreten event'in provenance'ı (`signal_breakout_
+    # event_id`) yoksa bildirim GÖNDERİLMEZ ve genele ASLA fallback
+    # YAPILMAZ -- aksi halde HATA 9B2'nin kanıtladığı yanlış-event dedupe
+    # hatası geri gelirdi.
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    log_repo = _FakeNewOpportunityLogRepo()
+    analysis = _strong_analysis(breakout_event_id="THYAO:BEARISH:2026-08-20", signal_breakout_event_id=None)
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent is False
+    assert log_repo.claim_calls == []  # genel event_id ile dedupe DENENMEDİ bile
+
+
+def test_new_opportunity_uses_signal_breakout_event_id_not_generic_when_they_differ(monkeypatch):
+    # HATA 9B2 invariant: signal_class'ı GERÇEKTEN üreten (yön-özel) event
+    # farklı olduğunda, dedupe/claim GENEL `breakout_event_id`yi DEĞİL,
+    # `signal_breakout_event_id`yi kullanmalı.
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    log_repo = _FakeNewOpportunityLogRepo()
+    generic_id = "THYAO:BEARISH:2026-08-20"  # gölgeleyen, daha yeni event (genel seçim)
+    signal_id = "THYAO:BULLISH:2026-08-15"  # signal_class'ı GERÇEKTEN üreten, gölgelenmiş event
+    analysis = _strong_analysis(breakout_event_id=generic_id, signal_breakout_event_id=signal_id)
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent is True
+    assert log_repo.claim_calls == [("u1", "THYAO", signal_id)]  # GENEL id ASLA kullanılmadı
+    assert ("u1", "THYAO", generic_id) not in log_repo._docs
+    assert log_repo._docs[("u1", "THYAO", signal_id)]["status"] == "SENT"
 
 
 def test_new_opportunity_skipped_when_quote_unavailable():
@@ -551,6 +611,47 @@ def test_new_opportunity_send_failure_releases_claim_for_retry(monkeypatch):
         token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
     )
     assert sent_retry is True
+
+
+def test_new_opportunity_send_failure_releases_signal_event_id_not_generic(monkeypatch):
+    # HATA 9B-FIX PRE-COMMIT BLOCKER, madde 5: generic ve signal-provenance
+    # event id'leri KASITLI OLARAK FARKLI (gölgeleme senaryosu) -- claim
+    # BULLISH-A ile başarılı olmalı, FCM gönderimi BAŞARISIZ olunca release
+    # de AYNI BULLISH-A için çağrılmalı (BEARISH-B için ASLA), ve BULLISH-A'nın
+    # PENDING claim'i gerçekten silinip retry'ın başarılı olabilmesi
+    # sağlanmalı (HATA 4B retry semantics'i korunmalı).
+    from firebase_admin import exceptions as firebase_exceptions
+
+    def _raise(message):
+        raise firebase_exceptions.UnavailableError("gecici hata")
+
+    monkeypatch.setattr(fcm_sender.messaging, "send", _raise)
+    log_repo = _FakeNewOpportunityLogRepo()
+    generic_id = "THYAO:BEARISH:2026-08-20"  # gölgeleyen, genel event -- ASLA claim/release edilmemeli
+    signal_id = "THYAO:BULLISH:2026-08-15"  # signal_class'ı GERÇEKTEN üreten event
+    analysis = _strong_analysis(breakout_event_id=generic_id, signal_breakout_event_id=signal_id)
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent is False
+    assert log_repo.claim_calls == [("u1", "THYAO", signal_id)]  # yalnızca BULLISH-A claim edildi
+    assert log_repo.release_calls == [("u1", "THYAO", signal_id, log_repo.release_calls[0][3])]  # release de AYNI id ile
+    assert ("u1", "THYAO", signal_id) not in log_repo._docs  # PENDING claim silindi -- sonsuza dek kilitlenmedi
+    assert ("u1", "THYAO", generic_id) not in log_repo._docs  # genel id'ye HİÇ dokunulmadı
+
+    # Retry: FCM bu kez başarılı olsun -- AYNI (signal_id) event için başarıyla gönderebilmeli.
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    sent_retry = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(analysis),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    assert sent_retry is True
+    assert log_repo._docs[("u1", "THYAO", signal_id)]["status"] == "SENT"
 
 
 def test_new_opportunity_sent_document_is_never_released():

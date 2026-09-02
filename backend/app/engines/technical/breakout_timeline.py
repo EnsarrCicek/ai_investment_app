@@ -321,6 +321,32 @@ def select_live_breakout_event(
     return None
 
 
+def select_live_breakout_event_by_direction(
+    timeline: list[BreakoutTimelineEvent],
+    today_index: int,
+    direction: str,
+    max_age_sessions: int = MAX_EVENT_AGE_SESSIONS,
+) -> BreakoutTimelineEvent | None:
+    """HATA 9B/9B-FIX: `select_live_breakout_event()` en son canlı event'i
+    YÖNDEN BAĞIMSIZ seçer -- bu, karşıt yönlü daha YENİ bir event'in, hâlâ
+    canlı/geçerli AYNI yönlü daha eski bir event'i (ör. confirmed+retest-held
+    bir bullish kırılımı) sinyal sınıflandırıcısından tamamen GİZLEYEBİLDİĞİNİ
+    kanıtladı (HATA 9B audit'i, gerçek production-exact tarihsel veride 10
+    bar'da kanıtlanan kayıp BULLISH_CONFIRMED teyidi).
+
+    Bu fonksiyon, `select_live_breakout_event()`'in state/age/öncelik
+    algoritmasının KENDİSİNİ TEKRARLAMAZ -- yalnızca timeline'ı `direction`e
+    göre ÖNCEDEN filtreleyip AYNI, değişmemiş seçiciye devreder. Böylece belirli
+    bir yöne ihtiyaç duyan bir tüketici (ör. `classify_signal()`nin bullish
+    onay dalları), diğer yöndeki bir event tarafından asla gölgelenmeyen kendi
+    yön-özel "canlı" event'ini alabilir -- genel `select_live_breakout_event()`
+    (ve ondan türeyen `breakout`/`breakout_event_id`) HİÇ DEĞİŞMEDEN, hâlâ
+    "en son canlı event, yön ne olursa olsun" anlamını taşımaya devam eder.
+    """
+    filtered = [e for e in timeline if e.direction == direction]
+    return select_live_breakout_event(filtered, today_index, max_age_sessions)
+
+
 _CONFIRMED_LEGACY_MAP = {
     ConfirmationState.PENDING_CONFIRMATION.value: None,
     ConfirmationState.CONFIRMED.value: True,

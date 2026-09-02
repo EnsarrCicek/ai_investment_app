@@ -132,6 +132,22 @@ class TechnicalAnalysis(BaseModel):
     # `None` bunu geriye dönük uyumlu şekilde ifade eder.
     breakout_event_id: str | None = None
 
+    # HATA 9B-FIX (02.09.2026): `breakout`/`breakout_event_id` (yukarıda)
+    # GENEL en son canlı yapısal olayı temsil etmeye DEVAM EDER (yön ne
+    # olursa olsun) -- bkz. select_live_breakout_event(). `signal_class`'ın
+    # bullish onay/STRONG dalları ise artık AYRI, yön-özel bir seçimden
+    # (select_live_breakout_event_by_direction(..., "BULLISH")) beslenir
+    # (HATA 9B audit'i: karşıt yönlü daha yeni bir event, hâlâ canlı bir
+    # bullish teyidini GÖLGELEYEBİLİYORDU). Bu alan, breakout kanıtının
+    # GERÇEKTEN signal_class'a katkıda bulunduğu event'in kimliğini taşır --
+    # yalnızca bir event VARDIR diye DEĞİL (bkz. engine.py::
+    # _compute_enrichment()). `notify_if_new_opportunity()` dedupe'u artık
+    # BUNU kullanır, genel `breakout_event_id`'yi DEĞİL -- aksi halde
+    # provenance yanlış event'e bağlanabilirdi (bkz. HATA 9B2 audit'i). Eski
+    # kayıtlarda yoktur; `None` bunu geriye dönük uyumlu şekilde ifade eder --
+    # migration YAPILMADI.
+    signal_breakout_event_id: str | None = None
+
     mtf_aligned: bool | None = None
     mtf_consensus: str | None = None
 

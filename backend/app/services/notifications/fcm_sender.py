@@ -239,8 +239,17 @@ def notify_if_new_opportunity(
     analysis = analysis_repo.get_latest(decision.asset)
     if analysis is None or analysis.signal_class != STRONG_NEW_OPPORTUNITY_SIGNAL_CLASS:
         return False
-    if not analysis.breakout_event_id:
-        return False  # STRONG sinyal ama event_id yok -- savunmacı, normalde oluşmamalı
+    # HATA 9B-FIX (02.09.2026): dedupe artık `signal_breakout_event_id`
+    # kullanır -- genel `breakout_event_id` DEĞİL. İkisi FARKLI olabilir
+    # (HATA 9B: karşıt yönlü daha yeni bir event genel seçimi kazanabilirken,
+    # signal_class hâlâ AYRI, yön-özel bir bullish event'ten üretilmiş
+    # olabilir) -- dedupe, signal_class'ı GERÇEKTEN üreten event'e
+    # bağlanmalı, genele ASLA fallback YAPILMAMALI (aksi halde HATA 9B2
+    # audit'inin kanıtladığı provenance hatası geri gelirdi). `None` ise bu
+    # STRONG sinyal invariant'ının ihlalidir (STRONG zaten confirmed bullish
+    # breakout gerektirir) -- savunmacı, normalde oluşmamalı.
+    if not analysis.signal_breakout_event_id:
+        return False
 
     provider = provider or BistProvider()
     try:
@@ -258,7 +267,9 @@ def notify_if_new_opportunity(
         return False
 
     new_opportunity_log_repo = new_opportunity_log_repo or NewOpportunityNotificationRepository()
-    claim_token = new_opportunity_log_repo.claim_new_opportunity(user_id, decision.asset, analysis.breakout_event_id)
+    claim_token = new_opportunity_log_repo.claim_new_opportunity(
+        user_id, decision.asset, analysis.signal_breakout_event_id
+    )
     if claim_token is None:
         return False  # Bu SPESİFİK breakout event için zaten claim edilmiş/bildirilmiş
 
@@ -268,9 +279,13 @@ def notify_if_new_opportunity(
         quantity_held=None, suggested_buy_quantity=suggested_quantity, budget_tl=budget_tl,
     )
     if sent:
-        new_opportunity_log_repo.mark_new_opportunity_sent(user_id, decision.asset, analysis.breakout_event_id, claim_token)
+        new_opportunity_log_repo.mark_new_opportunity_sent(
+            user_id, decision.asset, analysis.signal_breakout_event_id, claim_token
+        )
     else:
-        new_opportunity_log_repo.release_new_opportunity_claim(user_id, decision.asset, analysis.breakout_event_id, claim_token)
+        new_opportunity_log_repo.release_new_opportunity_claim(
+            user_id, decision.asset, analysis.signal_breakout_event_id, claim_token
+        )
     return sent
 
 

@@ -70,7 +70,12 @@ import pandas as pd
 
 from app.engines.technical import indicators as ind
 from app.engines.technical.breakout import BreakoutEvent
-from app.engines.technical.breakout_timeline import build_breakout_timeline, select_live_breakout_event, to_legacy_breakout_event
+from app.engines.technical.breakout_timeline import (
+    build_breakout_timeline,
+    select_live_breakout_event,
+    select_live_breakout_event_by_direction,
+    to_legacy_breakout_event,
+)
 from app.engines.technical.narrative import build_narrative
 from app.engines.technical.candlestick_patterns import detect_patterns as detect_candlestick_patterns
 from app.engines.technical.data_quality import check_data_quality, check_raw_ohlcv_integrity, check_trading_day_continuity
@@ -258,7 +263,26 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # scoring_config_hash BILINCLI OLARAK DEGISMEDI (ayni HATA 5C2A/7C-FIX emsali).
 # Eski 1.9.0 kayitlari AYNEN kalir (migration YOK); cache bu bump nedeniyle
 # onlari otomatik MISS eder.
-ENGINE_VERSION = "1.10.0"
+#
+# HATA 9B-FIX (02.09.2026): 1.10.0 -> 1.11.0 -- technical_score'un FORMULU
+# YINE DEGISMEDI; degisen `classify_signal()`'in artik GENEL en son canli
+# breakout olayi (`select_live_breakout_event()`, yon-bagimsiz -- `breakout`/
+# `breakout_event_id` alanlari icin HALA ayni GENEL anlami tasir) yerine AYRI,
+# yon-ozel bir secimden (`select_live_breakout_event_by_direction(...,
+# "BULLISH")`) beslenmesi (HATA 9B audit'i: karsit yonlu daha yeni bir
+# BEARISH olay, halen canli/gecerli bir BULLISH teyidini TAMAMEN
+# GOLGELEYEBILIYORDU -- gercek production-exact tarihsel veride 10 barda
+# kaybedilen BULLISH_CONFIRMED teyidi KANITLANDI). Yeni persist edilen alan:
+# `signal_breakout_event_id` (breakout kaniti signal_class'a GERCEKTEN
+# katkida bulundugunda set edilir, yalnizca bir olay VAR diye DEGIL) --
+# `notify_if_new_opportunity()` artik dedupe icin BUNU kullanir, GENEL
+# `breakout_event_id`'yi DEGIL (aksi halde provenance yanlis event'e
+# baglanabilirdi, bkz. HATA 9B2 audit'i). scoring_config_hash BILINCLI
+# OLARAK DEGISMEDI (ayni HATA 5C2A/7C-FIX/9A-FIX emsali). Eski 1.10.0
+# kayitlari AYNEN kalir (migration YOK, `signal_breakout_event_id` bu
+# kayitlarda yoktur -- `None` bunu geriye donuk uyumlu sekilde ifade eder);
+# cache bu bump nedeniyle onlari otomatik MISS eder.
+ENGINE_VERSION = "1.11.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`
@@ -353,6 +377,36 @@ def _compute_enrichment(
     breakout_event: BreakoutEvent | None = to_legacy_breakout_event(live_event)
     breakout_event_id = live_event.event_id if live_event is not None else None
 
+    # HATA 9B-FIX (02.09.2026): `live_event` (yukarıda) yön ne olursa olsun
+    # "en son canlı" event'tir -- `breakout`/`breakout_event_id` alanları için
+    # GENEL anlamı HİÇ DEĞİŞMEDEN korunur. `classify_signal()`'in bullish onay
+    # dalları ise artık AYRI, yön-özel bir seçimden beslenir -- karşıt yönlü
+    # (BEARISH) daha yeni bir event, hâlâ canlı/geçerli bir bullish teyidini
+    # ARTIK GÖLGELEYEMEZ (bkz. HATA 9B audit'i, breakout_timeline.py::
+    # select_live_breakout_event_by_direction() docstring'i).
+    bullish_live_event = select_live_breakout_event_by_direction(timeline, today_index=len(df) - 1, direction="BULLISH")
+    bullish_breakout_event: BreakoutEvent | None = to_legacy_breakout_event(bullish_live_event)
+
+    # HATA 9B-FIX PRE-COMMIT BLOCKER (02.09.2026): `bullish_breakout_event`
+    # (yukarıda) BULLISH bir canlı olay yoksa `None` olur -- bunu DOĞRUDAN
+    # `SignalInputs.breakout_event`e verseydik, "canlı bir BEARISH olay var"
+    # durumu "hiç breakout kanıtı yok" (`breakout=None`) durumuna
+    # İNDİRGENİRDİ; bu da HATA 9A'nın `breakout is None OR breakout_confirmed`
+    # dalındaki `None` yolunu YANLIŞLIKLA açıp, salt BEARISH bir olayın (yön
+    # kontrolüne hiç uğramadan) `BULLISH_CONFIRMED` üretmesine yol açardı --
+    # HATA 9A'nın "BEARISH bir olay bullish teyit SAYILAMAZ" invariant'ının
+    # DOLAYLI bir ihlali (kanıtlandı: pre-commit regresyon testi). Düzeltme:
+    # canlı BULLISH olay yoksa GENEL `breakout_event`e (olduğu gibi, yönü
+    # DEĞİŞTİRİLMEDEN) düş -- bu, `classify_signal()`'in KENDİ (HATA 9A'da
+    # eklenen) `direction=="BULLISH"` kontrolünün BEARISH olayı doğru şekilde
+    # reddetmesine izin verir, ama `breakout is None` dalını YANLIŞLIKLA
+    # tetiklemez. Yalnız iki yönde de canlı olay yoksa (`breakout_event` de
+    # `None`) gerçek `breakout=None` semantiği (mevcut, değişmeyen politika)
+    # korunur.
+    classifier_breakout_event: BreakoutEvent | None = (
+        bullish_breakout_event if bullish_breakout_event is not None else breakout_event
+    )
+
     rv_series = relative_volume_series(volume)
     rv_ratio = rv_series.iloc[-1]
     rv_class = classify_relative_volume(rv_ratio)
@@ -394,13 +448,27 @@ def _compute_enrichment(
         signal_inputs = SignalInputs(
             technical_score=final_score,
             market_structure=structure_result["structure"],
-            breakout_event=breakout_event,
+            breakout_event=classifier_breakout_event,
             relative_volume_class=rv_class,
             relative_strength_class=rs_class,
             mtf_aligned=alignment["aligned"],
             mtf_consensus=alignment["consensus"],
         )
         signal_class = classify_signal(signal_inputs)
+
+        # HATA 9B-FIX: provenance yalnızca breakout kanıtı signal_class'a
+        # GERÇEKTEN katkıda bulunduysa set edilir -- event VAR diye DEĞİL.
+        # `bullish_confirmed` `classify_signal()`nin kendi `breakout_confirmed`
+        # hesabıyla AYNI şarttır (bullish_breakout_event zaten yön-filtrelenmiş
+        # olduğundan burada `direction` kontrolüne TEKRAR gerek yoktur).
+        # STRONG_BULLISH_INITIATION zaten bunu ZORUNLU kılar (aksi imkansız);
+        # BULLISH_CONFIRMED ise `breakout is None` yoluyla da ulaşılabilir --
+        # o durumda provenance YOKTUR (`bullish_confirmed=False`).
+        bullish_confirmed = bool(bullish_breakout_event and bullish_breakout_event.confirmed is True)
+        if signal_class in ("STRONG_BULLISH_INITIATION", "BULLISH_CONFIRMED") and bullish_confirmed:
+            signal_breakout_event_id = bullish_live_event.event_id
+        else:
+            signal_breakout_event_id = None
 
         horizon_inputs = HorizonInputs(
             signal_class=signal_class,
@@ -414,6 +482,7 @@ def _compute_enrichment(
         investment_horizon_reason = horizon_reason(investment_horizon, horizon_inputs)
     else:
         signal_class = None
+        signal_breakout_event_id = None
         investment_horizon = None
         investment_horizon_reason = ""
 
@@ -438,6 +507,7 @@ def _compute_enrichment(
         "nearest_resistance": nearest_resistance_dict,
         "breakout": breakout_dict,
         "breakout_event_id": breakout_event_id,
+        "signal_breakout_event_id": signal_breakout_event_id,
         "all_zones": [_zone_to_dict(z) for z in chart_zones],
         "narrative": build_narrative(nearest_support_dict, nearest_resistance_dict, breakout_dict),
         "mtf_aligned": alignment["aligned"],
