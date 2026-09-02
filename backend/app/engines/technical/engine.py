@@ -239,7 +239,26 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # scoring hash + yeni engine_version" kombinasyonu yine KABUL EDILEBILIR (bkz.
 # HATA 5C2A emsali). Eski 1.8.0 kayitlari AYNEN kalir (migration YOK); cache
 # bu bump nedeniyle onlari otomatik MISS eder.
-ENGINE_VERSION = "1.9.0"
+#
+# HATA 9A-FIX (02.09.2026): 1.9.0 -> 1.10.0 -- technical_score'un FORMULU
+# YINE DEGISMEDI; degisen `signal_classifier.py::classify_signal()`'in
+# bullish `breakout_confirmed`/`breakout_not_broken` kontrollerinin artik
+# secili kirilim olayinin `direction=="BULLISH"` olmasini da ZORUNLU KILMASI
+# (HATA 9/9A audit'leri: `select_live_breakout_event()` en son olayi yonden
+# BAGIMSIZ sectigi icin, confirmed+retest-held bir BEARISH cokusun bullish
+# dallari -- STRONG_BULLISH_INITIATION/BULLISH_CONFIRMED -- YANLISLIKLA
+# tetikleyebildigi gercek production-exact tarihsel veride 15/7833 barda
+# KANITLANDI). `breakout is None` semantigi KASITLI OLARAK DEGISMEDI ("hic
+# kirilim yok" ile "BEARISH bir olay var ama bullish onay saglamiyor" hala
+# AYRI durumlar). Bu, persist edilen/kullaniciya gosterilen enrichment
+# alanlarini (`signal_class`, dolayisiyla `investment_horizon`/
+# `investment_horizon_reason` ve new-opportunity bildirim uygunlugu) GERIYE-
+# GORUNUR sekilde degistirebilir. `select_live_breakout_event()`,
+# market_structure, MTF, relative_volume, technical_score HIC DEGISMEDI.
+# scoring_config_hash BILINCLI OLARAK DEGISMEDI (ayni HATA 5C2A/7C-FIX emsali).
+# Eski 1.9.0 kayitlari AYNEN kalir (migration YOK); cache bu bump nedeniyle
+# onlari otomatik MISS eder.
+ENGINE_VERSION = "1.10.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`

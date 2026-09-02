@@ -41,8 +41,25 @@ def classify_signal(inputs: SignalInputs) -> str:
     breakout = inputs.breakout_event
     high_volume = inputs.relative_volume_class in ("HIGH", "VERY_HIGH")
 
-    breakout_confirmed = bool(breakout and breakout.confirmed is True)
-    breakout_not_broken = bool(breakout and breakout.retest_held is not False)
+    # HATA 9A-FIX (02.09.2026): `breakout_confirmed`/`breakout_not_broken`
+    # eskiden `breakout.direction`'a HİÇ BAKMIYORDU -- `select_live_breakout_
+    # event()` (breakout_timeline.py) en son olayı YÖNDEN BAĞIMSIZ seçtiğinden
+    # (bkz. HATA 9/9A audit'leri), canlı olay BEARISH bir kırılım/çöküş olsa
+    # bile `confirmed is True`/`retest_held is not False` sağlanıyorsa bu
+    # BOĞA (bullish) dallarını YANLIŞLIKLA tetikleyebiliyordu (gerçek
+    # production-exact tarihsel veride 15/7833 bar'da BULLISH_CONFIRMED
+    # kirlenmesi KANITLANDI). Düzeltme: bir kırılım olayı yalnızca
+    # `direction == "BULLISH"` olduğunda bullish onay/retest koşullarını
+    # sağlayabilir -- `breakout is None` kontrolü (aşağıdaki dallarda) KASITLI
+    # OLARAK DEĞİŞMEDİ: "hiç kırılım olayı yok" ile "BEARISH bir olay var ama
+    # bullish onay sağlamıyor" AYRI, birbirine İNDİRGENMEYEN durumlardır --
+    # BEARISH bir olay `None`'a ÇEVRİLMEZ (aksi halde "kanıt yok" ile
+    # "çelişen kanıt var" karıştırılırdı). Bu, `select_live_breakout_event()`
+    # veya market_structure/MTF/relative_volume/technical_score'u DEĞİŞTİRMEZ
+    # -- yalnızca bu fonksiyonun ZATEN SEÇİLMİŞ olayı NASIL OKUDUĞUNU düzeltir.
+    bullish_breakout = bool(breakout and breakout.direction == "BULLISH")
+    breakout_confirmed = bullish_breakout and breakout.confirmed is True
+    breakout_not_broken = bullish_breakout and breakout.retest_held is not False
     mtf_bullish = inputs.mtf_aligned and inputs.mtf_consensus == "UP"
 
     if (

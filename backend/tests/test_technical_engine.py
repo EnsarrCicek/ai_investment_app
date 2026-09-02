@@ -221,11 +221,12 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_9_0():
-    # HATA 7C-FIX: check_alignment()'in eksik (UNKNOWN) bir zaman dilimini
-    # artık "uyumlu" saymaması ENGINE_VERSION bump'ını ZORUNLU kılar
-    # (1.8.0 -> 1.9.0) -- technical_score formülü YİNE DEĞİŞMEDİ.
-    assert ENGINE_VERSION == "1.9.0"
+def test_engine_version_is_1_10_0():
+    # HATA 9A-FIX: classify_signal()'in bullish breakout onay/retest
+    # kontrollerinin artık `breakout.direction=="BULLISH"` da aramasını
+    # ZORUNLU kılması ENGINE_VERSION bump'ını gerektirir (1.9.0 -> 1.10.0)
+    # -- technical_score formülü YİNE DEĞİŞMEDİ.
+    assert ENGINE_VERSION == "1.10.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -1393,16 +1394,16 @@ def test_analyze_with_id_recomputes_fresh_1_7_record_due_to_version_and_parses_l
     assert analysis.evidence_coverage is not None
 
 
-def test_analyze_with_id_cached_1_8_record_misses_under_1_9_engine_version(fake_provider):
-    # RESPONSIBILITY B -- HATA 7C-FIX'in SPESİFİK cache-invalidation
-    # semantics'i: `check_alignment()` düzeltmesi (eksik/UNKNOWN bir MTF
-    # zaman diliminin artık "uyumlu" sayılmaması) ENGINE_VERSION'ı 1.8.0'dan
-    # 1.9.0'a yükseltti (bkz. engine.py değişiklik geçmişi). Bu test, TTL
-    # içinde (fresh) bir 1.8.0 kaydının -- 1.7.0 testinin aksine eski bir
-    # confidence şekli parse etme senaryosu DEĞİL, doğrudan bu spesifik
-    # versiyon geçişi -- artık cache HIT ÜRETMEDİĞİNİ, gerçek 1.9.0
-    # motoruyla YENİDEN hesaplandığını ve dönen doküman kimliğinin eski
-    # (cache'lenmiş) kayıt DEĞİL, yeni persist edilen kayıt olduğunu kanıtlar.
+def test_analyze_with_id_cached_1_8_record_misses_under_current_engine_version(fake_provider):
+    # RESPONSIBILITY B -- eski (1.9.0'dan da ÖNCEki) bir engine_version'ın
+    # TTL içinde (fresh) olsa bile ASLA cache HIT üretmediğini genel olarak
+    # kilitler. HATA 9A-FIX (02.09.2026) ile ENGINE_VERSION 1.9.0'dan
+    # 1.10.0'a yükseldiğinden, bu test artık sabit "1.9.0" yerine canlı
+    # `ENGINE_VERSION` sabitini kullanır -- gelecekteki her bump'ta yeniden
+    # yazılmaya gerek kalmadan "eski bir kayıt her zaman günceli MISS eder"
+    # genel sözleşmesini doğrulamaya devam eder. Belirli bir versiyon
+    # GEÇİŞİNİN (ör. 1.9->1.10) SPESİFİK regresyonu için bkz. aşağıdaki
+    # AYRI test (RESPONSIBILITY B2).
     old_1_8_cache = _cached_analysis(
         age_seconds=60, engine_version="1.8.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
     )
@@ -1417,7 +1418,36 @@ def test_analyze_with_id_cached_1_8_record_misses_under_1_9_engine_version(fake_
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
-    assert ENGINE_VERSION == "1.9.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
     assert analysis is not old_1_8_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
-    assert analysis.engine_version == "1.9.0"
+    assert analysis.engine_version == ENGINE_VERSION
     assert doc_id == "new-id"  # eski "old-1-8-id" DEĞİL -- gerçekten yeniden persist edildi
+
+
+def test_analyze_with_id_cached_1_9_record_misses_under_1_10_engine_version(fake_provider):
+    # RESPONSIBILITY B2 -- HATA 9A-FIX'in SPESİFİK cache-invalidation
+    # semantics'i: `classify_signal()`'in bullish breakout onay/retest
+    # kontrollerinin artık `breakout.direction=="BULLISH"` da araması
+    # ENGINE_VERSION'ı 1.9.0'dan 1.10.0'a yükseltti (bkz. engine.py değişiklik
+    # geçmişi). Bu test, TTL içinde (fresh) bir 1.9.0 kaydının -- yukarıdaki
+    # genel testin aksine, doğrudan BU spesifik versiyon geçişi -- artık cache
+    # HIT ÜRETMEDİĞİNİ, gerçek 1.10.0 motoruyla YENİDEN hesaplandığını ve
+    # dönen doküman kimliğinin eski (cache'lenmiş) kayıt DEĞİL, yeni persist
+    # edilen kayıt olduğunu kanıtlar.
+    old_1_9_cache = _cached_analysis(
+        age_seconds=60, engine_version="1.9.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_9_cache, cached_id="old-1-9-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert ENGINE_VERSION == "1.10.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert analysis is not old_1_9_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
+    assert analysis.engine_version == "1.10.0"
+    assert doc_id == "new-id"  # eski "old-1-9-id" DEĞİL -- gerçekten yeniden persist edildi

@@ -10,6 +10,10 @@ def _confirmed_breakout(retest_held=None) -> BreakoutEvent:
     return BreakoutEvent(index=10, direction="BULLISH", zone=_ZONE, breakout_atr=2.0, confirmed=True, retest_held=retest_held)
 
 
+def _confirmed_bearish_breakout(retest_held=None) -> BreakoutEvent:
+    return BreakoutEvent(index=10, direction="BEARISH", zone=_ZONE, breakout_atr=2.0, confirmed=True, retest_held=retest_held)
+
+
 def test_strong_bullish_initiation_requires_all_conditions():
     inputs = SignalInputs(
         technical_score=45.0,
@@ -59,6 +63,13 @@ def test_bullish_confirmed_without_breakout_event():
     assert classify_signal(inputs) == "BULLISH_CONFIRMED"
 
 
+def test_bullish_confirmed_event_grants_bullish_confirmed_at_moderate_score():
+    inputs = SignalInputs(
+        technical_score=20.0, market_structure="UPTREND", breakout_event=_confirmed_breakout(retest_held=True)
+    )
+    assert classify_signal(inputs) == "BULLISH_CONFIRMED"
+
+
 def test_bullish_candidate_when_structure_not_uptrend():
     inputs = SignalInputs(technical_score=20.0, market_structure="RANGE")
     assert classify_signal(inputs) == "BULLISH_CANDIDATE"
@@ -68,6 +79,58 @@ def test_bullish_candidate_when_breakout_not_confirmed_yet():
     pending = BreakoutEvent(index=10, direction="BULLISH", zone=_ZONE, breakout_atr=1.0, confirmed=None)
     inputs = SignalInputs(technical_score=20.0, market_structure="UPTREND", breakout_event=pending)
     assert classify_signal(inputs) == "BULLISH_CANDIDATE"
+
+
+def test_bearish_confirmed_event_cannot_grant_bullish_confirmed():
+    # HATA 9A-FIX: bir BEARISH kırılım/çöküş olayı (confirmed=True,
+    # retest_held=True) bullish onay SAYILAMAZ -- select_live_breakout_event()
+    # en son olayı yönden bağımsız seçtiği için (HATA 9/9A audit'leri), bu
+    # olmadan gerçek üretim verisinde 15/7833 barda BULLISH_CONFIRMED
+    # kirlenmesi kanıtlandı.
+    inputs = SignalInputs(
+        technical_score=20.0,
+        market_structure="UPTREND",
+        breakout_event=_confirmed_bearish_breakout(retest_held=True),
+    )
+    assert classify_signal(inputs) == "BULLISH_CANDIDATE"
+
+
+def test_bearish_confirmed_held_event_cannot_grant_strong_bullish_initiation():
+    inputs = SignalInputs(
+        technical_score=45.0,
+        market_structure="UPTREND",
+        breakout_event=_confirmed_bearish_breakout(retest_held=True),
+        relative_volume_class="VERY_HIGH",
+        mtf_aligned=True,
+        mtf_consensus="UP",
+    )
+    assert classify_signal(inputs) == "BULLISH_CANDIDATE"
+
+
+def test_bearish_confirmed_failed_retest_event_cannot_grant_any_bullish_tier():
+    inputs = SignalInputs(
+        technical_score=45.0,
+        market_structure="UPTREND",
+        breakout_event=_confirmed_bearish_breakout(retest_held=False),
+        relative_volume_class="VERY_HIGH",
+        mtf_aligned=True,
+        mtf_consensus="UP",
+    )
+    assert classify_signal(inputs) == "BULLISH_CANDIDATE"
+
+
+def test_bullish_confirmed_held_event_still_grants_strong_bullish_initiation():
+    # Regresyon kontrolü: doğru yönde (BULLISH) confirmed+retest-held bir olay
+    # HATA 9A-FIX'ten ÖNCEKİ davranışla AYNI şekilde çalışmaya devam etmeli.
+    inputs = SignalInputs(
+        technical_score=45.0,
+        market_structure="UPTREND",
+        breakout_event=_confirmed_breakout(retest_held=True),
+        relative_volume_class="VERY_HIGH",
+        mtf_aligned=True,
+        mtf_consensus="UP",
+    )
+    assert classify_signal(inputs) == "STRONG_BULLISH_INITIATION"
 
 
 def test_bearish_candidate_for_strongly_negative_score():
