@@ -1247,6 +1247,26 @@ def test_technical_analysis_new_none_confidence_document_parses():
     assert analysis.evidence_coverage == 0.0
 
 
+def test_technical_analysis_old_document_without_signal_breakout_event_id_still_parses():
+    # HATA 9B-FIX FINAL COMMIT GATE: `signal_breakout_event_id` eklenmeden
+    # önceki (1.10.0 ve öncesi) Firestore kayıtları bu alanı hiç taşımıyor --
+    # `str | None = None` bunu geriye dönük uyumlu şekilde ifade eder,
+    # migration YOK.
+    old_style_doc = {
+        "asset": "TEST",
+        "technical_score": 42.0,
+        "trend": "BULLISH",
+        "confidence": 0.9,
+        "components": {"rsi": 42.0},
+        "indicators": {"rsi": 55.0},
+        "created_at": datetime.now(timezone.utc),
+        "engine_version": "1.10.0",
+        "breakout_event_id": "some-event-id",
+    }
+    analysis = TechnicalAnalysis(**old_style_doc)
+    assert analysis.signal_breakout_event_id is None
+
+
 def test_analyze_with_id_evidence_coverage_matches_full_availability(fake_provider):
     # `_FakeConfigRepo` -> DEFAULT_WEIGHTS (indicator) + eşit 1/3 (family,
     # doküman yok). Gerçek fiyat serisinde 7/7 component available olduğundan

@@ -271,9 +271,9 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # yon-ozel bir secimden (`select_live_breakout_event_by_direction(...,
 # "BULLISH")`) beslenmesi (HATA 9B audit'i: karsit yonlu daha yeni bir
 # BEARISH olay, halen canli/gecerli bir BULLISH teyidini TAMAMEN
-# GOLGELEYEBILIYORDU -- gercek production-exact tarihsel veride 10 barda
-# kaybedilen BULLISH_CONFIRMED teyidi KANITLANDI). Yeni persist edilen alan:
-# `signal_breakout_event_id` (breakout kaniti signal_class'a GERCEKTEN
+# GOLGELEYEBILIYORDU -- gercek production-exact tarihsel veride 13/7833
+# barda kaybedilen BULLISH_CONFIRMED teyidi KANITLANDI). Yeni persist edilen
+# alan: `signal_breakout_event_id` (breakout kaniti signal_class'a GERCEKTEN
 # katkida bulundugunda set edilir, yalnizca bir olay VAR diye DEGIL) --
 # `notify_if_new_opportunity()` artik dedupe icin BUNU kullanir, GENEL
 # `breakout_event_id`'yi DEGIL (aksi halde provenance yanlis event'e
