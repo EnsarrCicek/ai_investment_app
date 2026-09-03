@@ -40,6 +40,27 @@ from app.engines.technical.session_timing import ISTANBUL_TZ
 
 DEFAULT_TIMEFRAMES = ("1d", "1wk")
 
+# HATA 10D (03.09.2026): `timeframe_direction()`'ın kendisi `window=20,
+# slope_lookback=5` ile yalnızca 6 gözlemden (slope_lookback+1) sonra
+# matematiksel olarak hesaplanabilir hale gelir -- bu, "hesaplanabilir" ile
+# "istatistiksel olarak olgun" arasındaki farkı GÖRMEZDEN GELİR (bkz. HATA
+# 10/10A/10B/10C audit'leri). Haftalık zaman dilimi için bu özellikle
+# önemlidir: prodüksiyon her analizde göstergeleri YALNIZCA son ~6 takvim
+# ayından besler (pre-roll asla göstergelere girmez, bkz. history_window.py)
+# -- yeni/kısa geçmişli bir sembol, `MIN_HISTORY_DAYS=60` (~12 tamamlanmış
+# hafta) ile motora girip HİÇBİR UNKNOWN'a düşmeden UP/DOWN/FLAT üretebilir,
+# gerçek tarihsel veride (HATA 10A/10C) bunun ciddi (%0.6-2.5) ters-yön
+# (UP<->DOWN) uyuşmazlığına yol açtığı KANITLANDI. `min_observations`,
+# KİLİTLİ, formül-türevli bir UYGUNLUK SÖZLEŞMESİDİR -- "gerçek EMA
+# olgunluğu" veya "tam-geçmiş EMA ile yakınsama garantisi" İDDİA ETMEZ
+# (HATA 10C, madde 2: W26 tam da bu nedenle KASITLI OLARAK reddedildi --
+# doğrulama örnekleminin SON gözlemlenen karşı-örneğini elemek için
+# seçilmiş, formülden bağımsız bir eşik olurdu). `None` (varsayılan)
+# iken fonksiyonun ESKİ davranışı (6 gözlemden itibaren hesaplanabilir)
+# TAMAMEN KORUNUR -- günlük çağrı (`engine.py`) bu parametreyi HİÇ
+# vermez, yalnızca haftalık çağrı verir.
+WEEKLY_DIRECTION_MIN_OBSERVATIONS = 25  # = EMA window(20) + slope_lookback(5)
+
 
 def _is_last_week_complete(last_bar_date: pd.Timestamp, now: datetime) -> bool:
     """Girdi serisinin SON gününün ait olduğu hafta gerçekten bitti mi?
@@ -98,8 +119,23 @@ def resample_to_weekly_close(daily_close: pd.Series, now: datetime | None = None
     return weekly
 
 
-def timeframe_direction(close: pd.Series, window: int = 20, slope_lookback: int = 5) -> str:
-    """Tek bir zaman dilimi için EMA eğimi yönü (UP/DOWN/FLAT/UNKNOWN)."""
+def timeframe_direction(
+    close: pd.Series,
+    window: int = 20,
+    slope_lookback: int = 5,
+    min_observations: int | None = None,
+) -> str:
+    """Tek bir zaman dilimi için EMA eğimi yönü (UP/DOWN/FLAT/UNKNOWN).
+
+    `min_observations` (HATA 10D, varsayılan `None`): verilirse ve
+    `len(close) < min_observations` ise, slope MATEMATİKSEL OLARAK
+    hesaplanabilir olsa BİLE `UNKNOWN` döner -- bkz. modül içindeki
+    `WEEKLY_DIRECTION_MIN_OBSERVATIONS` yorumu. `None` iken davranış HİÇ
+    DEĞİŞMEDEN eski haliyle kalır (yalnızca `slope` gerçekten NaN/boşsa
+    `UNKNOWN`).
+    """
+    if min_observations is not None and len(close) < min_observations:
+        return "UNKNOWN"
     slope = ema_slope(close, window=window, slope_lookback=slope_lookback)
     if slope.empty or pd.isna(slope.iloc[-1]):
         return "UNKNOWN"

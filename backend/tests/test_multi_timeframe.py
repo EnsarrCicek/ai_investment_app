@@ -4,7 +4,12 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
+from app.engines.technical.multi_timeframe import (
+    WEEKLY_DIRECTION_MIN_OBSERVATIONS,
+    check_alignment,
+    resample_to_weekly_close,
+    timeframe_direction,
+)
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -27,6 +32,42 @@ def test_timeframe_direction_flat_for_constant_series():
 def test_timeframe_direction_unknown_for_insufficient_history():
     close = pd.Series([100.0, 101.0])
     assert timeframe_direction(close, window=20, slope_lookback=5) == "UNKNOWN"
+
+
+# ---------------------------------------------------------------------------
+# HATA 10D (03.09.2026): `min_observations` -- haftalık MTF için açık, formül-
+# türevli bir uygunluk sözleşmesi (bkz. modülün `WEEKLY_DIRECTION_MIN_
+# OBSERVATIONS` yorumu). `None` (varsayılan) iken davranış HİÇ DEĞİŞMEDEN
+# kalır -- yalnızca haftalık çağrı (`engine.py`) bu parametreyi verir.
+# ---------------------------------------------------------------------------
+
+
+def test_timeframe_direction_default_min_observations_none_preserves_existing_behavior():
+    # 6 gözlem (slope_lookback+1) -- eskiden de, şimdi de (min_observations
+    # verilmediğinde) MATEMATİKSEL olarak hesaplanabilir olmalı, UNKNOWN DEĞİL.
+    close = pd.Series([100.0 + i for i in range(6)])
+    assert timeframe_direction(close, window=10, slope_lookback=5) == "UP"
+
+
+def test_timeframe_direction_min_observations_unknown_below_threshold():
+    close = pd.Series([100.0 + i for i in range(24)])  # 24 < 25
+    assert timeframe_direction(close, min_observations=25) == "UNKNOWN"
+
+
+def test_timeframe_direction_min_observations_up_at_threshold():
+    close = pd.Series([100.0 + i for i in range(25)])  # tam 25
+    assert timeframe_direction(close, min_observations=25) == "UP"
+
+
+def test_timeframe_direction_min_observations_down_at_threshold():
+    close = pd.Series([200.0 - i for i in range(25)])
+    assert timeframe_direction(close, min_observations=25) == "DOWN"
+
+
+def test_timeframe_direction_min_observations_flat_at_threshold():
+    # ±0.5 deadband HİÇ DEĞİŞMEDİ -- sabit seri hâlâ FLAT döner.
+    close = pd.Series([100.0] * 25)
+    assert timeframe_direction(close, min_observations=25) == "FLAT"
 
 
 def test_check_alignment_true_when_all_timeframes_agree():
@@ -164,6 +205,60 @@ def test_weekend_after_friday_close_still_includes_that_weeks_bar():
     weekly = resample_to_weekly_close(close, now=now)
 
     assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def _weekly_close_series(n_weeks: int) -> tuple[pd.Series, datetime]:
+    # 2024-01-01 bir Pazartesi -- `n_weeks*5` iş günü, `now` son (Cuma) günün
+    # kendisi olacak şekilde, TAM `n_weeks` tamamlanmış hafta üretir (devam
+    # eden hafta belirsizliği YOK, bkz. yukarıdaki Cuma-sonrası testleri).
+    idx = pd.bdate_range("2024-01-01", periods=n_weeks * 5, tz=TZ)
+    close = pd.Series([100.0 + 0.5 * i for i in range(len(idx))], index=idx)
+    return close, idx[-1].to_pydatetime()
+
+
+def test_weekly_direction_unknown_with_24_completed_weeks_via_min_observations_gate():
+    # HATA 10D: 24 TAMAMLANMIŞ hafta (partial/devam eden hafta HİÇ karışmıyor,
+    # `resample_to_weekly_close` zaten yalnızca tamamlanmışları döner) --
+    # WEEKLY_DIRECTION_MIN_OBSERVATIONS(25)'in ALTINDA, UNKNOWN dönmeli.
+    close, now = _weekly_close_series(24)
+    weekly = resample_to_weekly_close(close, now=now)
+    assert len(weekly) == 24
+    assert timeframe_direction(weekly, min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS) == "UNKNOWN"
+    # Eski (gate'siz) çağrı hâlâ MATEMATİKSEL olarak hesaplanabilir olduğunu
+    # kanıtlıyor -- bu, "hesaplanabilir" ile "olgun" farkının ta kendisi.
+    assert timeframe_direction(weekly) == "UP"
+
+
+def test_weekly_direction_computed_normally_with_25_completed_weeks_via_min_observations_gate():
+    # Tam eşikte (25) -- normal EMA-eğimi formülüne göre hesaplanmalı, UNKNOWN DEĞİL.
+    close, now = _weekly_close_series(25)
+    weekly = resample_to_weekly_close(close, now=now)
+    assert len(weekly) == 25
+    assert timeframe_direction(weekly, min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS) == "UP"
+
+
+def test_partial_25th_week_does_not_count_toward_min_observations_gate():
+    # HATA 10D FINAL PRE-COMMIT HARDENING: 24 TAMAMLANMIŞ hafta + 25. haftanın
+    # DEVAM EDEN (Pazartesi-Çarşamba) kısmı -- `_is_last_week_complete()`
+    # HİÇ DEĞİŞMEDİ, devam eden hafta zaten düşürülür; bu test yalnızca bunun
+    # min_observations(25) sözleşmesiyle DOĞRU birleştiğini kilitler: partial
+    # hafta sayılmamalı (24 tamamlanmış hafta, UNKNOWN). Aynı seri, 25. hafta
+    # TAMAMLANDIĞINDA (Cuma) normal şekilde hesaplanmalı.
+    idx_partial = pd.bdate_range("2024-01-01", periods=123, tz=TZ)  # 24 tam hafta + Pzt-Çrş (25. hafta, devam ediyor)
+    close_partial = pd.Series([100.0 + 0.5 * i for i in range(len(idx_partial))], index=idx_partial)
+    now_partial = idx_partial[-1].to_pydatetime()  # aynı (devam eden) haftanın Çarşamba'sı
+
+    weekly_partial = resample_to_weekly_close(close_partial, now=now_partial)
+    assert len(weekly_partial) == 24
+    assert timeframe_direction(weekly_partial, min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS) == "UNKNOWN"
+
+    idx_full = pd.bdate_range("2024-01-01", periods=125, tz=TZ)  # AYNI seri, 25. hafta TAMAMLANDI (Cuma)
+    close_full = pd.Series([100.0 + 0.5 * i for i in range(len(idx_full))], index=idx_full)
+    now_full = idx_full[-1].to_pydatetime()
+
+    weekly_full = resample_to_weekly_close(close_full, now=now_full)
+    assert len(weekly_full) == 25
+    assert timeframe_direction(weekly_full, min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS) != "UNKNOWN"
 
 
 def test_different_iso_week_than_now_is_always_complete():

@@ -97,7 +97,12 @@ from app.engines.technical.scoring import (
 )
 from app.engines.technical.market_structure import analyze_market_structure
 from app.services.market_data.completed_bars import filter_completed_daily_bars
-from app.engines.technical.multi_timeframe import check_alignment, resample_to_weekly_close, timeframe_direction
+from app.engines.technical.multi_timeframe import (
+    WEEKLY_DIRECTION_MIN_OBSERVATIONS,
+    check_alignment,
+    resample_to_weekly_close,
+    timeframe_direction,
+)
 from app.engines.technical.regime import (
     atr_percentile,
     classify_trend_regime,
@@ -282,7 +287,37 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # kayitlari AYNEN kalir (migration YOK, `signal_breakout_event_id` bu
 # kayitlarda yoktur -- `None` bunu geriye donuk uyumlu sekilde ifade eder);
 # cache bu bump nedeniyle onlari otomatik MISS eder.
-ENGINE_VERSION = "1.11.0"
+#
+# HATA 10D (03.09.2026): 1.11.0 -> 1.12.0 -- technical_score'un FORMULU
+# YINE DEGISMEDI; degisen `multi_timeframe.timeframe_direction()`'in artik
+# haftalik cagri icin acik bir `min_observations=WEEKLY_DIRECTION_MIN_
+# OBSERVATIONS` (25 TAMAMLANMIS haftalik kapanis) sozlesmesi tasimasi --
+# eskiden yalnizca 6 gozlemden sonra MATEMATIKSEL olarak hesaplanabilir olan
+# haftalik EMA egimi (istatistiksel olgunluktan BAGIMSIZ), etkilenen gercek
+# popülasyon ->  `>= MIN_HISTORY_DAYS(60)` GECER (motor calisir, `<60` zaten
+# `check_data_quality()` tarafindan HARD VETO edilir -- BU DEGISMEDI) AMA
+# HALA `< WEEKLY_DIRECTION_MIN_OBSERVATIONS(25)` tamamlanmis haftaya sahip
+# kisa-gecmisli bir sembol -- ~12 tamamlanmis haftada bile UP/DOWN/FLAT
+# donduruyordu -- gercek tarihsel veride bunun %0.6-2.5 ters-yon (UP<->DOWN)
+# uyusmazligina yol actigi KANITLANDI (HATA 10/10A/10B/10C audit'leri).
+# 25, KILITLI,
+# formul-turevli (EMA window=20 + slope_lookback=5) bir UYGUNLUK
+# esigidir -- "gercek EMA olgunlugu" veya "tam-gecmis EMA ile yakinsama
+# garantisi" IDDIA ETMEZ (26 KASITLI OLARAK reddedildi, bkz. multi_
+# timeframe.py yorumu). GUNLUK cagri (`timeframe_direction(close)`,
+# parametresiz) HIC DEGISMEDI -- yalnizca haftalik cagri etkilenir. Bu,
+# kisa-gecmisli semboller icin `mtf_aligned`/`mtf_consensus` (dolayisiyla
+# `signal_class`, `investment_horizon`, `investment_horizon_reason`, ve
+# STRONG_BULLISH_INITIATION'a bagli new-opportunity bildirim uygunlugu)
+# alanlarini GERIYE-GORUNUR sekilde degistirebilir -- kurulu (>=25 hafta)
+# semboller icin OLCULEN ETKI SIFIRDIR (HATA 10C, PROD_EXACT hicbir
+# ornekte 26'nin altina inmedi). Cuma-tatil tamamlanma gecikmesi ve
+# 6-aylik rolling-window EMA yeniden-baslatma bulgulari BU TURDA
+# DOKUNULMADI (ayri, acik bulgular olarak kalir). scoring_config_hash
+# BILINCLI OLARAK DEGISMEDI (ayni HATA 5C2A/7C-FIX/9A-FIX/9B-FIX emsali).
+# Eski 1.11.0 kayitlari AYNEN kalir (migration YOK); cache bu bump
+# nedeniyle onlari otomatik MISS eder.
+ENGINE_VERSION = "1.12.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`
@@ -433,7 +468,12 @@ def _compute_enrichment(
 
     daily_direction = timeframe_direction(close)
     weekly_close = resample_to_weekly_close(close, now=now)
-    weekly_direction = timeframe_direction(weekly_close)
+    # HATA 10D (03.09.2026): gunluk cagri (yukarida) HICBIR degisiklik
+    # almadi -- MIN_HISTORY_DAYS=60 zaten gunluk seriyi guvenceye alir.
+    # Haftalik cagri ise artik en az WEEKLY_DIRECTION_MIN_OBSERVATIONS
+    # (25) TAMAMLANMIS haftalik kapanis ister -- daha azi UNKNOWN doner
+    # (bkz. multi_timeframe.py yorumu, HATA 10/10A/10B/10C audit'leri).
+    weekly_direction = timeframe_direction(weekly_close, min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS)
     alignment = check_alignment({"1d": daily_direction, "1wk": weekly_direction})
 
     # HATA 5B1 (27.08.2026): `technical_score` unavailable (`None`) olduğunda

@@ -221,13 +221,14 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_11_0():
-    # HATA 9B-FIX: classify_signal()'in artık genel en son canlı breakout
-    # event'i (yön-bağımsız) yerine AYRI, yön-özel bir seçimden beslenmesi
-    # (select_live_breakout_event_by_direction(..., "BULLISH")) ENGINE_VERSION
-    # bump'ını gerektirir (1.10.0 -> 1.11.0) -- technical_score formülü YİNE
-    # DEĞİŞMEDİ.
-    assert ENGINE_VERSION == "1.11.0"
+def test_engine_version_is_1_12_0():
+    # HATA 10D: `multi_timeframe.timeframe_direction()`'ın haftalık çağrısına
+    # eklenen `min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS(25)`
+    # sözleşmesi ENGINE_VERSION bump'ını gerektirir (1.11.0 -> 1.12.0) --
+    # technical_score formülü YİNE DEĞİŞMEDİ, yalnızca kısa-geçmişli
+    # sembollerde `mtf_aligned`/`mtf_consensus`/`signal_class`/
+    # `investment_horizon` alanları geriye-görünür şekilde değişebilir.
+    assert ENGINE_VERSION == "1.12.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -1480,9 +1481,16 @@ def test_analyze_with_id_cached_1_10_record_misses_under_1_11_engine_version(fak
     # 1.10.0'dan 1.11.0'a yükseltti (bkz. engine.py değişiklik geçmişi). Bu
     # test, TTL içinde (fresh) bir 1.10.0 kaydının -- yukarıdaki genel testin
     # aksine, doğrudan BU spesifik versiyon geçişi -- artık cache HIT
-    # ÜRETMEDİĞİNİ, gerçek 1.11.0 motoruyla YENİDEN hesaplandığını ve dönen
+    # ÜRETMEDİĞİNİ, gerçek MEVCUT motorla YENİDEN hesaplandığını ve dönen
     # doküman kimliğinin eski (cache'lenmiş) kayıt DEĞİL, yeni persist edilen
-    # kayıt olduğunu kanıtlar.
+    # kayıt olduğunu kanıtlar. HATA 10D (03.09.2026): ENGINE_VERSION 1.11.0'dan
+    # 1.12.0'a yükseldi -- bu test artık (1.9-testiyle AYNI gerekçeyle) sabit
+    # "1.11.0" yerine canlı `ENGINE_VERSION` sabitini kullanır, böylece "eski
+    # bir 1.10.0 kaydı her zaman MISS eder" sözleşmesi gelecekteki her bump'ta
+    # yeniden yazılmaya gerek kalmadan doğrulanmaya devam eder -- 1.10->1.11
+    # SPESİFİK geçişinin kendisi artık ayrı, kendi kendini güncelleyen
+    # `test_analyze_with_id_cached_1_11_record_misses_under_1_12_engine_version`
+    # testinde YERİNİ ALDI (bkz. aşağıda).
     old_1_10_cache = _cached_analysis(
         age_seconds=60, engine_version="1.10.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
     )
@@ -1497,10 +1505,36 @@ def test_analyze_with_id_cached_1_10_record_misses_under_1_11_engine_version(fak
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
-    assert ENGINE_VERSION == "1.11.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
     assert analysis is not old_1_10_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
-    assert analysis.engine_version == "1.11.0"
+    assert analysis.engine_version == ENGINE_VERSION
     assert doc_id == "new-id"  # eski "old-1-10-id" DEĞİL -- gerçekten yeniden persist edildi
+
+
+def test_analyze_with_id_cached_1_11_record_misses_under_1_12_engine_version(fake_provider):
+    # HATA 10D — SPESİFİK cache-invalidation regresyonu: `timeframe_
+    # direction()`'ın haftalık çağrısına eklenen `min_observations`
+    # sözleşmesi ENGINE_VERSION'ı 1.11.0'dan 1.12.0'a yükseltti. TTL içinde
+    # (fresh) bir 1.11.0 kaydı artık cache HIT ÜRETMEMELİ -- gerçek 1.12.0
+    # motoruyla YENİDEN hesaplanmalı, dönen doküman kimliği eski (cache'lenmiş)
+    # kayıt DEĞİL, yeni persist edilen kayıt olmalı.
+    old_1_11_cache = _cached_analysis(
+        age_seconds=60, engine_version="1.11.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_11_cache, cached_id="old-1-11-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert ENGINE_VERSION == "1.12.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert analysis is not old_1_11_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
+    assert analysis.engine_version == "1.12.0"
+    assert doc_id == "new-id"  # eski "old-1-11-id" DEĞİL -- gerçekten yeniden persist edildi
 
 
 # ---------------------------------------------------------------------------
@@ -1517,21 +1551,46 @@ def _shadowing_scenario_df() -> pd.DataFrame:
     # UPTREND market_structure için en az 2 HIGH + 2 LOW swing point'i gerekir
     # (label_structure, ilk noktayı öncülsüz bırakır) -- 3 bacaklı bir yükseliş
     # (iki HH/HL çifti) + son bar'da hacim sıçraması (VERY_HIGH relative volume).
+    #
+    # HATA 10D FINAL PRE-COMMIT HARDENING (03.09.2026): bu fixture eskiden
+    # `pd.Timestamp.now()`'a göre ("dün" bitecek şekilde) ANKORLUYDU -- bu,
+    # gerçek takvim tarihine bağlı olarak tamamlanmış hafta sayısının (120 bar
+    # -> tam 25) HATA 10D'nin yeni `WEEKLY_DIRECTION_MIN_OBSERVATIONS=25`
+    # eşiğinin YANLIŞLIKLA altına/tam sınırına düşebileceği, gizli bir
+    # gevrekliktir (bu HATA 9B fixture'ı, W25 sınırını test etmek İÇİN
+    # TASARLANMADI). Düzeltme: SABİT bir tarih aralığına (`FIXED_END_DATE`,
+    # bilinçli olarak bir CUMA -- `_is_last_week_complete()` Cuma'da `now`'dan
+    # TAMAMEN BAĞIMSIZ olarak `True` döner, bkz. multi_timeframe.py) ve 126
+    # bar'a (25'in RAHATÇA üzerinde, 27 tamamlanmış hafta -- aşağıda `assert`
+    # ile KANITLANIR) sabitlendi. Piyasa yapısı/skor bağlamı/breakout
+    # gölgeleme/MTF UP/STRONG uygunluğu semantiği DEĞİŞMEDİ -- yalnızca son
+    # (up3) bacak 6 bar uzatıldı (24->30), şekil/pivot yapısı AYNI kalır.
+    FIXED_END_DATE = date(2026, 8, 28)  # Cuma, gerçek BIST işlem günü
     up1 = np.linspace(90.0, 130.0, 40)
     pb1 = np.linspace(128.0, 122.0, 8)
     up2 = np.linspace(124.0, 150.0, 40)
     pb2 = np.linspace(148.0, 140.0, 8)
-    up3 = np.linspace(142.0, 165.0, 24)
+    up3 = np.linspace(142.0, 165.0, 30)
     closes = np.concatenate([up1, pb1, up2, pb2, up3])
     n = len(closes)
-    trading_days = _bist_trading_days((pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).date(), n)
+    trading_days = _bist_trading_days(FIXED_END_DATE, n)
     idx = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days])
     volume = np.full(n, 50000.0)
     volume[-1] = 220000.0
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {"Open": closes - 0.3, "High": closes + 0.6, "Low": closes - 0.6, "Close": closes, "Volume": volume},
         index=idx,
     )
+
+    from app.engines.technical.multi_timeframe import resample_to_weekly_close
+
+    n_completed_weeks = len(resample_to_weekly_close(df["Close"]))
+    assert n_completed_weeks >= 25, (
+        f"HATA 10D bağımlılığı görünür kılınıyor: bu fixture "
+        f"WEEKLY_DIRECTION_MIN_OBSERVATIONS(25) eşiğinin ÜZERİNDE kalmalı "
+        f"(ölçülen: {n_completed_weeks})"
+    )
+    return df
 
 
 def _shadowing_scenario_events(df: pd.DataFrame):
@@ -1579,7 +1638,15 @@ def test_signal_class_uses_directional_bullish_event_when_generic_selection_is_b
         analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
         benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
     )
-    analysis, _ = engine.analyze_with_id("TEST")
+    # HATA 10D FINAL PRE-COMMIT HARDENING: `_shadowing_scenario_df()` artık
+    # SABİT bir tarihte biter (gerçek `now`'a göre ANKORLU DEĞİL) -- bu yüzden
+    # `now` burada da fixture'ın son (Cuma) barından hemen sonraki bir ana
+    # SABİTLENİR, aksi halde `check_trading_day_continuity()` gerçek bugüne
+    # göre "eksik gün" hard-veto'su fırlatır (fixture'ın kendisiyle İLGİSİZ,
+    # yalnızca `now` varsayılan gerçek saat kullanırsa ortaya çıkan bir
+    # test-uyumu sorunu).
+    now = datetime(2026, 8, 29, 12, 0, tzinfo=TZ)
+    analysis, _ = engine.analyze_with_id("TEST", now=now)
 
     # Ön koşullar: fixture gerçekten STRONG-eligible bağlam üretiyor mu?
     assert analysis.market_structure == "UPTREND"
@@ -1693,3 +1760,162 @@ def test_regression_E_no_event_either_direction_none_semantics_preserved(monkeyp
     assert result["breakout"] is None
     assert result["breakout_event_id"] is None
     assert result["signal_breakout_event_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# HATA 10D (03.09.2026) — kısa-geçmişli (short-history) haftalık MTF warm-up
+# düzeltmesi: `timeframe_direction()`'a eklenen `min_observations` (yalnızca
+# haftalık çağrıya, `WEEKLY_DIRECTION_MIN_OBSERVATIONS=25`) — bkz. HATA
+# 10/10A/10B/10C audit'leri. `>=60` günlük bar (MIN_HISTORY_DAYS) geçse bile
+# `<25` tamamlanmış haftalık kapanışı olan bir sembol artık haftalık yön için
+# `UNKNOWN` alır (matematiksel olarak hesaplanabilir olsa BİLE) — günlük yön
+# HİÇ ETKİLENMEZ.
+# ---------------------------------------------------------------------------
+
+
+def _short_history_uptrend_df(up1=35, pb1=7, up2=35, pb2=7, up3=16) -> pd.DataFrame:
+    # `_shadowing_scenario_df()` ile AYNI şekil (2 HH/HL çifti -> UPTREND),
+    # yalnızca daha AZ bar -- varsayılan boyut (100 bar) doğrulandı: gerçek
+    # BIST takviminde 22 tamamlanmış hafta üretir (<25 eşiğinin GÜVENLE
+    # altında, ama >=60 günlük bar (MIN_HISTORY_DAYS) şartını da karşılar).
+    closes = np.concatenate(
+        [
+            np.linspace(90.0, 130.0, up1),
+            np.linspace(128.0, 122.0, pb1),
+            np.linspace(124.0, 150.0, up2),
+            np.linspace(148.0, 140.0, pb2),
+            np.linspace(142.0, 165.0, up3),
+        ]
+    )
+    n = len(closes)
+    trading_days = _bist_trading_days(date(2026, 8, 25), n)
+    idx = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days])
+    volume = np.full(n, 50000.0)
+    volume[-1] = 220000.0
+    return pd.DataFrame(
+        {"Open": closes - 0.3, "High": closes + 0.6, "Low": closes - 0.6, "Close": closes, "Volume": volume},
+        index=idx,
+    )
+
+
+def _short_history_bullish_breakout_event(df: pd.DataFrame):
+    from app.engines.technical.breakout_timeline import BreakoutTimelineEvent, ConfirmationState, RetestState
+    from app.engines.technical.support_resistance import SRZone
+
+    today_index = len(df) - 1
+    zone_r = SRZone(type="RESISTANCE", low=128.0, high=130.0, touch_count=2, last_touch_index=0)
+    return BreakoutTimelineEvent(
+        event_id="TEST:BULLISH:short-history", symbol="TEST", direction="BULLISH",
+        event_index=today_index - 9, event_at=df.index[today_index - 9].date(),
+        level=130.0, zone_snapshot=zone_r, zone_known_at=today_index - 10,
+        breakout_strength_atr=1.0,
+        confirmation_state=ConfirmationState.CONFIRMED.value, confirmed_at=today_index - 6, invalidated_at=None,
+        retest_state=RetestState.HELD.value, retest_event_at=None, retest_known_at=None, retest_deadline=None,
+        resolved_at=today_index - 2,
+    )
+
+
+def test_short_history_weekly_direction_unknown_but_daily_unaffected(monkeypatch):
+    # Section 15: >=60 günlük bar (burada 100), ama <25 tamamlanmış hafta --
+    # haftalık yön UNKNOWN olmalı, günlük yön NORMAL şekilde hesaplanmalı.
+    df = _short_history_uptrend_df()
+    assert len(df) >= 60
+
+    from app.engines.technical.multi_timeframe import resample_to_weekly_close, timeframe_direction
+
+    n_completed_weeks = len(resample_to_weekly_close(df["Close"]))
+    assert n_completed_weeks < 25, "fixture varsayımı: <25 tamamlanmış hafta"
+
+    result = _run_enrichment(df, [], final_score=20.0, monkeypatch=monkeypatch)
+    assert result["mtf_aligned"] is False
+    assert result["mtf_consensus"] == "UNKNOWN"
+    # Günlük yön ayrı, parametresiz çağrıdır -- hiç etkilenmedi (hâlâ normal hesaplanır).
+    assert timeframe_direction(df["Close"]) != "UNKNOWN"
+
+
+def test_short_history_established_25_plus_weeks_weekly_direction_available(monkeypatch):
+    # Section 18: >=25 tamamlanmış hafta -- sözleşme basitçe "yeterliyse
+    # kullanılabilir" (tam-geçmiş referansla KARŞILAŞTIRMA YOK, yalnızca
+    # kontrat: >=25 -> UNKNOWN DEĞİL).
+    df = _shadowing_scenario_df()  # üretim-doğrulanmış: 120 bar -> 25 tamamlanmış hafta
+
+    from app.engines.technical.multi_timeframe import resample_to_weekly_close
+
+    n_completed_weeks = len(resample_to_weekly_close(df["Close"]))
+    assert n_completed_weeks >= 25, "fixture varsayımı: >=25 tamamlanmış hafta"
+
+    result = _run_enrichment(df, [], final_score=20.0, monkeypatch=monkeypatch)
+    assert result["mtf_consensus"] != "UNKNOWN" or result["mtf_aligned"] in (True, False)
+    # Daha kesin: haftalık yönün kendisi UNKNOWN OLMAMALI (gate'e takılmadı).
+    from app.engines.technical.multi_timeframe import timeframe_direction, WEEKLY_DIRECTION_MIN_OBSERVATIONS
+
+    weekly = resample_to_weekly_close(df["Close"])
+    assert timeframe_direction(weekly, min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS) != "UNKNOWN"
+
+
+def test_short_history_strong_signal_downgrades_when_weekly_immature(monkeypatch):
+    # Section 16: KONTROLLÜ ULAŞILABİLİRLİK fixture'ı -- bu, gerçek bir
+    # tarihsel satırın TÜM STRONG ön koşullarını taşıdığı iddiası DEĞİL;
+    # yalnızca "score>=40 + UPTREND + confirmed+retest-held BULLISH breakout +
+    # VERY_HIGH hacim + günlük UP + <25 hafta" kombinasyonunun düzeltmeden
+    # ÖNCE STRONG_BULLISH_INITIATION üretebileceğini, düzeltmeden SONRA
+    # üretemeyeceğini kanıtlayan, elle inşa edilmiş bir senaryodur.
+    df = _short_history_uptrend_df()
+    bull_event = _short_history_bullish_breakout_event(df)
+
+    from app.engines.technical.multi_timeframe import resample_to_weekly_close, timeframe_direction
+
+    assert len(resample_to_weekly_close(df["Close"])) < 25
+    assert timeframe_direction(df["Close"]) == "UP"  # günlük ön koşul: UP
+
+    result = _run_enrichment(df, [bull_event], final_score=45.0, monkeypatch=monkeypatch)
+    # Ön koşullar: fixture gerçekten (haftalık warm-up hariç) STRONG-eligible mi?
+    assert result["market_structure"] == "UPTREND"
+    assert result["relative_volume_class"] in ("HIGH", "VERY_HIGH")
+    assert result["breakout"]["direction"] == "BULLISH"
+    assert result["breakout"]["confirmed"] is True
+    assert result["breakout"]["retest_held"] is True
+
+    # Düzeltme SONRASI: haftalık kanıt olgunlaşmamış -> MTF UNKNOWN -> STRONG DEĞİL.
+    assert result["mtf_aligned"] is False
+    assert result["mtf_consensus"] == "UNKNOWN"
+    assert result["signal_class"] != "STRONG_BULLISH_INITIATION"
+    # Mevcut sınıflandırıcı semantiğinden DOĞAL olarak ortaya çıkan gerçek
+    # düşüş kademesi (classify_signal() DEĞİŞTİRİLMEDİ) -- score>=15 + UPTREND
+    # + (breakout is None or breakout_confirmed) -> BULLISH_CONFIRMED.
+    assert result["signal_class"] == "BULLISH_CONFIRMED"
+
+    # GERÇEK motor kablolamasını (HorizonInputs -> classify_horizon()) da
+    # kilitler -- horizon_classifier.py DEĞİŞTİRİLMEDİ, beklenen değer önceden
+    # VARSAYILMADI, doğrudan çalıştırılıp OKUNDU: bu fixture'da trend_regime
+    # ayrıca "TRENDING" çıktığından `partial_confirmation` (mtf_consensus==
+    # expected OR trend_regime=="TRENDING") hâlâ sağlanır -- MTF UNKNOWN
+    # olması UZUN_VADELİ'yi engeller ama ORTA_VADELİ'ye düşürür, BELİRSİZ'e
+    # değil (bkz. test_short_history_horizon_downgrades_when_weekly_immature,
+    # aynı mantığın izole `HorizonInputs` sürümü).
+    assert result["trend_regime"] == "TRENDING"
+    assert result["investment_horizon"] == "ORTA_VADELI"
+
+
+def test_short_history_horizon_downgrades_when_weekly_immature():
+    # Section 17: `horizon_classifier.py` DEĞİŞTİRİLMEDİ -- immature MTF'nin
+    # `HorizonInputs`'a UNKNOWN olarak aktığında GERÇEK `classify_horizon()`
+    # semantiğinden ne çıktığı, tahmin edilmeden doğrudan ölçülür.
+    from app.engines.technical.horizon_classifier import HorizonInputs, classify_horizon
+
+    # Düzeltmeden ÖNCEki (varsayımsal) davranış: olgunlaşmamış haftalık kanıt
+    # yanlışlıkla tam UP uyumu gibi kullanılsaydı -- tam teyit -> UZUN_VADELI.
+    pre_fix_style = HorizonInputs(
+        signal_class="BULLISH_CONFIRMED", market_structure="UPTREND", trend_regime="TRENDING",
+        relative_strength_class="OUTPERFORMING", mtf_aligned=True, mtf_consensus="UP",
+    )
+    assert classify_horizon(pre_fix_style) == "UZUN_VADELI"
+
+    # Düzeltme SONRASI: AYNI diğer kanıt, ama MTF artık dürüstçe UNKNOWN --
+    # tam teyit artık sağlanamaz (mtf_consensus==expected_consensus koşulu
+    # düşer), ama trend_regime=="TRENDING" tek başına kısmi teyit sağlar.
+    post_fix = HorizonInputs(
+        signal_class="BULLISH_CONFIRMED", market_structure="UPTREND", trend_regime="TRENDING",
+        relative_strength_class="OUTPERFORMING", mtf_aligned=False, mtf_consensus="UNKNOWN",
+    )
+    assert classify_horizon(post_fix) == "ORTA_VADELI"
