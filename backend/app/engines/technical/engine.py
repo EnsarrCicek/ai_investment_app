@@ -317,7 +317,22 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # BILINCLI OLARAK DEGISMEDI (ayni HATA 5C2A/7C-FIX/9A-FIX/9B-FIX emsali).
 # Eski 1.11.0 kayitlari AYNEN kalir (migration YOK); cache bu bump
 # nedeniyle onlari otomatik MISS eder.
-ENGINE_VERSION = "1.12.0"
+#
+# HATA 10E (03.09.2026): 1.12.0 -> 1.13.0 -- `multi_timeframe._is_last_week_
+# complete()` artik "hafta = Cuma biter" varsayimi yerine authoritative BIST
+# takviminin o haftanin SON BEKLENEN islem gunu olarak dondurdugu tarihi
+# kullanir (`trading_calendar.last_expected_trading_session_of_week()`) --
+# Cuma resmi tatil oldugu haftalarda (ör. bayram) hafta artik Persembe'de
+# (hatta cok gunlu kapanislarda daha erken) tamamlanmis sayilir, eskiden
+# olduğu gibi bir sonraki ISO haftaya kadar YANLISLIKLA "tamamlanmamis"
+# GORUNMEZ. Bu, `mtf_aligned`/`mtf_consensus`/`signal_class`/`investment_
+# horizon` alanlarini yalnizca tatille kisalmis haftalara denk gelen
+# kayitlarda GERIYE-GORUNUR sekilde degistirebilir (bkz. HATA 10E audit'i).
+# W25 (`WEEKLY_DIRECTION_MIN_OBSERVATIONS`) sozlesmesi DEGISMEDI. GUNLUK
+# cagri, W25 esigi, ±0.5 deadband HIC DEGISMEDI. scoring_config_hash
+# BILINCLI OLARAK DEGISMEDI. Eski 1.12.0 kayitlari AYNEN kalir (migration
+# YOK); cache bu bump nedeniyle onlari otomatik MISS eder.
+ENGINE_VERSION = "1.13.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`

@@ -221,14 +221,15 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_12_0():
-    # HATA 10D: `multi_timeframe.timeframe_direction()`'ın haftalık çağrısına
-    # eklenen `min_observations=WEEKLY_DIRECTION_MIN_OBSERVATIONS(25)`
-    # sözleşmesi ENGINE_VERSION bump'ını gerektirir (1.11.0 -> 1.12.0) --
-    # technical_score formülü YİNE DEĞİŞMEDİ, yalnızca kısa-geçmişli
-    # sembollerde `mtf_aligned`/`mtf_consensus`/`signal_class`/
-    # `investment_horizon` alanları geriye-görünür şekilde değişebilir.
-    assert ENGINE_VERSION == "1.12.0"
+def test_engine_version_is_1_13_0():
+    # HATA 10E: haftalık tamamlanma artık takvim Cuma'sı değil, authoritative
+    # BIST takviminin haftanın SON beklenen işlem günü olarak döndürdüğü
+    # tarihi kullanır -- ENGINE_VERSION bump'ını gerektirir (1.12.0 ->
+    # 1.13.0). technical_score formülü YİNE DEĞİŞMEDİ, yalnızca tatille
+    # kısalmış haftalara denk gelen kayıtlarda `mtf_aligned`/`mtf_consensus`/
+    # `signal_class`/`investment_horizon` alanları geriye-görünür şekilde
+    # değişebilir.
+    assert ENGINE_VERSION == "1.13.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -1513,10 +1514,12 @@ def test_analyze_with_id_cached_1_10_record_misses_under_1_11_engine_version(fak
 def test_analyze_with_id_cached_1_11_record_misses_under_1_12_engine_version(fake_provider):
     # HATA 10D — SPESİFİK cache-invalidation regresyonu: `timeframe_
     # direction()`'ın haftalık çağrısına eklenen `min_observations`
-    # sözleşmesi ENGINE_VERSION'ı 1.11.0'dan 1.12.0'a yükseltti. TTL içinde
-    # (fresh) bir 1.11.0 kaydı artık cache HIT ÜRETMEMELİ -- gerçek 1.12.0
-    # motoruyla YENİDEN hesaplanmalı, dönen doküman kimliği eski (cache'lenmiş)
-    # kayıt DEĞİL, yeni persist edilen kayıt olmalı.
+    # sözleşmesi ENGINE_VERSION'ı 1.11.0'dan 1.12.0'a yükseltti. HATA 10E
+    # (03.09.2026): ENGINE_VERSION 1.12.0'dan 1.13.0'a yükseldi -- bu test
+    # artık (1.10-testiyle AYNI gerekçeyle) sabit "1.12.0" yerine canlı
+    # `ENGINE_VERSION` sabitini kullanır; 1.12->1.13 SPESİFİK geçişinin
+    # kendisi ayrı, kendi kendini güncelleyen `test_analyze_with_id_cached_
+    # 1_12_record_misses_under_1_13_engine_version`de YERİNİ ALDI.
     old_1_11_cache = _cached_analysis(
         age_seconds=60, engine_version="1.11.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
     )
@@ -1531,10 +1534,36 @@ def test_analyze_with_id_cached_1_11_record_misses_under_1_12_engine_version(fak
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
-    assert ENGINE_VERSION == "1.12.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
     assert analysis is not old_1_11_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
-    assert analysis.engine_version == "1.12.0"
+    assert analysis.engine_version == ENGINE_VERSION
     assert doc_id == "new-id"  # eski "old-1-11-id" DEĞİL -- gerçekten yeniden persist edildi
+
+
+def test_analyze_with_id_cached_1_12_record_misses_under_1_13_engine_version(fake_provider):
+    # HATA 10E — SPESİFİK cache-invalidation regresyonu: haftalık tamamlanma
+    # kuralının takvim-farkındalıklı hale gelmesi ENGINE_VERSION'ı 1.12.0'dan
+    # 1.13.0'a yükseltti. TTL içinde (fresh) bir 1.12.0 kaydı artık cache HIT
+    # ÜRETMEMELİ -- gerçek 1.13.0 motoruyla YENİDEN hesaplanmalı, dönen
+    # doküman kimliği eski (cache'lenmiş) kayıt DEĞİL, yeni persist edilen
+    # kayıt olmalı.
+    old_1_12_cache = _cached_analysis(
+        age_seconds=60, engine_version="1.12.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+    )
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_12_cache, cached_id="old-1-12-id")
+    provider = fake_provider(history_df=_real_history_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=analysis_repo,
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+
+    analysis, doc_id = engine.analyze_with_id("TEST")
+
+    assert ENGINE_VERSION == "1.13.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert analysis is not old_1_12_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
+    assert analysis.engine_version == "1.13.0"
+    assert doc_id == "new-id"  # eski "old-1-12-id" DEĞİL -- gerçekten yeniden persist edildi
 
 
 # ---------------------------------------------------------------------------

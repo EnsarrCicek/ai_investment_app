@@ -271,3 +271,120 @@ def test_different_iso_week_than_now_is_always_complete():
     weekly = resample_to_weekly_close(close, now=now)
 
     assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+# ---------------------------------------------------------------------------
+# HATA 10E (03.09.2026): "tamamlanmış hafta" artık takvim Cuma'sı DEĞİL, o
+# haftanın authoritative BIST takvimindeki SON BEKLENEN işlem günüdür (bkz.
+# `trading_calendar.last_expected_trading_session_of_week()`). Aşağıdaki
+# tarihler GERÇEK, belgelenmiş takvim örnekleridir (bkz. `test_trading_
+# calendar.py`'deki karşılıkları) -- uydurma tarih YOK.
+# ---------------------------------------------------------------------------
+
+
+def test_normal_thursday_is_incomplete_when_friday_still_expected():
+    dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20"]  # Pzt-Per, sıradan hafta
+    close = _daily_close(dates)
+    now = datetime(2026, 8, 20, 19, 0, tzinfo=TZ)  # aynı Persembe akşamı
+    weekly = resample_to_weekly_close(close, now=now)
+    assert len(weekly) == 0  # tek (devam eden) hafta düşürüldü
+
+
+def test_normal_friday_after_close_is_complete():
+    dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"]
+    close = _daily_close(dates)
+    now = datetime(2026, 8, 21, 19, 0, tzinfo=TZ)
+    weekly = resample_to_weekly_close(close, now=now)
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def test_friday_holiday_thursday_final_session_completes_immediately():
+    # 2026-03-20 Cuma = Ramazan Bayramı (tam kapanış) -- hafta Perşembe (19) biter.
+    dates = ["2026-03-16", "2026-03-17", "2026-03-18", "2026-03-19"]  # son gün Perşembe
+    close = _daily_close(dates)
+    now = datetime(2026, 3, 19, 19, 0, tzinfo=TZ)  # aynı Perşembe akşamı -- Cuma hiç beklenmiyor
+    weekly = resample_to_weekly_close(close, now=now)
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def test_thursday_and_friday_holiday_wednesday_final_session_completes():
+    # 2021-05-13/14 = Ramazan Bayramı (tam kapanış, Per+Cuma) -- hafta Çarşamba (12) biter.
+    dates = ["2021-05-10", "2021-05-11", "2021-05-12"]  # son gün Çarşamba
+    close = _daily_close(dates)
+    now = datetime(2021, 5, 12, 19, 0, tzinfo=TZ)
+    weekly = resample_to_weekly_close(close, now=now)
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def test_thursday_only_holiday_friday_trading_incomplete_then_complete():
+    # 2026-04-23 Perşembe = Ulusal Egemenlik ve Çocuk Bayramı (tam kapanış),
+    # Cuma (24) TİCARET YAPAR -- hafta Cuma biter, Perşembe henüz bitmiş SAYILMAZ.
+    dates_before_friday = ["2026-04-20", "2026-04-21", "2026-04-22"]  # Pzt-Çrş (Perşembe kapalı)
+    close_incomplete = _daily_close(dates_before_friday)
+    now_thursday = datetime(2026, 4, 23, 19, 0, tzinfo=TZ)
+    weekly_incomplete = resample_to_weekly_close(close_incomplete, now=now_thursday)
+    assert len(weekly_incomplete) == 0
+
+    dates_with_friday = dates_before_friday + ["2026-04-24"]
+    close_complete = _daily_close(dates_with_friday)
+    now_friday = datetime(2026, 4, 24, 19, 0, tzinfo=TZ)
+    weekly_complete = resample_to_weekly_close(close_complete, now=now_friday)
+    assert weekly_complete.iloc[-1] == pytest.approx(close_complete.iloc[-1])
+
+
+def test_multiday_holiday_tuesday_final_session_completes():
+    # 2026-05-27/28/29 = Kurban Bayramı (Çrş-Per-Cuma tam kapanış) -- hafta
+    # Salı (26, kendisi de Arefe/yarım gün) biter.
+    dates = ["2026-05-25", "2026-05-26"]  # Pzt-Salı, son gün Salı (yarım gün)
+    close = _daily_close(dates)
+    now = datetime(2026, 5, 26, 19, 0, tzinfo=TZ)
+    weekly = resample_to_weekly_close(close, now=now)
+    assert weekly.iloc[-1] == pytest.approx(close.iloc[-1])
+
+
+def test_holiday_shortened_week_remains_included_on_following_monday():
+    # HATA 10E madde 8: bir sonraki Pazartesi'nin barı geldiğinde, tatille
+    # kısalmış önceki hafta artık SON bin DEĞİLDİR -- koşulsuz dahil kalır.
+    dates = ["2026-03-16", "2026-03-17", "2026-03-18", "2026-03-19", "2026-03-23"]  # + sonraki Pzt
+    close = _daily_close(dates)
+    now = datetime(2026, 3, 23, 19, 0, tzinfo=TZ)
+    weekly = resample_to_weekly_close(close, now=now)
+    # Yeni (Pazartesi'yle başlayan, devam eden) hafta hâlâ SON bin olduğundan
+    # düşürülür -- yalnızca tatille kısalmış ÖNCEKİ hafta kalır.
+    assert len(weekly) == 1
+    assert weekly.iloc[0] == pytest.approx(close.loc[pd.Timestamp("2026-03-19", tz=TZ)])
+
+
+def test_developing_final_session_bar_excluded_upstream_before_week_can_complete():
+    # HATA 10E madde 6/15: haftalık tamamlanma mantığı, GÜNLÜK bar'ın
+    # kendisinin tamamlanmış olup olmadığına HİÇ karışmaz -- bu tamamen
+    # `filter_completed_daily_bars()`'ın sorumluluğudur (gerçek fonksiyon,
+    # burada TEKRAR ÜRETİLMEDİ). 2026-03-19 Perşembe (Cuma=Ramazan Bayramı,
+    # haftanın SON beklenen günü) gelişmekte olan bir bar iken haftaki
+    # tamamlanma İMKANSIZ olmalı; finalize olduktan sonra mümkün olmalı.
+    import numpy as np
+
+    from app.services.market_data.completed_bars import filter_completed_daily_bars
+
+    dates = ["2026-03-16", "2026-03-17", "2026-03-18", "2026-03-19"]
+    rng = np.random.default_rng(1)
+    closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
+    idx = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in dates])
+    raw_df = pd.DataFrame(
+        {"Open": closes, "High": closes + 1, "Low": closes - 1, "Close": closes, "Volume": np.arange(len(dates)) + 1000},
+        index=idx,
+    )
+
+    # Perşembe 14:00 -- piyasa hâlâ açık, bugünün (Perşembe) bar'ı GELİŞİYOR.
+    now_developing = datetime(2026, 3, 19, 14, 0, tzinfo=TZ)
+    completed_developing = filter_completed_daily_bars(raw_df, now=now_developing)
+    assert completed_developing.index[-1].date() == pd.Timestamp("2026-03-18").date()  # Perşembe HENÜZ YOK
+    weekly_developing = resample_to_weekly_close(completed_developing["Close"], now=now_developing)
+    assert len(weekly_developing) == 0  # hafta tamamlanamaz -- son gün hâlâ Çarşamba
+
+    # Perşembe 19:00 -- kapanış (18:00) + finalization payı (30dk) geçti.
+    now_finalized = datetime(2026, 3, 19, 19, 0, tzinfo=TZ)
+    completed_finalized = filter_completed_daily_bars(raw_df, now=now_finalized)
+    assert completed_finalized.index[-1].date() == pd.Timestamp("2026-03-19").date()  # Perşembe artık VAR
+    weekly_finalized = resample_to_weekly_close(completed_finalized["Close"], now=now_finalized)
+    assert weekly_finalized.iloc[-1] == pytest.approx(completed_finalized["Close"].iloc[-1])

@@ -23,12 +23,16 @@ hiç yeni istek gerekmiyor.
 
 HATA 2A düzeltmesi (25.08.2026): Girdi artık yalnızca TAMAMLANMIŞ günlük
 barlardan oluşsa bile (bkz. `services/market_data/completed_bars.py`),
-`resample("W").last()` devam eden (henüz Cuma'sı gelmemiş) haftayı da
-"o haftanın kapanışı" gibi göstermeye devam eder — çünkü resample yalnızca
-ELİNDEKİ son günü kullanır, o günün gerçekten haftanın SON iş günü olup
-olmadığını bilmez. `resample_to_weekly_close()` bu yüzden son haftalık
-bar'ın gerçekten tamamlanmış olup olmadığını AYRICA kontrol edip, değilse
-düşürür (bkz. `_is_last_week_complete`).
+`resample("W").last()` devam eden bir haftayı da "o haftanın kapanışı" gibi
+göstermeye devam eder — çünkü resample yalnızca ELİNDEKİ son günü kullanır,
+o günün gerçekten haftanın SON beklenen BIST işlem günü olup olmadığını
+bilmez. `resample_to_weekly_close()` bu yüzden son haftalık bar'ın gerçekten
+tamamlanmış olup olmadığını AYRICA kontrol edip, değilse düşürür (bkz.
+`_is_last_week_complete`). HATA 10E (03.09.2026): "tamamlanmış hafta" artık
+takvim Cuma'sı DEĞİL, authoritative BIST takviminin o haftanın SON beklenen
+işlem günü olarak döndürdüğü tarihtir (bkz. `trading_calendar.
+last_expected_trading_session_of_week()`) — Cuma resmi tatilse bu daha erken
+bir gün olabilir.
 """
 
 from datetime import datetime
@@ -37,6 +41,7 @@ import pandas as pd
 
 from app.engines.technical.indicators import ema_slope
 from app.engines.technical.session_timing import ISTANBUL_TZ
+from app.services.market_data.trading_calendar import last_expected_trading_session_of_week
 
 DEFAULT_TIMEFRAMES = ("1d", "1wk")
 
@@ -65,21 +70,28 @@ WEEKLY_DIRECTION_MIN_OBSERVATIONS = 25  # = EMA window(20) + slope_lookback(5)
 def _is_last_week_complete(last_bar_date: pd.Timestamp, now: datetime) -> bool:
     """Girdi serisinin SON gününün ait olduğu hafta gerçekten bitti mi?
 
-    Kural: son gün Cuma'ysa (BIST haftası Cuma biter) hafta kesin tamamlanmış
-    sayılır — bu, "bugün hafta sonu, Cuma zaten tamamlanmış barlardan biri"
-    durumunu da doğru ele alır. Son gün Cuma DEĞİLSE, hafta ancak `now`
-    ARTIK o haftadan (ISO yıl/hafta) tamamen çıkmışsa (farklı bir ISO
-    haftadaysa) tamamlanmış sayılır — aksi halde o hafta hâlâ devam
-    ediyor olabilir (ör. Çarşamba, Cuma henüz gelmedi) ve düşürülür.
+    HATA 10E (03.09.2026): tamamlanmış hafta artık "Cuma" DEĞİL, o ISO
+    haftanın authoritative takvimdeki (`last_expected_trading_session_of_
+    week()`) SON BEKLENEN BIST işlem günü ile tanımlanır -- Cuma'nın resmi
+    tatil olduğu haftalarda bu Perşembe (hatta çok günlü kapanışlarda daha
+    erken bir gün) olabilir.
 
-    Bilinen sınırlama: Cuma'nın resmi tatil olduğu (haftanın son iş
-    gününün aslında Perşembe olduğu) haftalarda, bu kural o haftayı bir
-    sonraki ISO haftaya geçilene kadar "tamamlanmamış" sayabilir — GÜVENLİ
-    yöndeki bir hata (eksik ama asla yanlış/erken "tamamlanmış" değil).
+    Kural: `last_bar_date`, `now`'dan FARKLI bir ISO haftadaysa (artık
+    kesin geçmişte kalmış bir hafta) tamamlanmış sayılır -- bu haftanın
+    İÇİNDE beklenen ama eksik bir gün olup olmadığı bu fonksiyonun değil,
+    yukarı akıştaki `check_trading_day_continuity()`'nin sorumluluğudur.
+    AYNI ISO haftadaysa, hafta ancak `last_bar_date` o haftanın SON
+    beklenen işlem gününün TA KENDİSİYSE tamamlanmış sayılır -- takvim o
+    hafta için hiçbir beklenen gün DÖNMEZSE (`None`, desteklenmeyen yıl
+    veya gerçekten sıfır seans) "tamamlanmış" SONUCU ÇIKARILMAZ (muhafazakar/
+    eksik kalır, sessizce bir varsayım/ikinci takvim YÜRÜTÜLMEZ).
     """
-    if last_bar_date.weekday() == 4:  # Cuma
+    if last_bar_date.isocalendar()[:2] != now.isocalendar()[:2]:
         return True
-    return last_bar_date.isocalendar()[:2] != now.isocalendar()[:2]
+    final_expected = last_expected_trading_session_of_week(last_bar_date.date())
+    if final_expected is None:
+        return False
+    return last_bar_date.date() == final_expected
 
 
 def _direction(slope_value: float, neutral_band: float = 0.5) -> str:

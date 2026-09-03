@@ -25,6 +25,7 @@ from app.services.market_data.trading_calendar import (
     is_cancelled_session,
     is_full_day_closure,
     is_year_supported,
+    last_expected_trading_session_of_week,
     normalize_bist_daily_sessions,
     session_normalization_to_dict,
 )
@@ -112,6 +113,68 @@ def test_unsupported_year_returns_false_and_expected_sessions_is_none():
     assert is_year_supported(2020) is False
     assert is_year_supported(2027) is False
     assert expected_trading_sessions(date(2027, 1, 1), date(2027, 1, 5)) is None
+
+
+# ---------------------------------------------------------------------------
+# E2. HATA 10E — last_expected_trading_session_of_week(): "tamamlanmış hafta"
+# artık Cuma DEĞİL, o ISO haftanın authoritative takvimdeki SON beklenen
+# BIST işlem günüdür. Gerçek, belgelenmiş takvim örnekleri kullanılır --
+# sentetik/uydurma tarih YOK (yalnızca F için, gerçek takvimde sıfır-seanslı
+# bir hafta bulunmadığından, `expected_trading_sessions`'ı monkeypatch eder).
+# ---------------------------------------------------------------------------
+
+
+def test_last_expected_session_of_week_normal_week_is_friday():
+    # 2026-08-17 haftası (Pzt-Cuma), hiçbir tatil yok.
+    assert last_expected_trading_session_of_week(date(2026, 8, 18)) == date(2026, 8, 21)
+
+
+def test_last_expected_session_of_week_friday_holiday_is_thursday():
+    # 2026-03-20 Cuma = Ramazan Bayramı (tam kapanış) -- hafta Perşembe (19) biter.
+    assert date(2026, 3, 20) in BIST_FULL_DAY_CLOSURES[2026]
+    assert last_expected_trading_session_of_week(date(2026, 3, 17)) == date(2026, 3, 19)
+    assert last_expected_trading_session_of_week(date(2026, 3, 19)) == date(2026, 3, 19)
+
+
+def test_last_expected_session_of_week_thursday_and_friday_holiday_is_wednesday():
+    # 2021-05-13/14 = Ramazan Bayramı (tam kapanış, Per+Cuma) -- hafta Çarşamba (12) biter.
+    assert date(2021, 5, 13) in BIST_FULL_DAY_CLOSURES[2021]
+    assert date(2021, 5, 14) in BIST_FULL_DAY_CLOSURES[2021]
+    assert last_expected_trading_session_of_week(date(2021, 5, 10)) == date(2021, 5, 12)
+
+
+def test_last_expected_session_of_week_multiday_holiday_is_tuesday():
+    # 2026-05-27/28/29 = Kurban Bayramı (Çrş-Per-Cuma tam kapanış) -- hafta Salı (26) biter.
+    for d in (date(2026, 5, 27), date(2026, 5, 28), date(2026, 5, 29)):
+        assert d in BIST_FULL_DAY_CLOSURES[2026]
+    assert last_expected_trading_session_of_week(date(2026, 5, 25)) == date(2026, 5, 26)
+
+
+def test_last_expected_session_of_week_half_day_final_session_still_eligible():
+    # 2026-03-19 (Ramazan Bayramı Arefesi) ve 2026-05-26 (Kurban Bayramı
+    # Arefesi) yarım gündür AMA authoritative takvimde expected session'dır
+    # -- her ikisi de kendi haftalarının SON beklenen günü olarak dönmeli.
+    assert date(2026, 3, 19) in BIST_HALF_DAY_SESSIONS[2026]
+    assert is_full_day_closure(date(2026, 3, 19)) is False
+    assert last_expected_trading_session_of_week(date(2026, 3, 19)) == date(2026, 3, 19)
+
+    assert date(2026, 5, 26) in BIST_HALF_DAY_SESSIONS[2026]
+    assert is_full_day_closure(date(2026, 5, 26)) is False
+    assert last_expected_trading_session_of_week(date(2026, 5, 26)) == date(2026, 5, 26)
+
+
+def test_last_expected_session_of_week_returns_none_for_unsupported_year():
+    assert last_expected_trading_session_of_week(date(2027, 1, 5)) is None
+
+
+def test_last_expected_session_of_week_returns_none_when_zero_sessions_expected(monkeypatch):
+    # Gerçek BIST takviminde sıfır-seanslı bir hafta yok -- bu, mimariyi
+    # (fabrikasyon YOK) doğrulamak için yalnızca `expected_trading_sessions`'ı
+    # izole eden bir birim testidir.
+    import app.services.market_data.trading_calendar as calendar_module
+
+    monkeypatch.setattr(calendar_module, "expected_trading_sessions", lambda start, end: [])
+    assert calendar_module.last_expected_trading_session_of_week(date(2026, 8, 18)) is None
 
 
 def test_unsupported_year_raises_explicit_error_via_continuity_check():
@@ -494,6 +557,36 @@ def test_continuity_reports_both_missing_and_unexpected_when_both_present():
     # Geriye dönük uyumluluk: missing_dates doluyken reason_code her zaman
     # "MISSING_TRADING_SESSION" kalır (bkz. data_quality.py — mevcut
     # caller'ların hiçbiri kırılmasın diye bilinçli bir öncelik sırası).
+    assert err.reason_code == "MISSING_TRADING_SESSION"
+
+
+# ---------------------------------------------------------------------------
+# HATA 10E, madde 16/25: takvim haftanın SON beklenen günü olarak Perşembe'yi
+# (2026-03-19, Cuma=Ramazan Bayramı tam kapanış) bildirirken, provider verisi
+# Çarşamba'da (2026-03-18) biterse -- haftalık MTF tamamlanma mantığı bunu
+# SESSİZCE "Çarşamba haftanın sonuymuş gibi" KABUL ETMEMELİDİR; bu senaryo
+# zaten yukarı akıştaki continuity hard-veto'sunda YAKALANMALIDIR (weekly
+# fallback'e HİÇ ULAŞILMAZ).
+# ---------------------------------------------------------------------------
+
+
+def test_continuity_catches_missing_final_session_before_weekly_fallback_could_apply():
+    dates = ["2026-03-16", "2026-03-17", "2026-03-18"]  # Perşembe (19) EKSİK
+    rng = np.random.default_rng(17)
+    closes = 100 + np.cumsum(rng.normal(0, 1, len(dates)))
+    df = pd.DataFrame(
+        {"Open": closes, "High": closes + 1, "Low": closes - 1, "Close": closes, "Volume": [1000, 1100, 1200]},
+        index=pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in dates]),
+    )
+    # Cuma (20) resmi tatil olduğundan 'now' Cuma veya sonrası olsa bile
+    # beklenen son tamamlanmış seans hâlâ Perşembe (19) -- eksikliği gizlemez.
+    now = datetime(2026, 3, 20, 19, 0, tzinfo=TZ)
+
+    with pytest.raises(TradingDayContinuityError) as exc_info:
+        check_trading_day_continuity(df, "TEST", now=now)
+
+    err = exc_info.value
+    assert err.missing_dates == [date(2026, 3, 19)]
     assert err.reason_code == "MISSING_TRADING_SESSION"
 
 

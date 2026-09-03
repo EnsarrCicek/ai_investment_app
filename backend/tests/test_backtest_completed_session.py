@@ -210,7 +210,7 @@ def test_backtest_engine_run_reports_technical_engine_version(fake_provider):
 
     result = engine.run("TEST", period="1y", now=_NOW_MARKET_OPEN)
 
-    assert result["technical_engine_version"] == TECHNICAL_ENGINE_VERSION == "1.12.0"
+    assert result["technical_engine_version"] == TECHNICAL_ENGINE_VERSION == "1.13.0"
 
 
 def test_backtest_engine_compare_strategies_reports_technical_engine_version(fake_provider):

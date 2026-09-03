@@ -461,6 +461,29 @@ def expected_trading_sessions(start: date, end: date) -> list[date] | None:
     return sessions
 
 
+def last_expected_trading_session_of_week(day: date) -> date | None:
+    """HATA 10E (03.09.2026): `day`'in ait olduğu ISO haftasının (Pazartesi-
+    Pazar) SON BEKLENEN BIST işlem günü — Cuma DEĞİL, `expected_trading_
+    sessions()`'ın (aynı authoritative takvim, ikinci bir tatil listesi
+    OLUŞTURULMAZ) döndürdüğü son eleman. Cuma resmi tatilse (ör. Zafer/
+    Kurban/Ramazan Bayramı) bu Perşembe (hatta çok günlü kapanışlarda daha
+    erken bir gün) olabilir — yarım günler (Arefe) authoritative takvimde
+    zaten expected session SAYILDIĞINDAN (`classify_non_session_day()`)
+    burada da doğal olarak dahildir, ayrıca bir istisna GEREKMEZ.
+
+    O haftada HİÇ beklenen işlem günü yoksa (`[]`) ya da takvim aralıktaki
+    bir yıl için tanımlı değilse (`None`) -- `None` döner; ikisinde de
+    ÇAĞIRAN TARAF "tamamlanmış" SONUCUNU ÇIKARAMAZ (bkz. `_is_last_week_
+    complete()`), sessizce bir varsayım/ikinci takvim YÜRÜTÜLMEZ.
+    """
+    week_monday = day - timedelta(days=day.weekday())
+    week_sunday = week_monday + timedelta(days=6)
+    sessions = expected_trading_sessions(week_monday, week_sunday)
+    if not sessions:
+        return None
+    return sessions[-1]
+
+
 def first_expected_session_on_or_after(day: date, search_end: date) -> date | None:
     """HATA 5A (27.08.2026), FINAL PRE-COMMIT CLEANUP (27.08.2026) ile
     arbitrary/magic bir arama ufkundan (eski "14 gün yeter" correctness
