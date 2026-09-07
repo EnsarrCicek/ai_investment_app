@@ -197,4 +197,58 @@ void main() {
 
     expect(detail.evidenceCoverage, isNull);
   });
+
+  test(
+    '07.09.2026 (HATA 11J): display_role_invalid eklenmeden önceki eski kayıtlarda '
+    'null olarak geriye dönük uyumludur (crash olmadan ayrıştırılır)',
+    () {
+      final json = {
+        'asset': 'THYAO',
+        'technical_score': -29.02,
+        'trend': 'BEARISH',
+        'confidence': 0.72,
+        'components': {'rsi': -10.0},
+        'indicators': {'rsi': 40.0},
+        'nearest_support': {'type': 'SUPPORT', 'low': 305.25, 'high': 305.25, 'touch_count': 1},
+        'all_zones': [
+          {'type': 'RESISTANCE', 'low': 301.75, 'high': 301.75, 'touch_count': 1},
+        ],
+      };
+
+      final detail = TechnicalAnalysisDetail.fromJson(json);
+
+      expect(detail.nearestSupport!.displayRoleInvalid, isNull);
+      expect(detail.allZones.first.displayRoleInvalid, isNull);
+    },
+  );
+
+  test('07.09.2026 (HATA 11J): display_role_invalid mevcutken doğru ayrıştırılır', () {
+    final json = {
+      'asset': 'THYAO',
+      'technical_score': -29.02,
+      'trend': 'BEARISH',
+      'confidence': 0.72,
+      'components': {'rsi': -10.0},
+      'indicators': {'rsi': 40.0},
+      'nearest_support': {'type': 'SUPPORT', 'low': 305.25, 'high': 305.25, 'touch_count': 1, 'display_role_invalid': false},
+      'all_zones': [
+        {'type': 'RESISTANCE', 'low': 301.75, 'high': 301.75, 'touch_count': 1, 'display_role_invalid': true},
+      ],
+      // breakout.zone: backend bu alanı HİÇ GÖNDERMEZ (dondurulmuş tarihsel
+      // snapshot, mevcut fiyata bağlı bir "geçerlilik" iddiası taşımaz).
+      'breakout': {
+        'direction': 'BULLISH',
+        'breakout_atr': 2.5,
+        'confirmed': true,
+        'retest_held': null,
+        'zone': {'type': 'RESISTANCE', 'low': 100.0, 'high': 101.0, 'touch_count': 3},
+      },
+    };
+
+    final detail = TechnicalAnalysisDetail.fromJson(json);
+
+    expect(detail.nearestSupport!.displayRoleInvalid, false);
+    expect(detail.allZones.first.displayRoleInvalid, true);
+    expect(detail.breakout!.zone.displayRoleInvalid, isNull);
+  });
 }

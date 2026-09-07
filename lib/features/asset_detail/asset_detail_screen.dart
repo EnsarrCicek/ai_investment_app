@@ -680,17 +680,26 @@ class _SrChartPainter extends CustomPainter {
     for (final zone in zones) {
       final top = yFor(zone.high).clamp(0.0, size.height);
       final bottom = yFor(zone.low).clamp(0.0, size.height);
-      final color = zone.type == 'SUPPORT' ? Colors.green : Colors.red;
+      // HATA 11J: displayRoleInvalid==true -- fiyat zone'un kendi sınırının
+      // yanlış tarafında; BROKEN/FLIPPED denmiyor, yalnızca soluklaştırılıp
+      // "(pasif)" ile işaretleniyor (yapısal zone SİLİNMİYOR, hâlâ grafik
+      // bağlamı için orada). `null` (breakout.zone veya eski kayıt) normal
+      // (aktif gibi) çizilir -- "geçersiz" YALNIZ açıkça `true` olduğunda.
+      final isInvalid = zone.displayRoleInvalid == true;
+      final baseColor = zone.type == 'SUPPORT' ? Colors.green : Colors.red;
+      final color = isInvalid ? Colors.grey : baseColor;
 
       canvas.drawRect(
         Rect.fromLTRB(0, top, chartWidth, bottom < top ? top : bottom),
-        Paint()..color = color.withValues(alpha: 0.10),
+        Paint()..color = color.withValues(alpha: isInvalid ? 0.06 : 0.10),
       );
 
       final midY = (top + bottom) / 2;
-      _drawDashedLine(canvas, Offset(0, midY), Offset(chartWidth, midY), color.withValues(alpha: 0.6));
+      _drawDashedLine(canvas, Offset(0, midY), Offset(chartWidth, midY), color.withValues(alpha: isInvalid ? 0.4 : 0.6));
 
-      final label = '${zone.type == 'SUPPORT' ? 'D' : 'R'} ${zone.mid.toStringAsFixed(2)} (${zone.touchCount}x)';
+      final label =
+          '${zone.type == 'SUPPORT' ? 'D' : 'R'} ${zone.mid.toStringAsFixed(2)} (${zone.touchCount}x)'
+          '${isInvalid ? ' (pasif)' : ''}';
       final painter = TextPainter(
         text: TextSpan(text: label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.bold)),
         textDirection: TextDirection.ltr,

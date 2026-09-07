@@ -221,15 +221,15 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_13_0():
-    # HATA 10E: haftalık tamamlanma artık takvim Cuma'sı değil, authoritative
-    # BIST takviminin haftanın SON beklenen işlem günü olarak döndürdüğü
-    # tarihi kullanır -- ENGINE_VERSION bump'ını gerektirir (1.12.0 ->
-    # 1.13.0). technical_score formülü YİNE DEĞİŞMEDİ, yalnızca tatille
-    # kısalmış haftalara denk gelen kayıtlarda `mtf_aligned`/`mtf_consensus`/
-    # `signal_class`/`investment_horizon` alanları geriye-görünür şekilde
-    # değişebilir.
-    assert ENGINE_VERSION == "1.13.0"
+def test_engine_version_is_1_14_0():
+    # HATA 11J: nearest_support/nearest_resistance artık yalnız mevcut
+    # fiyatın doğru tarafında kalan ("aktif") zone'lar arasından seçiliyor
+    # (active_only=True) -- ENGINE_VERSION bump'ını gerektirir (1.13.0 ->
+    # 1.14.0). Technical Score/components, signal_classifier, horizon_
+    # classifier, breakout_timeline HİÇ DEĞİŞMEDİ; yalnızca nearest_support/
+    # nearest_resistance seçimi ve serialized zone dict'lerine eklenen
+    # `display_role_invalid` alanı etkilenir.
+    assert ENGINE_VERSION == "1.14.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -911,6 +911,199 @@ def test_completed_history_technical_score_is_deterministic(fake_provider):
 
 
 # ---------------------------------------------------------------------------
+# HATA 11J (07.09.2026): nearest_support/nearest_resistance active-only fix.
+# `_breakout_scenario_df()`'in "bugün" kapanışı 135.05 -- bu sabit kullanılarak
+# display zone'ları `build_zones` monkeypatch'iyle TAM kontrollü kuruluyor,
+# gerçek pivot-tespitinin (zaten test_support_resistance.py/test_market_
+# structure.py'de ayrıca test edilen) rastgeleliğine bağlı kalınmadan.
+# ---------------------------------------------------------------------------
+
+from app.engines.technical.support_resistance import SRZone  # noqa: E402
+
+# _breakout_scenario_df()'teki "bugün" kapanışı 135.05 -- aşağıdaki zone
+# sınırları buna göre bilinçli olarak invalid/valid kurulmuştur.
+_INVALID_CLOSER_SUPPORT = SRZone(type="SUPPORT", low=136.0, high=137.0, touch_count=2, last_touch_index=0)
+_VALID_FARTHER_SUPPORT = SRZone(type="SUPPORT", low=100.0, high=110.0, touch_count=3, last_touch_index=0)
+_INVALID_CLOSER_RESISTANCE = SRZone(type="RESISTANCE", low=133.0, high=134.0, touch_count=2, last_touch_index=0)
+_VALID_FARTHER_RESISTANCE = SRZone(type="RESISTANCE", low=150.0, high=160.0, touch_count=3, last_touch_index=0)
+
+_MIXED_ZONES = [
+    _INVALID_CLOSER_SUPPORT,
+    _VALID_FARTHER_SUPPORT,
+    _INVALID_CLOSER_RESISTANCE,
+    _VALID_FARTHER_RESISTANCE,
+]
+
+
+def _run_scenario_with_fixed_zones(fake_provider, monkeypatch, now: datetime, zones: list | None):
+    # monkeypatch=None -> gerçek (unmocked) build_zones kullanılır, `zones` yok sayılır --
+    # yalnızca "değişmedi" karşılaştırmaları için bir temel (baseline) çalıştırma sağlar.
+    if monkeypatch is not None:
+        monkeypatch.setattr("app.engines.technical.engine.build_zones", lambda points, atr: zones)
+    provider = fake_provider(history_df=_breakout_scenario_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    analysis, _ = engine.analyze_with_id("TEST", now=now)
+    return analysis
+
+
+def test_active_only_nearest_selection_replaces_invalid_zone_end_to_end(fake_provider, monkeypatch):
+    # HATA 11J item 17: en yakın (mid'e göre) SUPPORT/RESISTANCE her ikisi de
+    # bilinçli olarak GEÇERSİZ (bugünün kapanışının yanlış tarafında) kurulmuş
+    # -- nearest_support/nearest_resistance bunları ATLAYIP geçerli, daha
+    # uzaktaki zone'ları seçmeli.
+    analysis = _run_scenario_with_fixed_zones(fake_provider, monkeypatch, datetime(2026, 8, 26, 19, 0, tzinfo=TZ), _MIXED_ZONES)
+
+    assert analysis.nearest_support["low"] == 100.0
+    assert analysis.nearest_support["high"] == 110.0
+    assert analysis.nearest_support["display_role_invalid"] is False
+    assert analysis.nearest_resistance["low"] == 150.0
+    assert analysis.nearest_resistance["high"] == 160.0
+    assert analysis.nearest_resistance["display_role_invalid"] is False
+
+    # Yapısal all_zones DEĞİŞMEDİ -- geçersiz zone'lar hâlâ orada, ama artık
+    # işaretli.
+    by_bounds = {(z["low"], z["high"]): z for z in analysis.all_zones}
+    assert by_bounds[(136.0, 137.0)]["display_role_invalid"] is True
+    assert by_bounds[(133.0, 134.0)]["display_role_invalid"] is True
+    assert by_bounds[(100.0, 110.0)]["display_role_invalid"] is False
+    assert by_bounds[(150.0, 160.0)]["display_role_invalid"] is False
+
+
+def test_no_valid_support_returns_none_without_fabricating_one(fake_provider, monkeypatch):
+    # HATA 11J item 18: TÜM SUPPORT zone'ları geçersiz, ama geçerli bir
+    # RESISTANCE var -- nearest_support None dönmeli (sahte/geçersiz bir
+    # zone'a asla düşmemeli), nearest_resistance normal seçilmeli, analiz
+    # BAŞARISIZ OLMAMALI.
+    zones = [_INVALID_CLOSER_SUPPORT, SRZone(type="SUPPORT", low=140.0, high=145.0, touch_count=1, last_touch_index=0),
+             _VALID_FARTHER_RESISTANCE]
+    analysis = _run_scenario_with_fixed_zones(fake_provider, monkeypatch, datetime(2026, 8, 26, 19, 0, tzinfo=TZ), zones)
+
+    assert analysis.nearest_support is None
+    assert analysis.nearest_resistance["low"] == 150.0
+    assert analysis.nearest_resistance["display_role_invalid"] is False
+
+
+def test_no_valid_resistance_returns_none_without_fabricating_one(fake_provider, monkeypatch):
+    # Ayna senaryo: tüm RESISTANCE geçersiz, geçerli SUPPORT var.
+    zones = [_VALID_FARTHER_SUPPORT, _INVALID_CLOSER_RESISTANCE,
+             SRZone(type="RESISTANCE", low=134.5, high=135.0, touch_count=1, last_touch_index=0)]
+    analysis = _run_scenario_with_fixed_zones(fake_provider, monkeypatch, datetime(2026, 8, 26, 19, 0, tzinfo=TZ), zones)
+
+    assert analysis.nearest_resistance is None
+    assert analysis.nearest_support["low"] == 100.0
+    assert analysis.nearest_support["display_role_invalid"] is False
+
+
+def _no_breakout_flat_df() -> pd.DataFrame:
+    # build_narrative() yalnızca breakout YOKKEN nearest_support/resistance'ı
+    # anlatıya katar (`_no_breakout_narrative`) -- bu yüzden narrative
+    # testleri, _breakout_scenario_df()'in AKTİF bir kırılım ürettiği
+    # senaryodan AYRI, hiç kırılım üretmeyen düz/yatay bir seri kullanır.
+    up = np.linspace(90.0, 130.0, 40)
+    down = np.linspace(130.0, 100.0, 39)
+    closes = np.concatenate([up, down])
+    n_history = len(closes)
+    trading_days = _bist_trading_days(date(2026, 8, 25), n_history)
+    history_index = pd.DatetimeIndex([pd.Timestamp(d, tz=TZ) for d in trading_days])
+    df = pd.DataFrame(
+        {
+            "Open": closes - 0.3,
+            "High": closes + 0.5,
+            "Low": closes - 0.5,
+            "Close": closes,
+            "Volume": np.full(n_history, 5000.0),
+        },
+        index=history_index,
+    )
+    df.loc[df.index[-1], ["Open", "High", "Low", "Close", "Volume"]] = [100.5, 101.0, 99.5, 100.0, 5200.0]
+    today_row = pd.DataFrame(
+        {"Open": [100.0], "High": [100.5], "Low": [99.5], "Close": [100.0], "Volume": [5100.0]},
+        index=[pd.Timestamp(_TODAY_DATE, tz=TZ)],
+    )
+    return pd.concat([df, today_row])
+
+
+def _run_no_breakout_scenario_with_fixed_zones(fake_provider, monkeypatch, zones: list):
+    monkeypatch.setattr("app.engines.technical.engine.build_zones", lambda points, atr: zones)
+    provider = fake_provider(history_df=_no_breakout_flat_df())
+    engine = TechnicalAnalysisEngine(
+        provider=provider,
+        config_repo=_FakeConfigRepo(),
+        analysis_repo=_FakeTechnicalAnalysisRepo(cached=None, cached_id=None),
+        benchmark_cache_repo=_FakeBenchmarkCacheRepo(),
+    )
+    analysis, _ = engine.analyze_with_id("TEST", now=datetime(2026, 8, 26, 19, 0, tzinfo=TZ))
+    assert analysis.breakout is None  # bu fikstür bilinçli olarak kırılımsız -- yoksa narrative testi anlamsız olur
+    return analysis
+
+
+# "bugünkü" kapanış 100.0 -- aşağıdaki zone'lar buna göre bilinçli invalid/valid.
+_NB_INVALID_CLOSER_SUPPORT = SRZone(type="SUPPORT", low=101.0, high=102.0, touch_count=2, last_touch_index=0)
+_NB_VALID_FARTHER_SUPPORT = SRZone(type="SUPPORT", low=90.0, high=95.0, touch_count=3, last_touch_index=0)
+_NB_INVALID_CLOSER_RESISTANCE = SRZone(type="RESISTANCE", low=97.0, high=98.0, touch_count=2, last_touch_index=0)
+_NB_VALID_FARTHER_RESISTANCE = SRZone(type="RESISTANCE", low=110.0, high=120.0, touch_count=3, last_touch_index=0)
+
+
+def test_narrative_uses_replacement_not_discarded_invalid_zone(fake_provider, monkeypatch):
+    # HATA 11J item 19: build_narrative() zaten seçilmiş nearest_*'i alır --
+    # atılan geçersiz zone'un fiyat bandı asla anlatıda GEÇMEMELİ, geçerli
+    # ikame ZATEN geçmeli.
+    zones = [_NB_INVALID_CLOSER_SUPPORT, _NB_VALID_FARTHER_SUPPORT, _NB_INVALID_CLOSER_RESISTANCE, _NB_VALID_FARTHER_RESISTANCE]
+    analysis = _run_no_breakout_scenario_with_fixed_zones(fake_provider, monkeypatch, zones)
+
+    assert "101.00" not in analysis.narrative and "102.00" not in analysis.narrative
+    assert "97.00" not in analysis.narrative and "98.00" not in analysis.narrative
+    assert "90.00" in analysis.narrative and "95.00" in analysis.narrative
+    assert "110.00" in analysis.narrative and "120.00" in analysis.narrative
+
+
+def test_narrative_honest_when_no_valid_level_of_a_type_exists(fake_provider, monkeypatch):
+    zones = [_NB_INVALID_CLOSER_SUPPORT, _NB_VALID_FARTHER_RESISTANCE]
+    analysis = _run_no_breakout_scenario_with_fixed_zones(fake_provider, monkeypatch, zones)
+
+    assert analysis.nearest_support is None
+    assert "101.00" not in analysis.narrative and "102.00" not in analysis.narrative
+    assert "altta en yakın" not in analysis.narrative.lower()  # HATA 11J: mevcut dürüst "yok" davranışı korunur
+
+
+def test_breakout_timeline_unaffected_by_display_zone_fix(fake_provider, monkeypatch):
+    # HATA 11J item 20: display S/R zone'larını TAMAMEN farklı, ilgisiz bir
+    # sete değiştirmek breakout_timeline'ı (dolayısıyla breakout/breakout_
+    # event_id/signal_breakout_event_id/confirmation/retest) HİÇ ETKİLEMEMELİ
+    # -- iki mimari birbirinden bağımsızdır (bkz. HATA 4B/11H audit'leri).
+    now = datetime(2026, 8, 26, 19, 0, tzinfo=TZ)
+    baseline = _run_scenario_with_fixed_zones(fake_provider, None, now, zones=[])  # gerçek build_zones (monkeypatch yok)
+    mutated = _run_scenario_with_fixed_zones(fake_provider, monkeypatch, now, _MIXED_ZONES)
+
+    assert baseline.breakout == mutated.breakout
+    assert baseline.breakout_event_id == mutated.breakout_event_id
+    assert baseline.signal_breakout_event_id == mutated.signal_breakout_event_id
+
+
+def test_technical_score_and_signal_unaffected_by_display_zone_fix(fake_provider, monkeypatch):
+    # HATA 11J item 21: aynı fikstürde, display zone seti değişse bile
+    # Technical Score/components/confidence/signal_class/investment_horizon
+    # BİREBİR AYNI kalmalı -- bu değişiklik yalnızca nearest_support/
+    # nearest_resistance/all_zones metadata'sını etkiler.
+    now = datetime(2026, 8, 26, 19, 0, tzinfo=TZ)
+    baseline = _run_scenario_with_fixed_zones(fake_provider, None, now, zones=[])
+    mutated = _run_scenario_with_fixed_zones(fake_provider, monkeypatch, now, _MIXED_ZONES)
+
+    assert baseline.technical_score == mutated.technical_score
+    assert baseline.components == mutated.components
+    assert baseline.confidence == mutated.confidence
+    assert baseline.signal_class == mutated.signal_class
+    assert baseline.investment_horizon == mutated.investment_horizon
+    assert baseline.market_structure == mutated.market_structure
+    assert baseline.scoring_config_hash == mutated.scoring_config_hash
+
+
+# ---------------------------------------------------------------------------
 # HATA 2B (25.08.2026): BIST'in resmi işlem takvimine göre beklenen ama
 # seride bulunmayan bir işlem günü varsa (bkz. 24.08.2026 örneği) analiz hiç
 # ÜRETİLMEMELİ (HARD VETO) — completed-bar filtresinden SONRA, herhangi bir
@@ -1539,17 +1732,17 @@ def test_analyze_with_id_cached_1_11_record_misses_under_1_12_engine_version(fak
     assert doc_id == "new-id"  # eski "old-1-11-id" DEĞİL -- gerçekten yeniden persist edildi
 
 
-def test_analyze_with_id_cached_1_12_record_misses_under_1_13_engine_version(fake_provider):
-    # HATA 10E — SPESİFİK cache-invalidation regresyonu: haftalık tamamlanma
-    # kuralının takvim-farkındalıklı hale gelmesi ENGINE_VERSION'ı 1.12.0'dan
-    # 1.13.0'a yükseltti. TTL içinde (fresh) bir 1.12.0 kaydı artık cache HIT
-    # ÜRETMEMELİ -- gerçek 1.13.0 motoruyla YENİDEN hesaplanmalı, dönen
-    # doküman kimliği eski (cache'lenmiş) kayıt DEĞİL, yeni persist edilen
-    # kayıt olmalı.
-    old_1_12_cache = _cached_analysis(
-        age_seconds=60, engine_version="1.12.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+def test_analyze_with_id_cached_1_13_record_misses_under_1_14_engine_version(fake_provider):
+    # HATA 11J — SPESİFİK cache-invalidation regresyonu: nearest_support/
+    # nearest_resistance'ın active-only hale gelmesi ENGINE_VERSION'ı
+    # 1.13.0'dan 1.14.0'a yükseltti. TTL içinde (fresh) bir 1.13.0 kaydı
+    # artık cache HIT ÜRETMEMELİ -- gerçek 1.14.0 motoruyla YENİDEN
+    # hesaplanmalı, dönen doküman kimliği eski (cache'lenmiş) kayıt DEĞİL,
+    # yeni persist edilen kayıt olmalı.
+    old_1_13_cache = _cached_analysis(
+        age_seconds=60, engine_version="1.13.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
     )
-    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_12_cache, cached_id="old-1-12-id")
+    analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_13_cache, cached_id="old-1-13-id")
     provider = fake_provider(history_df=_real_history_df())
     engine = TechnicalAnalysisEngine(
         provider=provider,
@@ -1560,10 +1753,10 @@ def test_analyze_with_id_cached_1_12_record_misses_under_1_13_engine_version(fak
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
-    assert ENGINE_VERSION == "1.13.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
-    assert analysis is not old_1_12_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
-    assert analysis.engine_version == "1.13.0"
-    assert doc_id == "new-id"  # eski "old-1-12-id" DEĞİL -- gerçekten yeniden persist edildi
+    assert ENGINE_VERSION == "1.14.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert analysis is not old_1_13_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
+    assert analysis.engine_version == "1.14.0"
+    assert doc_id == "new-id"  # eski "old-1-13-id" DEĞİL -- gerçekten yeniden persist edildi
 
 
 # ---------------------------------------------------------------------------

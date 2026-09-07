@@ -116,7 +116,7 @@ from app.engines.technical.relative_strength import (
 )
 from app.engines.technical.relative_volume import classify_relative_volume, relative_volume_series
 from app.engines.technical.signal_classifier import SignalInputs, classify_signal
-from app.engines.technical.support_resistance import SRZone, build_zones, nearest_zone
+from app.engines.technical.support_resistance import SRZone, build_zones, is_display_role_invalid, nearest_zone
 from app.models.technical_analysis import TechnicalAnalysis
 from app.repositories.benchmark_cache_repository import BenchmarkCacheRepository
 from app.repositories.system_config_repository import SystemConfigRepository
@@ -332,7 +332,24 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # cagri, W25 esigi, ±0.5 deadband HIC DEGISMEDI. scoring_config_hash
 # BILINCLI OLARAK DEGISMEDI. Eski 1.12.0 kayitlari AYNEN kalir (migration
 # YOK); cache bu bump nedeniyle onlari otomatik MISS eder.
-ENGINE_VERSION = "1.13.0"
+#
+# HATA 11J (07.09.2026): 1.13.0 -> 1.14.0 -- nearest_support/nearest_
+# resistance artik SADECE mevcut fiyatin dogru tarafinda kalan ("aktif")
+# zone'lar arasindan seciliyor (nearest_zone(..., active_only=True),
+# support_resistance.is_display_role_invalid()) -- HATA 11D-11I audit
+# serisinin kanitladigi "mevcut fiyatin kendi yapisal rolüyle uyumsuz
+# tarafinda kalan bir zone hala 'en yakin destek/direnc' olarak
+# gosterilebiliyor" bulgusunun minimum, tarihsel-lineage GEREKTIRMEYEN
+# (salt bugünün kapanışına göre anlık geometri) duzeltmesi. Gecerli aday yoksa None doner (sahte zone
+# UYDURULMAZ). Yapisal `zones`/`all_zones` DEGISMEDI -- gecersiz zone'lar
+# hala orada, yalnizca her serialized zone'a `display_role_invalid: bool`
+# eklendi (breakout.zone HARIC -- o, breakout_timeline'in DONDURULMUS
+# tarihsel snapshot'u, bkz. _zone_to_dict()/_breakout_to_dict() yorumlari).
+# Technical Score/components, signal_classifier, horizon_classifier,
+# breakout_timeline, scoring_config_hash HIC DEGISMEDI. Eski 1.13.0
+# kayitlari AYNEN kalir (migration YOK); cache bu bump nedeniyle onlari
+# otomatik MISS eder.
+ENGINE_VERSION = "1.14.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`
@@ -364,15 +381,28 @@ TECHNICAL_CACHE_TTL_SECONDS = 900  # 15 dakika
 MAX_CHART_ZONES = 8
 
 
-def _zone_to_dict(zone: SRZone | None) -> dict | None:
+def _zone_to_dict(zone: SRZone | None, price: float | None = None) -> dict | None:
+    """HATA 11J: `price` verilirse (yalnız DISPLAY zone'ları -- nearest_
+    support/resistance/all_zones -- için, aşağıda çağrılan yerlerde) sözlüğe
+    `display_role_invalid` eklenir. `price=None` (varsayılan) bu alanı hiç
+    EKLEMEZ -- bu, `_breakout_to_dict()`'in kullandığı `event.zone_snapshot`
+    (breakout_timeline.py'nin DONDURULMUŞ, T-1 nedensel geçmiş zone'u) için
+    KASITLI: o, mevcut fiyata göre "geçerli/geçersiz" bir DISPLAY zone'u
+    DEĞİLDİR, ayrı bir nedensel mimarinin tarihsel anlık görüntüsüdür (bkz.
+    HATA 11H/11I audit'leri) -- ona bugünün fiyatına dayalı bir alan
+    ENJEKTE ETMEK yanlış bir semantik iddia olurdu.
+    """
     if zone is None:
         return None
-    return {
+    zone_dict = {
         "type": zone.type,
         "low": round(zone.low, 4),
         "high": round(zone.high, 4),
         "touch_count": zone.touch_count,
     }
+    if price is not None:
+        zone_dict["display_role_invalid"] = is_display_role_invalid(zone, price)
+    return zone_dict
 
 
 def _breakout_to_dict(event: BreakoutEvent | None) -> dict | None:
@@ -414,13 +444,35 @@ def _compute_enrichment(
     hâlâ "bugün itibarıyla bilinen her şeyi" (ATR[T] dahil) kullanan bir anlık
     görüntüdür; yalnız BREAKOUT TESPİTİ kendi ayrı, T-1 ile sınırlı nedensel
     zone/ATR sözleşmesini kullanır.
+
+    HATA 11J (07.09.2026): `support`/`resistance` (dolayısıyla `nearest_
+    support`/`nearest_resistance`) artık YALNIZ mevcut fiyatın (bugünün
+    tamamlanmış kapanışı) DOĞRU tarafında kalan zone'lar arasından seçilir
+    (`nearest_zone(..., active_only=True)`, bkz. support_resistance.py) --
+    mevcut fiyatın, zone'un yapısal rolüyle (kendi low/high sınırıyla)
+    uyumsuz tarafında kalan bir zone bir daha ASLA "en yakın destek/direnç"
+    olarak dönmez (geçerli aday yoksa `None` döner, sahte bir zone
+    UYDURULMAZ) -- bu, tarihsel bir kırılım/breakout OLAYI TESPİTİ DEĞİLDİR,
+    salt bugünün kapanışına göre anlık geometri kontrolüdür. Yapısal
+    `zones`/`all_zones` listesi
+    DEĞİŞMEDİ -- geçersiz zone'lar hâlâ grafik bağlamı için ORADA, yalnız
+    her birine mevcut-fiyata göre `display_role_invalid` bilgisi eklendi
+    (`_zone_to_dict(..., price=...)`). Bu tarihsel breakout lineage/Jaccard
+    DEĞİLDİR (bilinçli olarak kapsam dışı bırakıldı, bkz. HATA 11D-11I audit
+    serisi) -- salt mevcut geometri.
     """
     close, volume = df["Close"], df["Volume"]
 
     structure_result = analyze_market_structure(df)
     zones = build_zones(structure_result["swing_points"], atr=atr_val)
-    support = nearest_zone(zones, price=close_val, zone_type="SUPPORT")
-    resistance = nearest_zone(zones, price=close_val, zone_type="RESISTANCE")
+    # HATA 11J: `active_only=True` -- nearest_support/resistance artık YALNIZ
+    # mevcut fiyatın DOĞRU tarafında kalan (is_display_role_invalid()==False)
+    # zone'lar arasından seçilir; geçersiz bir zone'a asla DÜŞMEZ (yoksa None
+    # döner, bkz. HATA 11I audit'i). Yapısal `zones` listesinin KENDİSİ
+    # (aşağıdaki `chart_zones`/`all_zones`) DEĞİŞMEDEN, geçersiz zone'lar da
+    # DAHİL kalır -- yalnız "en yakın" SEÇİMİ bu kısıtı alır.
+    support = nearest_zone(zones, price=close_val, zone_type="SUPPORT", active_only=True)
+    resistance = nearest_zone(zones, price=close_val, zone_type="RESISTANCE", active_only=True)
 
     timeline = build_breakout_timeline(df, symbol)
     live_event = select_live_breakout_event(timeline, today_index=len(df) - 1)
@@ -541,8 +593,8 @@ def _compute_enrichment(
         investment_horizon = None
         investment_horizon_reason = ""
 
-    nearest_support_dict = _zone_to_dict(support)
-    nearest_resistance_dict = _zone_to_dict(resistance)
+    nearest_support_dict = _zone_to_dict(support, price=close_val)
+    nearest_resistance_dict = _zone_to_dict(resistance, price=close_val)
     breakout_dict = _breakout_to_dict(breakout_event)
 
     chart_zones = sorted(zones, key=lambda z: abs(z.mid - close_val))[:MAX_CHART_ZONES]
@@ -563,7 +615,7 @@ def _compute_enrichment(
         "breakout": breakout_dict,
         "breakout_event_id": breakout_event_id,
         "signal_breakout_event_id": signal_breakout_event_id,
-        "all_zones": [_zone_to_dict(z) for z in chart_zones],
+        "all_zones": [_zone_to_dict(z, price=close_val) for z in chart_zones],
         "narrative": build_narrative(nearest_support_dict, nearest_resistance_dict, breakout_dict),
         "mtf_aligned": alignment["aligned"],
         "mtf_consensus": alignment["consensus"],

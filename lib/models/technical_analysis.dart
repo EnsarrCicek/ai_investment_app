@@ -3,8 +3,23 @@ class SrZone {
   final double low;
   final double high;
   final int touchCount;
+  // HATA 11J: mevcut fiyatın zone'un kendi sınırının yanlış tarafında olup
+  // olmadığı (salt güncel geometri, tarihsel kırılım/lineage YOK). Yalnızca
+  // backend'in nearest_support/nearest_resistance/all_zones serialize ettiği
+  // GÜNCEL display zone'larında dolu gelir; breakout.zone (breakout
+  // timeline'ın dondurulmuş tarihsel anlık görüntüsü) için backend bu alanı
+  // hiç GÖNDERMEZ -- bu yüzden `null` "hesaplanmadı/uygulanamaz" anlamına
+  // gelir, "geçerli" anlamına GELMEZ. Eski (bu alandan önce) persist edilmiş
+  // dokümanlarda da anahtar yok -- `as bool?` bunu güvenle `null`'a çözer.
+  final bool? displayRoleInvalid;
 
-  SrZone({required this.type, required this.low, required this.high, required this.touchCount});
+  SrZone({
+    required this.type,
+    required this.low,
+    required this.high,
+    required this.touchCount,
+    this.displayRoleInvalid,
+  });
 
   double get mid => (low + high) / 2;
 
@@ -14,6 +29,7 @@ class SrZone {
       low: (json['low'] as num).toDouble(),
       high: (json['high'] as num).toDouble(),
       touchCount: json['touch_count'] as int,
+      displayRoleInvalid: json['display_role_invalid'] as bool?,
     );
   }
 }
