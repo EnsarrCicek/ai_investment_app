@@ -517,16 +517,20 @@ class SignalSummaryCard extends StatelessWidget {
             ],
             if (data.nearestSupport != null || data.nearestResistance != null) ...[
               const SizedBox(height: 12),
+              // HATA 11N/11O: touchCount, bölgeyi oluşturan swing pivot sayısıdır --
+              // fiyatın seviyeyi bağımsız olarak kaç kez "test ettiğinin" ölçümü
+              // DEĞİLDİR (bkz. narrative.py/_zone_desc() yorumu), bu yüzden "test
+              // edildi" yerine yapısal "pivot" ifadesi kullanılır.
               if (data.nearestSupport != null)
                 Text(
                   'En yakın destek: ${data.nearestSupport!.low.toStringAsFixed(2)}–${data.nearestSupport!.high.toStringAsFixed(2)} TL '
-                  '(${data.nearestSupport!.touchCount}x test edildi)',
+                  '(${data.nearestSupport!.touchCount} pivot)',
                   style: const TextStyle(fontSize: 13),
                 ),
               if (data.nearestResistance != null)
                 Text(
                   'En yakın direnç: ${data.nearestResistance!.low.toStringAsFixed(2)}–${data.nearestResistance!.high.toStringAsFixed(2)} TL '
-                  '(${data.nearestResistance!.touchCount}x test edildi)',
+                  '(${data.nearestResistance!.touchCount} pivot)',
                   style: const TextStyle(fontSize: 13),
                 ),
             ],
@@ -697,8 +701,10 @@ class _SrChartPainter extends CustomPainter {
       final midY = (top + bottom) / 2;
       _drawDashedLine(canvas, Offset(0, midY), Offset(chartWidth, midY), color.withValues(alpha: isInvalid ? 0.4 : 0.6));
 
+      // HATA 11N/11O: "x" son eki bir test/retest sayısı gibi okunabiliyordu --
+      // touchCount aslında bölgeyi oluşturan swing pivot sayısıdır.
       final label =
-          '${zone.type == 'SUPPORT' ? 'D' : 'R'} ${zone.mid.toStringAsFixed(2)} (${zone.touchCount}x)'
+          '${zone.type == 'SUPPORT' ? 'D' : 'R'} ${zone.mid.toStringAsFixed(2)} (${zone.touchCount} pivot)'
           '${isInvalid ? ' (pasif)' : ''}';
       final painter = TextPainter(
         text: TextSpan(text: label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.bold)),

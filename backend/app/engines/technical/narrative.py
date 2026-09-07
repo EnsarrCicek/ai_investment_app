@@ -12,9 +12,14 @@ def _fmt_price(value: float) -> str:
 
 
 def _zone_desc(zone: dict, label: str) -> str:
+    # HATA 11N/11O (07.09.2026): `touch_count`, bölgeyi oluşturan swing pivot
+    # SAYISIDIR (formation pivotu dahil) -- fiyatın bu seviyeyi bağımsız
+    # olarak kaç kez "test ettiğinin" ölçümü DEĞİLDİR. Bu yüzden "test
+    # edilmiş" yerine yapısal, davranışsal bir iddia taşımayan "N swing
+    # pivotinden oluşan" ifadesi kullanılır.
     return (
-        f"{_fmt_price(zone['low'])}–{_fmt_price(zone['high'])} TL bandındaki "
-        f"({zone['touch_count']} kez test edilmiş) {label}"
+        f"{_fmt_price(zone['low'])}–{_fmt_price(zone['high'])} TL bandındaki, "
+        f"{zone['touch_count']} swing pivotinden oluşan {label}"
     )
 
 

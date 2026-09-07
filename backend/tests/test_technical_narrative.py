@@ -16,7 +16,8 @@ def test_bullish_confirmed_breakout_with_retest_held():
     narrative = build_narrative(_SUPPORT_ZONE, _RESISTANCE_ZONE, breakout)
 
     assert "330.00" in narrative and "335.00" in narrative
-    assert "3 kez test edilmiş" in narrative
+    assert "3 swing pivotinden oluşan" in narrative
+    assert "test edilmiş" not in narrative
     assert "yukarı yönlü kırdı" in narrative
     assert "teyit edildi" in narrative
     assert "yeni destek rolünü test etti ve seviye tutuldu" in narrative
@@ -88,6 +89,11 @@ def test_no_breakout_describes_nearest_levels():
     assert "en yakın" in narrative
     assert "300.00" in narrative and "305.00" in narrative
     assert "330.00" in narrative and "335.00" in narrative
+    # HATA 11N/11O: touch_count artık davranışsal bir "test" iddiası olarak DEĞİL,
+    # yapısal swing pivot sayısı olarak sunuluyor.
+    assert "2 swing pivotinden oluşan" in narrative
+    assert "3 swing pivotinden oluşan" in narrative
+    assert "test edilmiş" not in narrative
 
 
 def test_no_breakout_and_no_zones_returns_honest_message():

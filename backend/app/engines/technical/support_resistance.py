@@ -4,8 +4,11 @@
 Vurgulanan ilke: S/R tek bir çizgi değil, ATR'ye göre normalize edilmiş bir
 "bölge"dir — fiyatın birebir aynı seviyeye denk gelmesini beklemek gerçekçi
 değildir; bunun yerine birbirine yakın (ATR'nin bir katı kadar) swing
-point'ler aynı bölgede kümelenir. Bölge ne kadar çok kez test edilmişse
-(touch_count), o kadar güçlü kabul edilir.
+point'ler aynı bölgede kümelenir. `touch_count`, bölge cluster'ındaki swing
+pivot SAYISIDIR (formation pivotu dahil) — fiyatın seviyeyi bağımsız olarak
+kaç kez test ettiğinin ölçümü DEĞİLDİR ve tek başına "daha güçlü" anlamına
+GELMEZ (HATA 11N audit'i, 07.09.2026: bu ilişki yöne bağlı ve zone genişliği
+ile confounded bulundu — bkz. TEKNIK_ANALIZ_METODOLOJISI.md §3.3).
 
 Girdi olarak market_structure.find_swing_points()'in ürettiği SwingPoint
 listesini alır — bu modül kendi başına swing tespiti yapmaz (tek sorumluluk).
