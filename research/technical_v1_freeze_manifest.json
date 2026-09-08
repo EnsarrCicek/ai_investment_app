@@ -1,0 +1,83 @@
+{
+  "manifest_schema_version": "1.0.0",
+  "technical_version_name": "TECHNICAL_V1",
+  "scope": "technical_analysis_engine",
+  "validation_identity": "TECHNICAL_V1",
+  "scope_exclusions": {
+    "note": "The following runtime configuration surfaces are explicitly NOT part of TechnicalAnalysisEngine V1 methodology identity and are not covered by this manifest.",
+    "excluded_configs": [
+      "decision_weights",
+      "decision_thresholds",
+      "macro_indicator_scales",
+      "macro_indicator_weights",
+      "source_reliability",
+      "notification_settings"
+    ],
+    "decision_thresholds_note": "decision_thresholds may later be frozen separately as part of a TECHNICAL EVALUATION HARNESS if the prospective protocol uses threshold-based simulated trading (as BacktestEngine currently does). They are not a TechnicalAnalysisEngine scoring parameter and are not part of this methodology manifest."
+  },
+  "methodology_identity": {
+    "methodology_git_commit": "c1f0d439d40a709d55007bd8ff34b4a8b2347f95",
+    "engine_version": "1.14.0",
+    "scoring_config_hash": "90ba569cf09eb771e6a40de7e5c8a75e3ac97629315c4d59b2607e53a88d9850"
+  },
+  "technical_indicator_weights": {
+    "rsi": 0.1667,
+    "macd": 0.1667,
+    "trend": 0.1667,
+    "bollinger": 0.1667,
+    "momentum": 0.1667,
+    "ema_slope": 0.2,
+    "roc": 0.1665
+  },
+  "technical_family_weights": {
+    "trend": 0.33333333333333331,
+    "oscillator_position": 0.33333333333333331,
+    "momentum_rate": 0.33333333333333331
+  },
+  "config_provenance": {
+    "firestore_project_id": "ai-investment-app-2026",
+    "documents": {
+      "technical_indicator_weights": {
+        "document_name": "projects/ai-investment-app-2026/databases/(default)/documents/system_config/technical_indicator_weights",
+        "create_time": "2026-08-13T13:12:46.540523Z",
+        "update_time": "2026-08-28T08:26:14.899640Z"
+      },
+      "technical_family_weights": {
+        "document_name": "projects/ai-investment-app-2026/databases/(default)/documents/system_config/technical_family_weights",
+        "create_time": "2026-08-28T11:41:43.094444Z",
+        "update_time": "2026-08-28T11:41:43.094444Z"
+      }
+    },
+    "capture_timestamp_utc": "2026-09-08T00:00:00Z",
+    "capture_method": "read-only Firestore REST read, re-verified twice (HATA 12D and HATA 12E pre-freeze recheck), no drift observed between reads"
+  },
+  "static_methodology_pinned_by_git_commit": true,
+  "informational_snapshot": {
+    "note": "The following hardcoded technical parameters are transitively frozen by methodology_git_commit above. They are listed here for human reference only -- the git commit, not this list, is the authoritative source for their values.",
+    "major_parameters": [
+      "MACD scale x25",
+      "signal thresholds +40 / +15 / -15",
+      "EMA-slope deadband +/-0.5",
+      "zone_width_atr 0.5",
+      "breakout confirm_bars / retest_bars / event_max_age_sessions"
+    ]
+  },
+  "macd_methodology_notes": {
+    "origin_provenance": "UNKNOWN_PRE_GIT",
+    "empirical_status": "PREVIOUSLY_CHECKED_RETAINED",
+    "raw_audit_artifact_available": false,
+    "optimality_proven": false,
+    "independent_generalization_proven": false
+  },
+  "known_limitations": {
+    "backtest_engine_not_full_decision_replay": "BacktestEngine is NOT a historical replay of live DecisionEngine. It evaluates technical_score only and does not reconstruct historical news/macro channel scores. Technical V1 validation results must not be described as 'full DecisionEngine validation' or 'full AL/SAT system out-of-sample performance'.",
+    "external_data_revisions_possible": true,
+    "external_data_revisions_note": "The data-provider/completion contract (BIST calendar, completed-bar filtering, session normalization) is pinned by methodology_git_commit where implemented in code, but the external Yahoo Finance OHLCV values themselves are NOT pinned by git and may be silently revised by the provider after the fact. Current provider history must not be treated as immutable.",
+    "input_snapshot_evidence_design": "TO_BE_DEFINED_BEFORE_HOLDOUT"
+  },
+  "prospective_validation_status": {
+    "prospective_evaluation_protocol_frozen": false,
+    "prospective_holdout_started": false,
+    "note": "No session, past or future, may be treated as holdout data until a separate prospective evaluation protocol (universe rule, evaluation horizons, primary/secondary metrics, execution convention, transaction costs, missing-data handling, benchmark, minimum sample size) is predeclared and locked in a future ticket."
+  }
+}
