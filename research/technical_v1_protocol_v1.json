@@ -1,0 +1,204 @@
+{
+  "protocol_schema_version": "1.0.0",
+  "protocol_version": "TECHNICAL_V1_PROTOCOL_V1",
+  "scope": "technical_analysis_engine_prospective_validation",
+  "scope_note": "This protocol evaluates TECHNICAL ENGINE V1 only (technical_score / signal_class / component-family outputs). It is NOT a full DecisionEngine validation and NOT a news/macro validation. BacktestEngine does not reconstruct historical news/macro channel scores, so no result under this protocol may be described as full AL/SAT system out-of-sample performance.",
+  "methodology_references": {
+    "methodology_git_commit": "c1f0d439d40a709d55007bd8ff34b4a8b2347f95",
+    "freeze_manifest_commit": "59497fd5caff00ede177898c04d0de0e1458886b",
+    "freeze_manifest_sha256": "6556f7a9c9b9eedcc4b789c861cc2e1b5b2d4a13be1be75605162f0e578bdc97",
+    "engine_version": "1.14.0",
+    "scoring_config_hash": "90ba569cf09eb771e6a40de7e5c8a75e3ac97629315c4d59b2607e53a88d9850"
+  },
+  "primary_research_question": "Do Technical V1 bullish signal classes identify symbol-sessions with a higher probability of positive 10-session forward return than non-bullish Technical V1 observations?",
+  "class_groups": {
+    "bullish": [
+      "STRONG_BULLISH_INITIATION",
+      "BULLISH_CONFIRMED",
+      "BULLISH_CANDIDATE"
+    ],
+    "non_bullish": [
+      "BEARISH_CANDIDATE",
+      "NO_SIGNAL",
+      "WATCHLIST",
+      "NEUTRAL"
+    ],
+    "grouping_note": "non_bullish is a mechanical comparison group only, not a semantic claim that its members are behaviorally neutral. Observations with technical_score=None or any methodology/data hard-veto are not valid comparison observations -- they are excluded and counted separately, never assigned to either group."
+  },
+  "primary_observation_unit": "symbol_session",
+  "observation_unit_note": "One valid Technical V1 analysis for one symbol after one completed BIST daily session. Persistent signals generate multiple symbol-session rows; dependence is handled statistically (block bootstrap), rows are not claimed independent.",
+  "horizons": {
+    "primary_horizon_sessions": 10,
+    "secondary_horizon_sessions": [5, 20],
+    "override_rule": "Secondary horizons (5, 20) may never override, replace, or be substituted for the formal 10-session primary conclusion, and may not be used to retroactively select a horizon after viewing results."
+  },
+  "execution_and_return_definition": {
+    "signal_timing": "Signal generated from the completed close of session T.",
+    "e1_definition": "E1 = first eligible BIST session after T.",
+    "entry": "Open(E1)",
+    "no_same_close_execution": true,
+    "return_5_session": "Open(E1) -> Close(E5)",
+    "return_10_session": "Open(E1) -> Close(E10)",
+    "return_20_session": "Open(E1) -> Close(E20)"
+  },
+  "primary_metric": {
+    "name": "date_balanced_delta_hit_rate_10",
+    "definition": "For each signal date d: bullish_hit_rate_d = fraction of valid, matured bullish observations on date d with R10 > 0; non_bullish_hit_rate_d = fraction of valid, matured non-bullish observations on date d with R10 > 0; daily_delta_d = bullish_hit_rate_d - non_bullish_hit_rate_d. A date contributes to the primary estimator only if it has at least one valid matured bullish observation AND at least one valid matured non-bullish observation. Dates lacking either group are counted under primary_non_comparable_date_count with a group-absence reason, never silently dropped. Primary estimator delta_hit_rate_10 = arithmetic mean of daily_delta_d across primary-comparable dates only (each comparable date weighted equally, not weighted by symbol count).",
+    "units": "percentage points"
+  },
+  "primary_null_hypothesis": "delta_hit_rate_10 = 0",
+  "null_hypothesis_note": "The null is NOT bullish_hit_rate = 50%. Market-wide positive drift can make unconditional equity hit rates exceed 50% without any classifier skill, so the comparison is against the holdout's own contemporaneous non-bullish base rate, not a fixed constant.",
+  "formal_uncertainty_method": {
+    "method": "moving_block_bootstrap_over_bist_session_dates",
+    "block_length_sessions": 20,
+    "bootstrap_replicates": 10000,
+    "random_seed": 12001,
+    "ci_type": "two_sided_95_percent_percentile_bootstrap",
+    "ci_percentiles": [2.5, 97.5],
+    "algorithm_contract": [
+      "Build the ordered BIST session-date grid over the full formal evaluation interval.",
+      "daily_delta_d may be defined or unavailable (non-comparable) on each session date in this grid.",
+      "Candidate blocks are contiguous 20-session blocks drawn from the FULL ordered grid, not from a pre-filtered comparable-dates-only grid.",
+      "Sample blocks with replacement.",
+      "Concatenate sampled blocks until at least the original number of session dates is reached, then trim to the original grid length.",
+      "Recompute the mean daily_delta_d using only the defined/comparable dates occurring in the sampled grid.",
+      "All symbols belonging to a sampled date are preserved together (date-level resampling, not row-level).",
+      "If a bootstrap replicate has no defined daily_delta at all, mark that replicate invalid and exclude it from the percentile calculation; report the invalid-replicate count.",
+      "If the CI cannot be computed reproducibly (e.g. too few comparable dates), the formal result is NOT_EVALUABLE and data collection continues -- no result is invented."
+    ]
+  },
+  "formal_primary_conclusion_labels": {
+    "SUPPORTED": "CI_low > 0",
+    "NOT_ESTABLISHED": "CI_low <= 0 <= CI_high",
+    "EVIDENCE_OPPOSITE_DIRECTION": "CI_high < 0 (optional label, only used if it actually occurs)",
+    "NOT_EVALUABLE": "CI cannot be computed reproducibly at the first formal checkpoint",
+    "prohibited_labels": ["great", "bad", "works", "fails", "system failed", "negative alpha"]
+  },
+  "secondary_analyses": {
+    "reported_always": [
+      "5-session date-balanced delta hit rate",
+      "20-session date-balanced delta hit rate",
+      "individual results for all seven frozen signal_class values (STRONG_BULLISH_INITIATION, BULLISH_CONFIRMED, BULLISH_CANDIDATE, BEARISH_CANDIDATE, NO_SIGNAL, WATCHLIST, NEUTRAL)"
+    ],
+    "status": "descriptive_exploratory_only",
+    "rules": [
+      "Require no formal multiplicity correction because they are never used to claim formal significance on their own.",
+      "Cannot replace or override the 10-session primary result.",
+      "Cannot be used to select or retune the primary horizon after data collection begins.",
+      "No bearish STRONG tier may be invented for symmetry; BEARISH_CANDIDATE is reported as its own frozen secondary class."
+    ]
+  },
+  "bullish_episode_definition": {
+    "start_rule": "An episode begins for a symbol when the current valid signal_class is in the bullish set AND the previous eligible session for that symbol was not in the bullish set.",
+    "continuation_rule": "Transitions among BULLISH_CANDIDATE, BULLISH_CONFIRMED, and STRONG_BULLISH_INITIATION remain the SAME episode.",
+    "end_rule": "The episode ends the first eligible session the symbol's class leaves the bullish set.",
+    "missing_session_rule": "If an eligible session is unavailable/excluded due to any data-quality or methodology hard-veto, episode continuity is BROKEN (not assumed to continue across the gap). The next valid bullish observation after such a gap begins a NEW episode."
+  },
+  "sample_and_calendar_floors": {
+    "minimum_matured_bullish_episodes": 100,
+    "episode_floor_interpretation": "A conservative predeclared diversity/sample floor intended to avoid interpreting a tiny number of persistent bullish episodes. It is NOT described as, and does not guarantee, any specific statistical precision (e.g. it is not a +/-10 percentage point precision guarantee) for the date-balanced primary estimator.",
+    "matured_definition": "An episode is matured once its required primary E10 outcome is available.",
+    "minimum_calendar_months": 6,
+    "first_formal_evaluation_rule": "The later of: (A) at least 100 matured bullish episodes, (B) at least 6 calendar months elapsed since effective_holdout_start, AND (C) all observations entering the primary evaluation set have fully matured through E10. If the episode floor takes longer than 6 months, evaluation waits for the floor; there is no maximum stopping date."
+  },
+  "performance_visibility_before_first_checkpoint": false,
+  "performance_visibility_note": "Before the first formal evaluation checkpoint, no accuracy/hit-rate/return/class-performance/benchmark-relative/strategy-return figures of any kind may be exposed to anyone with authority to change methodology or protocol. Exposing such figures before the checkpoint constitutes a HIGH contamination risk (it would silently convert accumulating V1 holdout data into de facto tuning data without an honest V1->V2 relabeling). Permitted operational monitoring during accumulation is limited to: pipeline health, number of captured records, missing/exclusion counts, config identity confirmation (commit/hash unchanged), manifest identity, and snapshot-integrity checks.",
+  "transaction_costs_and_simulated_strategy": {
+    "transaction_costs_required_for_primary": false,
+    "primary_claim_type": "classifier discrimination, not a trading P&L claim",
+    "simulated_strategy_role": "secondary_exploratory_only",
+    "simulated_strategy_reporting": "gross only; no net-P&L claim is made until a separately sourced and frozen transaction-cost/slippage assumption exists. No fee percentage is invented by this protocol."
+  },
+  "benchmark": {
+    "symbol": "XU100",
+    "role": "secondary_only",
+    "caveat": "Benchmark data-quality processing (get_benchmark_close_series) is not currently fully parity-locked with individual-asset processing -- it does not run filter_completed_daily_bars / normalize_bist_daily_sessions / check_trading_day_continuity / check_raw_ohlcv_integrity the way individual asset data does. The primary statistic does not depend on XU100 for this reason."
+  },
+  "excluded_from_evaluation_definition": {
+    "investment_horizon_used_as_evaluation_horizon": false,
+    "technical_score_treated_as_probability": false,
+    "confidence_treated_as_probability": false,
+    "confidence_role": "secondary/descriptive only (e.g. does higher agreement associate with more consistent outcomes), never primary, unless a separate calibration protocol is later frozen"
+  },
+  "missing_data_policy": {
+    "rule": "exclude_and_count_reason_never_impute",
+    "excluded_categories": [
+      "technical_score is None",
+      "trading-day continuity hard-veto",
+      "leading-edge unverified handling",
+      "raw OHLCV integrity failure",
+      "insufficient MIN_HISTORY_DAYS",
+      "forward horizon lacking sufficient completed future sessions",
+      "incomplete input snapshot"
+    ]
+  },
+  "universe": {
+    "universe_type": "BIST100_MEMBERSHIP_FIXED_AT_PROTOCOL_FREEZE",
+    "universe_as_of_date": "2026-09-09",
+    "membership_source_primary": "KAP Endeksler PDF/API",
+    "membership_source_primary_url": "https://www.kap.org.tr/tr/api/company/indices/pdf/endeksler",
+    "membership_source_evidence_mode": "INDEPENDENTLY_FETCHED_AND_PARSED_BY_CLAUDE_THIS_TURN_CROSS_VALIDATED_AGAINST_USER_SUPPLIED_TRANSCRIPT",
+    "membership_source_evidence_note": "The primary KAP endpoint was fetched directly this turn (WebFetch), saved locally as a 196-page PDF (application/pdf, ~346KB), independently text-extracted with pypdf (installed this turn for this task), and independently regex-parsed for the 'BIST 100' numbered constituent table (rows 1-100, ignoring one spurious mid-table 'BIST 50' running-header artifact at the page boundary between row 83 and row 84). The independently parsed 100-symbol, ordered list was compared programmatically against the user-supplied transcript: exact set equality (100/100, 100 unique) AND exact order equality, with zero symbols differing in either direction.",
+    "membership_source_crosscheck": "Borsa Istanbul BIST Stock Indices Periodic Review",
+    "membership_source_crosscheck_url": "https://www.borsaistanbul.com/en/announcement/15483/bist-stock-indices-periodic-review",
+    "membership_source_crosscheck_evidence_mode": "INDEPENDENTLY_FETCHED_AND_VERIFIED_BY_CLAUDE_THIS_TURN",
+    "membership_period_start": "2026-07-01",
+    "membership_period_end": "2026-09-30",
+    "membership_retrieved_at_utc": "2026-09-09T00:00:00Z",
+    "constituent_count": 100,
+    "unique_ticker_count": 100,
+    "structural_checks": {
+      "first_constituent": "AKBNK",
+      "last_constituent": "ZOREN",
+      "q3_2026_additions_present": {"ESEN": 34, "IEYHO": 48, "ODINE": 63},
+      "q3_2026_removals_absent": {"AGHOL": true, "TABGD": true, "TUREX": true}
+    },
+    "no_post_hoc_exclusion_rule": "No symbol may be removed from this frozen universe after holdout activation because of observed performance. Only the predeclared data-quality/methodology hard-vetoes already governing TechnicalAnalysisEngine remain valid exclusion reasons, applied per symbol-session, not per symbol.",
+    "frozen_symbol_list": [
+      "AKBNK", "AKSA", "AKSEN", "ALARK", "ALTNY", "ANSGR", "AEFES", "ARCLK", "ASELS", "ASTOR",
+      "BALSU", "BTCIM", "BSOKE", "BERA", "BIMAS", "BRSAN", "BRYAT", "CCOLA", "CVKMD", "CWENE",
+      "CANTE", "CIMSA", "DAPGM", "DSTKF", "DOHOL", "DOAS", "EFOR", "ECILC", "EKGYO", "ENJSA",
+      "ENERY", "ENKAI", "EREGL", "ESEN", "EUREN", "EUPWR", "FENER", "FROTO", "GSRAY", "GENIL",
+      "GESAN", "GRTHO", "GUBRF", "GLRMK", "GRSEL", "SAHOL", "HEKTS", "IEYHO", "ISMEN", "IZENR",
+      "KRDMD", "KTLEV", "KLRHO", "KCHOL", "KUYAS", "MAGEN", "MAVI", "MIATK", "MGROS", "MPARK",
+      "OBAMS", "ODAS", "ODINE", "OTKAR", "OYAKC", "PASEU", "PSGYO", "PAHOL", "PATEK", "PGSUS",
+      "PETKM", "QUAGR", "RALYH", "REEDR", "SARKY", "SASA", "SKBNK", "SOKM", "TAVHL", "TKFEN",
+      "TOASO", "TRMET", "TRENJ", "TUKAS", "TCELL", "TUPRS", "TRALT", "THYAO", "GARAN", "HALKB",
+      "ISCTR", "TSKB", "TURSG", "SISE", "VAKBN", "TTKOM", "ULKER", "VESTL", "YKBNK", "ZOREN"
+    ]
+  },
+  "protocol_versioning_rule": {
+    "current_version": "TECHNICAL_V1_PROTOCOL_V1",
+    "v2_trigger_fields": [
+      "universe", "primary question", "primary metric", "primary horizon",
+      "class grouping", "return definition", "bootstrap method", "block length",
+      "sample floor", "calendar floor", "stopping rule", "missing-data policy"
+    ],
+    "v2_rule": "If any listed field changes after holdout activation, the changed protocol becomes TECHNICAL_V1_PROTOCOL_V2. V2 may not claim V1's already-observed data as untouched holdout for its own validation."
+  },
+  "holdout_status": {
+    "prospective_holdout_started": false,
+    "evidence_capture_ready": false,
+    "effective_holdout_start": null,
+    "holdout_activation_requires": [
+      "technical_v1_methodology_frozen",
+      "technical_v1_protocol_frozen",
+      "prospective_evidence_capture_operational"
+    ],
+    "activation_note": "Protocol freeze/commit alone does NOT start the holdout. The effective_holdout_start, once activation completes, will be the first BIST session whose market open occurs strictly after the FINAL activation-lock event (the later of protocol freeze and evidence-capture readiness -- methodology freeze already occurred earlier). No session before that final activation event is eligible."
+  },
+  "required_future_evidence_record_fields": [
+    "evaluation_id",
+    "symbol",
+    "analysis_as_of",
+    "provider_fetch_timestamp",
+    "input_snapshot_id",
+    "input_snapshot_hash",
+    "TechnicalAnalysis_payload",
+    "methodology_git_commit",
+    "engine_version",
+    "scoring_config_hash",
+    "protocol_version"
+  ],
+  "evidence_record_note": "Not implemented in this protocol turn. The snapshot mechanism must preserve the exact historical-bar versions actually consumed at each evaluation time -- a 'first-seen-only' bar store is explicitly insufficient, since a provider may revise a bar before a later evaluation consumes the revised value."
+}
