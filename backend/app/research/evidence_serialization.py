@@ -30,7 +30,7 @@ import hashlib
 import json
 import re
 import struct
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -43,10 +43,27 @@ _FLOAT_ASSET_COLUMNS: tuple[str, ...] = ("Open", "High", "Low", "Close")
 _INT_ASSET_COLUMNS: tuple[str, ...] = ("Volume",)
 
 _ASSET_CANONICAL_TZ = "Europe/Istanbul"
+_ASSET_CANONICAL_UTCOFFSET = timedelta(hours=3)
 _HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
 _INT64_STRING_RE = re.compile(r"^-?(0|[1-9][0-9]*)$")
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
+# HATA 12M-R2: `date.fromisoformat()`/`datetime.fromisoformat()` (Python
+# 3.11+) KASITLI OLARAK cok daha genis bir ISO-8601 lehcesi kabul eder
+# (kompakt "YYYYMMDD", ISO hafta-tarihi "YYYY-Www-D", offset'siz virgul/
+# saniyeli varyantlar, vb.) -- bunlar `serialize_*_snapshot()`'ın ÜRETTİĞİ
+# TEK kanonik lehçe DEĞİLDİR. Bu yüzden çözümleme İKİ katmanlıdır: (1) HAM
+# string, `serialize_*_snapshot()`'ın kendi ürettiği TAM lehçeyle eşleşen
+# bir regex'ten GEÇMELİ, (2) çözümlenen değerin `.isoformat()`'ı HAM string'e
+# TAM olarak GERİ dönmeli (self-round-trip) -- bu, regex'in kaçırabileceği
+# (ör. offset saniyeleri, boşluk yerine "T") artık lehçeleri de yakalar.
+# Asset tarafında AYRICA `utcoffset() == +03:00` zorunludur -- aksi halde
+# "2026-09-07T21:00:00+00:00" gibi GEÇERLİ ama YANLIŞ-OFSETLİ bir string,
+# kendi kendine round-trip eder (kendi offset'iyle tutarlıdır) ve bu ikinci
+# kontrol OLMADAN sessizce `tz_convert()` ile Europe/Istanbul'a "onarılırdı"
+# -- bozuk/kanonik-olmayan evidence SESSİZCE NORMALİZE EDİLMEZ, FAIL FAST olur.
+_BENCHMARK_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ASSET_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?[+-]\d{2}:\d{2}$")
 
 
 def _canonical_json(payload: object) -> str:
@@ -243,12 +260,29 @@ def deserialize_asset_snapshot(snapshot: dict) -> tuple[pd.DataFrame, str]:
         ts_raw = row["session_timestamp"]
         if not isinstance(ts_raw, str):
             raise ValueError(f"Satır {i}: 'session_timestamp' bir string değil: {ts_raw!r}")
+        if not _ASSET_TIMESTAMP_RE.match(ts_raw):
+            raise ValueError(
+                f"Satır {i}: 'session_timestamp' kanonik lehçede değil (YYYY-MM-DDTHH:MM:SS[+-]HH:MM bekleniyor): {ts_raw!r}"
+            )
         try:
             ts = datetime.fromisoformat(ts_raw)
         except ValueError as exc:
             raise ValueError(f"Satır {i}: 'session_timestamp' geçersiz ISO-8601: {ts_raw!r}") from exc
         if ts.tzinfo is None or ts.utcoffset() is None:
             raise ValueError(f"Satır {i}: 'session_timestamp' tz-aware değil (naive): {ts_raw!r}")
+        if ts.isoformat() != ts_raw:
+            # HATA 12M-R2: regex'in kaçırabileceği (offset saniyeleri, "T"
+            # yerine boşluk gibi) kalan lehçe farklarını yakalayan self-
+            # round-trip guard'ı.
+            raise ValueError(f"Satır {i}: 'session_timestamp' kanonik round-trip'i sağlamıyor: {ts_raw!r}")
+        if ts.utcoffset() != _ASSET_CANONICAL_UTCOFFSET:
+            # GEÇERLİ ama YANLIŞ-OFSETLİ bir zaman damgası (ör. aynı ana
+            # işaret eden "+00:00" varyantı) kendi kendine round-trip
+            # EDEBİLİR -- bu satır, böyle bir değerin `tz_convert()` ile
+            # SESSİZCE Europe/Istanbul'a "onarılmasını" önler.
+            raise ValueError(
+                f"Satır {i}: 'session_timestamp' beklenen +03:00 (Europe/Istanbul) ofsetinde değil: {ts_raw!r}"
+            )
         timestamps.append(ts)
         open_vals.append(deserialize_float64(row["Open"]))
         high_vals.append(deserialize_float64(row["High"]))
@@ -347,10 +381,18 @@ def deserialize_benchmark_snapshot(snapshot: dict) -> pd.Series:
         date_raw = row["session_date"]
         if not isinstance(date_raw, str):
             raise ValueError(f"Satır {i}: 'session_date' bir string değil: {date_raw!r}")
+        if not _BENCHMARK_DATE_RE.match(date_raw):
+            # `date.fromisoformat()` (Python 3.11+) KOMPAKT "YYYYMMDD" ve ISO
+            # hafta-tarihi "YYYY-Www-D" formlarını da kabul eder -- bunlar
+            # `serialize_benchmark_snapshot()`'ın ÜRETMEDİĞİ lehçelerdir,
+            # burada erken ve AÇIKÇA reddedilir (fromisoformat'a hiç ulaşmaz).
+            raise ValueError(f"Satır {i}: 'session_date' kanonik lehçede değil (YYYY-MM-DD bekleniyor): {date_raw!r}")
         try:
             session_date = date.fromisoformat(date_raw)
         except ValueError as exc:
             raise ValueError(f"Satır {i}: 'session_date' geçersiz (yalnızca YYYY-MM-DD kabul edilir): {date_raw!r}") from exc
+        if session_date.isoformat() != date_raw:
+            raise ValueError(f"Satır {i}: 'session_date' kanonik round-trip'i sağlamıyor: {date_raw!r}")
         dates.append(session_date)
         closes.append(deserialize_float64(row["close"]))
 

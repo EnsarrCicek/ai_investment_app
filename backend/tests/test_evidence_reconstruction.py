@@ -296,6 +296,104 @@ def test_deserialize_benchmark_snapshot_rejects_duplicate_and_non_ascending_date
 
 
 # ---------------------------------------------------------------------------
+# HATA 12M-R2 -- kanonik lehce sikiligi (fromisoformat asiri hosgorulu)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "malformed_date",
+    [
+        "20260910",  # kompakt (tire yok)
+        "2026-W37-4",  # ISO hafta-tarihi
+        "2026-09-10T00:00:00",  # zaman bileseni icerir
+        " 2026-09-10",  # bastan bosluk
+        "2026-09-10 ",  # sondan bosluk
+        "2026-9-10",  # sifir-doldurulmamis
+    ],
+)
+def test_deserialize_benchmark_snapshot_rejects_noncanonical_date_lexical_forms(malformed_date):
+    close_enc = serialize_float64(9000.0)
+    with pytest.raises(ValueError):
+        deserialize_benchmark_snapshot({"rows": [{"session_date": malformed_date, "close": close_enc}]})
+
+
+def test_deserialize_benchmark_snapshot_accepts_only_serializer_produced_form():
+    series = pd.Series([9000.5], index=[date(2026, 9, 10)], dtype=np.float64)
+    snapshot = serialize_benchmark_snapshot(series)
+    assert snapshot["rows"][0]["session_date"] == "2026-09-10"
+    reconstructed = deserialize_benchmark_snapshot(snapshot)
+    assert list(reconstructed.index) == [date(2026, 9, 10)]
+
+
+@pytest.mark.parametrize(
+    "malformed_timestamp",
+    [
+        "2026-09-08T00:00:00",  # naive
+        "2026-09-07T21:00:00+00:00",  # AYNI ana isaret eden ama YANLIS ofset
+        "20260908T000000+0300",  # kompakt
+        " 2026-09-08T00:00:00+03:00",  # bastan bosluk
+        "2026-09-08T00:00:00+03:00 ",  # sondan bosluk
+        "2026-09-08 00:00:00+03:00",  # "T" yerine bosluk
+        "2026-09-08T00:00:00+0300",  # offset'te iki nokta yok
+        "2026-09-08T00:00:00+03:00:00",  # offset'te saniye var
+    ],
+)
+def test_deserialize_asset_snapshot_rejects_noncanonical_timestamp_lexical_forms(malformed_timestamp):
+    open_enc = serialize_float64(100.0)
+    volume_enc = serialize_int64(1000)
+    row = {
+        "session_timestamp": malformed_timestamp,
+        "Open": open_enc,
+        "High": open_enc,
+        "Low": open_enc,
+        "Close": open_enc,
+        "Volume": volume_enc,
+    }
+    with pytest.raises(ValueError):
+        deserialize_asset_snapshot({"symbol": "TEST", "rows": [row]})
+
+
+def test_deserialize_asset_snapshot_accepts_only_serializer_produced_timestamp_form():
+    idx = pd.DatetimeIndex([datetime(2026, 9, 8, tzinfo=timezone(timedelta(hours=3)))])
+    df = pd.DataFrame(
+        {
+            "Open": np.array([100.0], dtype=np.float64),
+            "High": np.array([101.0], dtype=np.float64),
+            "Low": np.array([99.0], dtype=np.float64),
+            "Close": np.array([100.5], dtype=np.float64),
+            "Volume": np.array([1000], dtype=np.int64),
+        },
+        index=idx,
+    )
+    snapshot = serialize_asset_snapshot(df, "TEST")
+    assert snapshot["rows"][0]["session_timestamp"] == "2026-09-08T00:00:00+03:00"
+    reconstructed_df, _symbol = deserialize_asset_snapshot(snapshot)
+    assert str(reconstructed_df.index[0].tz) == "Europe/Istanbul"
+    assert reconstructed_df.index[0].utcoffset() == timedelta(hours=3)
+
+
+def test_deserialize_asset_snapshot_does_not_silently_normalize_wrong_offset_instant():
+    """HATA 12M-R2 kilit-madde: '+00:00' ile ifade edilen, sayisal olarak
+    dogru bir ana isaret eden ama KANONIK OLMAYAN bir zaman damgasi,
+    tz_convert() ile SESSIZCE +03:00'e "onarilmamali" -- FAIL FAST olmali."""
+    open_enc = serialize_float64(100.0)
+    volume_enc = serialize_int64(1000)
+    # "2026-09-07T21:00:00+00:00" tam olarak "2026-09-08T00:00:00+03:00" ile
+    # AYNI ana isaret eder (yalnizca farkli lehcede yazilmis) -- yine de
+    # kanonik-olmayan oldugu icin REDDEDILMELI.
+    row = {
+        "session_timestamp": "2026-09-07T21:00:00+00:00",
+        "Open": open_enc,
+        "High": open_enc,
+        "Low": open_enc,
+        "Close": open_enc,
+        "Volume": volume_enc,
+    }
+    with pytest.raises(ValueError, match="ofsetinde değil|kanonik"):
+        deserialize_asset_snapshot({"symbol": "TEST", "rows": [row]})
+
+
+# ---------------------------------------------------------------------------
 # TRUE round-trip (committed, ad-hoc DEGIL) + binary-esitlik
 # ---------------------------------------------------------------------------
 
