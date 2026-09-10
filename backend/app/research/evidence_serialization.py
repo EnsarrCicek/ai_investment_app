@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -39,6 +41,12 @@ from app.models.technical_analysis import TechnicalAnalysis
 REQUIRED_ASSET_COLUMNS: tuple[str, ...] = ("Open", "High", "Low", "Close", "Volume")
 _FLOAT_ASSET_COLUMNS: tuple[str, ...] = ("Open", "High", "Low", "Close")
 _INT_ASSET_COLUMNS: tuple[str, ...] = ("Volume",)
+
+_ASSET_CANONICAL_TZ = "Europe/Istanbul"
+_HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
+_INT64_STRING_RE = re.compile(r"^-?(0|[1-9][0-9]*)$")
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 
 
 def _canonical_json(payload: object) -> str:
@@ -75,6 +83,54 @@ def serialize_optional_float64(value: float | None) -> dict | None:
     if value is None:
         return None
     return serialize_float64(value)
+
+
+def deserialize_float64(encoded: dict) -> float:
+    """`serialize_float64()`'ün TERSİ -- ham IEEE-754 binary64 baytlarını
+    doğrudan `struct.unpack` ile çözer. ONDALIK PARSE/YUVARLAMA/NORMALİZASYON
+    YOK -- bit-pattern serialize edildiği ANDAKİ gibi birebir geri döner
+    (NaN/±Inf/±0.0 dahil, `struct` seviyesinde herhangi bir kanonikleştirme
+    yapmaz).
+
+    Fail-fast: `dtype` "float64" değilse, `bits` tam olarak 16 küçük-harf
+    hex karakter değilse, veya geçersiz hex ise `ValueError` -- bozuk
+    evidence SESSİZCE "onarılmaz", görünür şekilde reddedilir.
+    """
+    if not isinstance(encoded, dict) or set(encoded.keys()) != {"dtype", "bits"}:
+        raise ValueError(f"Beklenmeyen float64 kodlama yapısı: {encoded!r}")
+    if encoded["dtype"] != "float64":
+        raise ValueError(f"Beklenmeyen dtype etiketi: {encoded['dtype']!r}, beklenen 'float64'")
+    bits = encoded["bits"]
+    if not isinstance(bits, str) or not _HEX16_RE.match(bits):
+        raise ValueError(f"'bits' tam olarak 16 küçük-harf hex karakter değil: {bits!r}")
+    return struct.unpack(">d", bytes.fromhex(bits))[0]
+
+
+def deserialize_int64(encoded: dict) -> int:
+    """`serialize_int64()`'ün TERSİ -- taban-10 string'i doğrudan `int()`
+    ile çözer, HİÇBİR float ara adımı YOK. Fail-fast: `dtype` "int64"
+    değilse, `value` kanonik taban-10 tam sayı formatında değilse (önde
+    sıfır/`+` işareti YOK -- `serialize_int64()`'ün ÜRETTİĞİ TEK format),
+    veya int64 aralığının ([-2**63, 2**63-1]) dışındaysa `ValueError`.
+    """
+    if not isinstance(encoded, dict) or set(encoded.keys()) != {"dtype", "value"}:
+        raise ValueError(f"Beklenmeyen int64 kodlama yapısı: {encoded!r}")
+    if encoded["dtype"] != "int64":
+        raise ValueError(f"Beklenmeyen dtype etiketi: {encoded['dtype']!r}, beklenen 'int64'")
+    value_str = encoded["value"]
+    if not isinstance(value_str, str) or not _INT64_STRING_RE.match(value_str):
+        raise ValueError(f"'value' kanonik taban-10 tam sayı string'i değil: {value_str!r}")
+    parsed = int(value_str)
+    if not (_INT64_MIN <= parsed <= _INT64_MAX):
+        raise ValueError(f"int64 aralığı dışında: {parsed}")
+    return parsed
+
+
+def deserialize_optional_float64(encoded: dict | None) -> float | None:
+    """`None`/JSON `null` -> `None`; aksi halde `deserialize_float64()`."""
+    if encoded is None:
+        return None
+    return deserialize_float64(encoded)
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +197,84 @@ def asset_input_sha256(df: pd.DataFrame, symbol: str) -> str:
     return _sha256_of(_canonical_json(serialize_asset_snapshot(df, symbol)))
 
 
+def deserialize_asset_snapshot(snapshot: dict) -> tuple[pd.DataFrame, str]:
+    """`serialize_asset_snapshot()`'ın TERSİ -- saklanmış kanonik evidence'tan
+    motorun (`compute_technical_analysis()`) doğrudan tükettiği ŞEMAYI
+    (kolonlar TAM OLARAK Open/High/Low/Close/Volume, Open/High/Low/Close=
+    float64, Volume=int64 -- ASLA float üzerinden değil) ve `symbol`'ü
+    yeniden kurar.
+
+    Zaman damgası semantiği: her `session_timestamp` tz-aware bir ISO-8601
+    string olarak çözülür (naive/timezone'suz bir değer KABUL EDİLMEZ), sonra
+    `Europe/Istanbul` isimli IANA bölgesine `tz_convert` edilir -- Türkiye'nin
+    2016'dan beri DST uygulamadığı sabit +03:00 kaymasını KORUYARAK, motorun
+    ürettiği index'le AYNI isimlendirilmiş bölge kimliğine döner (yalnızca
+    ham bir `datetime.timezone(timedelta(hours=3))` sabit-ofset nesnesinde
+    KALMAZ). Bu bir "saatlik dilim düşürme"/"yerel makine saatine çevirme"
+    DEĞİLDİR -- AYNI ana (instant) işaret eden, isimlendirilmiş bir bölge
+    kimliğine normalize etmektir; `.isoformat()` çıktısı (dolayısıyla
+    yeniden serialize edilen bit-pattern) DEĞİŞMEZ.
+
+    Fail-fast: şema/sıra/dtype/sıralama beklenenden SAPARSA `ValueError` --
+    bozuk evidence sessizce "onarılmaz".
+    """
+    if not isinstance(snapshot, dict) or set(snapshot.keys()) != {"symbol", "rows"}:
+        bad = snapshot if not isinstance(snapshot, dict) else set(snapshot.keys())
+        raise ValueError(f"Beklenmeyen asset snapshot yapısı (üst seviye anahtarlar): {bad!r}")
+    symbol = snapshot["symbol"]
+    if not isinstance(symbol, str) or not symbol:
+        raise ValueError(f"'symbol' boş olmayan bir string değil: {symbol!r}")
+    rows = snapshot["rows"]
+    if not isinstance(rows, list) or len(rows) == 0:
+        raise ValueError("'rows' boş veya liste değil -- asset dataframe boş olamaz")
+
+    required_row_keys = {"session_timestamp", "Open", "High", "Low", "Close", "Volume"}
+    timestamps: list[datetime] = []
+    open_vals: list[float] = []
+    high_vals: list[float] = []
+    low_vals: list[float] = []
+    close_vals: list[float] = []
+    volume_vals: list[int] = []
+
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict) or set(row.keys()) != required_row_keys:
+            bad_row = row if not isinstance(row, dict) else set(row.keys())
+            raise ValueError(f"Satır {i}: beklenmeyen anahtar seti: {bad_row!r}")
+        ts_raw = row["session_timestamp"]
+        if not isinstance(ts_raw, str):
+            raise ValueError(f"Satır {i}: 'session_timestamp' bir string değil: {ts_raw!r}")
+        try:
+            ts = datetime.fromisoformat(ts_raw)
+        except ValueError as exc:
+            raise ValueError(f"Satır {i}: 'session_timestamp' geçersiz ISO-8601: {ts_raw!r}") from exc
+        if ts.tzinfo is None or ts.utcoffset() is None:
+            raise ValueError(f"Satır {i}: 'session_timestamp' tz-aware değil (naive): {ts_raw!r}")
+        timestamps.append(ts)
+        open_vals.append(deserialize_float64(row["Open"]))
+        high_vals.append(deserialize_float64(row["High"]))
+        low_vals.append(deserialize_float64(row["Low"]))
+        close_vals.append(deserialize_float64(row["Close"]))
+        volume_vals.append(deserialize_int64(row["Volume"]))
+
+    index = pd.DatetimeIndex(timestamps).tz_convert(_ASSET_CANONICAL_TZ)
+    df = pd.DataFrame(
+        {
+            "Open": np.array(open_vals, dtype=np.float64),
+            "High": np.array(high_vals, dtype=np.float64),
+            "Low": np.array(low_vals, dtype=np.float64),
+            "Close": np.array(close_vals, dtype=np.float64),
+            "Volume": np.array(volume_vals, dtype=np.int64),
+        },
+        index=index,
+    )
+    if not df.index.is_monotonic_increasing or not df.index.is_unique:
+        raise ValueError("Yeniden kurulan asset dataframe index'i kesin artan sırada/benzersiz değil")
+    if list(df.columns) != list(REQUIRED_ASSET_COLUMNS):
+        raise ValueError(f"Yeniden kurulan asset dataframe kolon sırası bozuk: {list(df.columns)!r}")
+
+    return df, symbol
+
+
 # ---------------------------------------------------------------------------
 # Benchmark (XU100) girdi anlık-görüntüsü
 # ---------------------------------------------------------------------------
@@ -183,6 +317,51 @@ def serialize_benchmark_snapshot(series: pd.Series) -> dict:
 
 def benchmark_input_sha256(series: pd.Series) -> str:
     return _sha256_of(_canonical_json(serialize_benchmark_snapshot(series)))
+
+
+def deserialize_benchmark_snapshot(snapshot: dict) -> pd.Series:
+    """`serialize_benchmark_snapshot()`'ın TERSİ -- `compute_technical_
+    analysis()`'in `benchmark_close_series` parametresinin beklediği TAM
+    nesneyi (index=plain `datetime.date`, TZ-AWARE Timestamp DEĞİL; value=
+    float64) yeniden kurar. `date.fromisoformat()` YALNIZCA "YYYY-MM-DD"
+    kabul eder -- bir zaman bileşeni/tz-offset içeren bir string burada
+    otomatik olarak REDDEDİLİR (bozuk/yanlış-şema bir "benchmark tarihi").
+
+    Fail-fast aynı şekilde geçerlidir: şema/sıra/dtype/sıralama beklenenden
+    SAPARSA `ValueError`.
+    """
+    if not isinstance(snapshot, dict) or set(snapshot.keys()) != {"rows"}:
+        bad = snapshot if not isinstance(snapshot, dict) else set(snapshot.keys())
+        raise ValueError(f"Beklenmeyen benchmark snapshot yapısı (üst seviye anahtarlar): {bad!r}")
+    rows = snapshot["rows"]
+    if not isinstance(rows, list) or len(rows) == 0:
+        raise ValueError("'rows' boş veya liste değil -- benchmark serisi boş olamaz")
+
+    required_row_keys = {"session_date", "close"}
+    dates: list[date] = []
+    closes: list[float] = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict) or set(row.keys()) != required_row_keys:
+            bad_row = row if not isinstance(row, dict) else set(row.keys())
+            raise ValueError(f"Satır {i}: beklenmeyen anahtar seti: {bad_row!r}")
+        date_raw = row["session_date"]
+        if not isinstance(date_raw, str):
+            raise ValueError(f"Satır {i}: 'session_date' bir string değil: {date_raw!r}")
+        try:
+            session_date = date.fromisoformat(date_raw)
+        except ValueError as exc:
+            raise ValueError(f"Satır {i}: 'session_date' geçersiz (yalnızca YYYY-MM-DD kabul edilir): {date_raw!r}") from exc
+        dates.append(session_date)
+        closes.append(deserialize_float64(row["close"]))
+
+    series = pd.Series(closes, index=dates, dtype=np.float64)
+    index_list = list(series.index)
+    if index_list != sorted(index_list):
+        raise ValueError("Yeniden kurulan benchmark serisi index'i artan sırada değil")
+    if len(set(index_list)) != len(index_list):
+        raise ValueError("Yeniden kurulan benchmark serisi index'inde yinelenen tarih var")
+
+    return series
 
 
 def input_snapshot_sha256(asset_df: pd.DataFrame, symbol: str, benchmark_series: pd.Series) -> str:
