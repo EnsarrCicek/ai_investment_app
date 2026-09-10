@@ -426,6 +426,7 @@ def _compute_enrichment(
     provider: MarketDataProvider | None = None,
     benchmark_cache_repo: BenchmarkCacheRepository | None = None,
     now: datetime | None = None,
+    benchmark_close_series: pd.Series | None = None,
 ) -> dict:
     """market_structure/S-R/breakout/hacim/rejim/gap/mum/göreli güç/sinyal
     sınıfı katmanı — relative_strength dışındaki her şey, `analyze_with_id`'nin
@@ -460,6 +461,16 @@ def _compute_enrichment(
     (`_zone_to_dict(..., price=...)`). Bu tarihsel breakout lineage/Jaccard
     DEĞİLDİR (bilinçli olarak kapsam dışı bırakıldı, bkz. HATA 11D-11I audit
     serisi) -- salt mevcut geometri.
+
+    HATA 12M (10.09.2026): `benchmark_close_series` verilirse (yalnızca
+    prospective evidence-capture yolu, bkz. `compute_technical_analysis()`),
+    `get_benchmark_close_series()` HİÇ ÇAĞRILMAZ -- ne `provider` ne
+    `benchmark_cache_repo` dokunulur (ikisi de bu durumda kullanılmadan
+    kalabilir). Bu, evidence yolunun HANGİ benchmark verisinin tüketildiğini
+    ÇAĞIRANIN ZATEN MATERYALİZE ETTİĞİ, dış bir kaynaktan (önbellek dahil)
+    tekrar OKUNAMAYACAK şekilde garanti eder (bkz. HATA 12J/12K audit'leri,
+    benchmark cache kimlik riski). `None` (varsayılan) mevcut/production
+    davranışını AYNEN korur.
     """
     close, volume = df["Close"], df["Volume"]
 
@@ -525,7 +536,11 @@ def _compute_enrichment(
     candlestick = detect_candlestick_patterns(df)
 
     try:
-        benchmark_close = get_benchmark_close_series(provider=provider, cache_repo=benchmark_cache_repo)
+        benchmark_close = (
+            benchmark_close_series
+            if benchmark_close_series is not None
+            else get_benchmark_close_series(provider=provider, cache_repo=benchmark_cache_repo)
+        )
         asset_close_by_date = close.copy()
         asset_close_by_date.index = [ts.date() for ts in asset_close_by_date.index]
         rs_score = relative_strength_score(relative_strength_ratio(asset_close_by_date, benchmark_close))
@@ -620,6 +635,217 @@ def _compute_enrichment(
         "mtf_aligned": alignment["aligned"],
         "mtf_consensus": alignment["consensus"],
     }
+
+
+def compute_technical_analysis(
+    df: pd.DataFrame,
+    symbol: str,
+    weights: dict,
+    family_weights: dict,
+    scoring_config_hash: str,
+    history_validation_status: str,
+    session_normalization_fields: dict,
+    provider: MarketDataProvider | None = None,
+    benchmark_cache_repo: BenchmarkCacheRepository | None = None,
+    benchmark_close_series: pd.Series | None = None,
+    now: datetime | None = None,
+) -> TechnicalAnalysis:
+    """HATA 12M (10.09.2026): `analyze_with_id()`'in girdi-sözleşmesi (provider
+    fetch -> completed-bar filtreleme -> session normalizasyonu -> continuity/
+    integrity/data-quality kontrolleri) TAMAMLANDIKTAN SONRAKİ tüm skorlama/
+    zenginleştirme/model-birleştirme mantığını içerir -- üretim (cache/provider)
+    yolu ile prospective evidence-capture yolu (ayrı bir modülde, henüz
+    yazılmadı) birebir AYNI formülleri kullansın diye tek, paylaşılan bir
+    implementasyonda tutulur (formül kopyası YOK). Çağıran `df`/`weights`/
+    `family_weights`/`scoring_config_hash`/`history_validation_status`/
+    `session_normalization_fields`'i ZATEN hesaplanmış/resolve edilmiş olarak
+    verir -- bu fonksiyon kendi başına ne provider'dan veri çekimi ne config
+    resolve işlemi yapar. Persist etme (`TechnicalAnalysisRepository.add`) bu
+    fonksiyonun SORUMLULUĞUNDA DEĞİLDİR -- yalnızca `analyze_with_id()`
+    (üretim yolu) bu fonksiyonu çağırdıktan SONRA kendisi persist eder.
+    """
+    close, volume = df["Close"], df["Volume"]
+
+    rsi_val = float(ind.rsi(close).iloc[-1])
+    _, _, macd_hist = ind.macd(close)
+    macd_hist_val = float(macd_hist.iloc[-1])
+    ema_short_val = float(ind.ema(close, 20).iloc[-1])
+    ema_long_val = float(ind.ema(close, 50).iloc[-1])
+    ema_slope_val = float(ind.ema_slope(close, window=20, slope_lookback=5).iloc[-1])
+    upper, middle, lower = ind.bollinger_bands(close)
+    upper_val, middle_val, lower_val = float(upper.iloc[-1]), float(middle.iloc[-1]), float(lower.iloc[-1])
+    atr_val = float(ind.atr(df).iloc[-1])
+    momentum_val = float(ind.momentum(close).iloc[-1])
+    roc_val = float(ind.roc(close).iloc[-1])
+    volume_sma_val = float(ind.volume_sma(volume).iloc[-1])
+    current_volume = float(volume.iloc[-1])
+    close_val = float(close.iloc[-1])
+
+    band_width = upper_val - middle_val
+
+    # HATA 5B1 (27.08.2026): eski `if atr_val else 0.0` deseni yalnızca
+    # LİTERAL sıfır paydayı yakalıyordu — NaN Python'da TRUTHY olduğundan
+    # (`bool(float('nan'))==True`) bu guard NaN'ı HİÇ yakalamıyordu, sonuç
+    # `_clamp(nan)` (Python `max`/`min`'in NaN karşılaştırma davranışı
+    # nedeniyle) DETERMİNİSTİK olarak `+100.0` oluyordu — eksik bir
+    # component sahte bir "maksimum bullish" sinyaline dönüşüyordu.
+    # `safe_ratio()`/`clamp_component()` (bkz. `scoring.py`) hem NaN hem
+    # `x/0` hem `0/0` durumunu AYNI, tutarlı NaN sonucuna götürür; RSI'ın
+    # düz-seri `50.0`'ı (component `0.0`) `indicators.rsi()`'ın KENDİ
+    # kasıtlı tanımıdır — GERÇEK bir geçerli sıfırdır, bu değişiklikten
+    # ETKİLENMEZ. Component formülleri/skala katsayıları (25/1000/15/
+    # 100/20/8) HİÇ DEĞİŞMEDİ.
+    raw_components = {
+        "rsi": (rsi_val - 50) * 2,
+        "macd": safe_ratio(macd_hist_val, atr_val) * 25,
+        "trend": safe_ratio(ema_short_val - ema_long_val, ema_long_val) * 1000,
+        "ema_slope": ema_slope_val * 15,
+        "bollinger": safe_ratio(close_val - middle_val, band_width) * 100,
+        "momentum": safe_ratio(momentum_val, atr_val) * 20,
+        "roc": roc_val * 8,
+    }
+    components = {k: clamp_component(v) for k, v in raw_components.items()}
+
+    # HATA 5B2D — LEVEL 1 (component -> family): her family KENDİ
+    # İÇİNDEKİ (finite) available component'lerin, `technical_indicator_
+    # weights`'teki relative oranlarıyla ağırlıklı ortalamasıdır. HATA
+    # 5B1 contract'ı RECURSIVE olarak burada da geçerlidir: finite 0.0
+    # available'dır (ağırlığı korunur), None/NaN/±inf unavailable'dır
+    # (hem numerator hem weight-denominator'dan çıkar), family'nin TÜM
+    # member'ları unavailable ise `family_score=None` (0.0 UYDURULMAZ) --
+    # `aggregate_available_scores` (== `aggregate_available_components`,
+    # bkz. scoring.py) İKİNCİ bir bağımsız implementasyon YAZILMADAN
+    # yeniden kullanılır.
+    #
+    # FINAL PRE-COMMIT GATE (27.08.2026, madde 4/5) — `round_digits=None`:
+    # bu adım TAM HASSASİYETLE (yuvarlanmadan) hesaplanır -- aksi halde
+    # Level 2 YUVARLANMIŞ family değerleri üzerinden çalışırdı ("double
+    # rounding"), final `technical_score` gerçek tam-hassasiyetli
+    # sonuçtan nadiren ama gerçek şekilde sapabilirdi.
+    raw_family_scores: dict[str, float | None] = {
+        family: aggregate_available_scores(
+            {member: components[member] for member in members},
+            {member: weights.get(member, 0.0) for member in members},
+            round_digits=None,
+        )
+        for family, members in FAMILY_MEMBERSHIP.items()
+    }
+
+    # HATA 5B2D — LEVEL 2 (family -> technical_score): AYNI contract, TAM
+    # HASSASİYETLİ `raw_family_scores` üzerinde -- unavailable (`None`)
+    # bir family hem numerator hem weight-denominator'dan çıkar, KALAN
+    # available family'lerin ağırlığı renormalize edilir. `aggregate_
+    # available_scores` zaten `is_available()` ile `None` değerleri doğru
+    # filtreler -- family_scores'u AYRICA filtrelemeye GEREK YOK. Bu
+    # ÇAĞRI, EN SON (`round_digits=2`, varsayılan) yuvarlamanın YAPILDIĞI
+    # TEK yerdir.
+    final_score = aggregate_available_scores(raw_family_scores, family_weights)
+
+    # Firestore'a/API'ye giden `components` dict'i unavailable component'leri
+    # OMIT eder (None/NaN sentinel TUTMAZ) — hem "bu component için skor
+    # yok" anlamını en dürüst şekilde taşır hem de downstream tüketicilerde
+    # (ör. ExplanationEngine._top_reasons'ın `abs()` çağrısı) bir sentinel
+    # değer nedeniyle crash riski oluşturmaz.
+    stored_components = {k: v for k, v in components.items() if is_available(v)}
+    # Aynı omit-unavailable/keep-valid-zero sözleşmesi `family_scores` için
+    # de geçerli (HATA 5B2D, madde 8) -- debugging/explanation/historical
+    # provenance için persist edilir. FINAL PRE-COMMIT GATE madde 7: bu
+    # yuvarlama YALNIZCA display/provenance'tır -- `final_score` KENDİ
+    # tam-hassasiyetli `raw_family_scores`'undan gelir, bu (yuvarlanmış)
+    # dict'ten ASLA yeniden hesaplanmaz/okunmaz.
+    stored_family_scores = {k: round(v, 2) for k, v in raw_family_scores.items() if is_available(v)}
+
+    # HATA 5C3A (28.08.2026): "Veri Kapsamı" (evidence_coverage) skor/
+    # confidence'tan BAĞIMSIZ, HER ZAMAN hesaplanabilir bir orandır (config
+    # geçerli olduğu sürece None ASLA üretilmez, bkz. scoring.py::
+    # compute_evidence_coverage) -- final_score None olsa BİLE (7/7
+    # component unavailable) coverage=0.0 dürüst bir değerdir.
+    evidence_coverage = compute_evidence_coverage(stored_components, weights, family_weights)
+
+    if final_score is None:
+        # Tüm 7 component birden unavailable — son derece nadir (HATA 5B1
+        # audit'i: gerçek 5-sembol/2-yıl veri setinde 0 gözlem), ama
+        # skor-bağımlı türetilmiş alanlar (confidence/trend) sahte bir
+        # sayı UYDURMAZ. FINAL PRE-COMMIT GATE (27.08.2026, madde 2):
+        # `trend="NEUTRAL"` da bir UYDURMAdır -- NEUTRAL, skorun
+        # HESAPLANDIĞI ama [-15, 15] aralığında kaldığı GERÇEK bir teknik
+        # yön bilgisidir; skor hiç hesaplanamadığında `trend=None` (bkz.
+        # models/technical_analysis.py, `trend: str | None`).
+        #
+        # HATA 5C3A: `confidence=None` -- "Sinyal Mutabakatı" ("mevcut
+        # kanıt final yönle ne kadar uyuşuyor") hesaplanacak KULLANILABİLİR
+        # weighted family evidence yok. `0.0` (gerçek, ölçülmüş TAM
+        # uyuşmazlık) ile KARIŞTIRILMAZ -- HATA 5B1'in "0.0 valid / None
+        # unavailable" sözleşmesi confidence tarafında da AYNEN korunur
+        # (bkz. HATA 5C2B, madde 1).
+        confidence = None
+        trend = None
+    else:
+        # HATA 5C3A: eski component sign-count agreement + volume
+        # confirmation heuristic (0.4 taban, 0.4/0.2 katsayılar) TAMAMEN
+        # KALDIRILDI. Yeni confidence yalnızca mevcut family'lerin
+        # `technical_family_weights` ile ağırlıklandırılmış directional
+        # agreement'ıdır (bkz. scoring.py::compute_family_agreement) --
+        # skor büyüklüğüne VE volume'e bağlı DEĞİLDİR (HATA 5C2/5C2A audit
+        # zincirinin kilitlediği contract). Volume, `relative_volume_class`
+        # zenginleştirmesinde (aşağıda, `_compute_enrichment`) AYRI bir
+        # sinyal/context olarak kalmaya devam ediyor -- yalnızca
+        # confidence'la bağlantısı kesildi, volume analizi SİLİNMEDİ.
+        agreement = compute_family_agreement(raw_family_scores, final_score, family_weights)
+        confidence = round(agreement, 2)
+        # `trend` alanı AYNI `technical_direction()` helper'ından üretilir
+        # -- dış sözleşme (BULLISH/BEARISH/NEUTRAL string'leri) DEĞİŞMEDİ,
+        # yalnızca +15/-15 sınırının tekilleştirilmiş (tek yerde tanımlı)
+        # hali kullanılıyor (bkz. HATA 5C2B, madde 3).
+        trend = {"POSITIVE": "BULLISH", "NEGATIVE": "BEARISH", "NEUTRAL": "NEUTRAL"}[
+            technical_direction(final_score)
+        ]
+
+    enrichment = _compute_enrichment(
+        df,
+        symbol,
+        atr_val,
+        close_val,
+        final_score,
+        provider=provider,
+        benchmark_cache_repo=benchmark_cache_repo,
+        benchmark_close_series=benchmark_close_series,
+        now=now,
+    )
+
+    analysis = TechnicalAnalysis(
+        asset=symbol,
+        technical_score=final_score,
+        trend=trend,
+        confidence=confidence,
+        evidence_coverage=evidence_coverage,
+        components=stored_components,
+        family_scores=stored_family_scores,
+        scoring_config_hash=scoring_config_hash,
+        market_data_as_of=df.index[-1].to_pydatetime(),
+        history_validation_status=history_validation_status,
+        **session_normalization_fields,
+        **enrichment,
+        indicators={
+            "rsi": round(rsi_val, 2),
+            "macd_histogram": round(macd_hist_val, 4),
+            "ema_20": round(ema_short_val, 2),
+            "ema_50": round(ema_long_val, 2),
+            "ema_slope": round(ema_slope_val, 4),
+            "bollinger_upper": round(upper_val, 2),
+            "bollinger_middle": round(middle_val, 2),
+            "bollinger_lower": round(lower_val, 2),
+            "atr": round(atr_val, 4),
+            "momentum": round(momentum_val, 4),
+            "roc": round(roc_val, 4),
+            "volume": int(current_volume),
+            "volume_sma": round(volume_sma_val, 2),
+        },
+        created_at=datetime.now(timezone.utc),
+        engine_version=ENGINE_VERSION,
+    )
+
+    return analysis
 
 
 class TechnicalAnalysisEngine:
@@ -746,184 +972,23 @@ class TechnicalAnalysisEngine:
         # resolve/validate edildi -- burada TEKRAR okunmaz/hesaplanmaz (ikinci
         # bir Firestore read YOK), aynı dict'ler doğrudan kullanılır.
 
-        close, volume = df["Close"], df["Volume"]
-
-        rsi_val = float(ind.rsi(close).iloc[-1])
-        _, _, macd_hist = ind.macd(close)
-        macd_hist_val = float(macd_hist.iloc[-1])
-        ema_short_val = float(ind.ema(close, 20).iloc[-1])
-        ema_long_val = float(ind.ema(close, 50).iloc[-1])
-        ema_slope_val = float(ind.ema_slope(close, window=20, slope_lookback=5).iloc[-1])
-        upper, middle, lower = ind.bollinger_bands(close)
-        upper_val, middle_val, lower_val = float(upper.iloc[-1]), float(middle.iloc[-1]), float(lower.iloc[-1])
-        atr_val = float(ind.atr(df).iloc[-1])
-        momentum_val = float(ind.momentum(close).iloc[-1])
-        roc_val = float(ind.roc(close).iloc[-1])
-        volume_sma_val = float(ind.volume_sma(volume).iloc[-1])
-        current_volume = float(volume.iloc[-1])
-        close_val = float(close.iloc[-1])
-
-        band_width = upper_val - middle_val
-
-        # HATA 5B1 (27.08.2026): eski `if atr_val else 0.0` deseni yalnızca
-        # LİTERAL sıfır paydayı yakalıyordu — NaN Python'da TRUTHY olduğundan
-        # (`bool(float('nan'))==True`) bu guard NaN'ı HİÇ yakalamıyordu, sonuç
-        # `_clamp(nan)` (Python `max`/`min`'in NaN karşılaştırma davranışı
-        # nedeniyle) DETERMİNİSTİK olarak `+100.0` oluyordu — eksik bir
-        # component sahte bir "maksimum bullish" sinyaline dönüşüyordu.
-        # `safe_ratio()`/`clamp_component()` (bkz. `scoring.py`) hem NaN hem
-        # `x/0` hem `0/0` durumunu AYNI, tutarlı NaN sonucuna götürür; RSI'ın
-        # düz-seri `50.0`'ı (component `0.0`) `indicators.rsi()`'ın KENDİ
-        # kasıtlı tanımıdır — GERÇEK bir geçerli sıfırdır, bu değişiklikten
-        # ETKİLENMEZ. Component formülleri/skala katsayıları (25/1000/15/
-        # 100/20/8) HİÇ DEĞİŞMEDİ.
-        raw_components = {
-            "rsi": (rsi_val - 50) * 2,
-            "macd": safe_ratio(macd_hist_val, atr_val) * 25,
-            "trend": safe_ratio(ema_short_val - ema_long_val, ema_long_val) * 1000,
-            "ema_slope": ema_slope_val * 15,
-            "bollinger": safe_ratio(close_val - middle_val, band_width) * 100,
-            "momentum": safe_ratio(momentum_val, atr_val) * 20,
-            "roc": roc_val * 8,
-        }
-        components = {k: clamp_component(v) for k, v in raw_components.items()}
-
-        # HATA 5B2D — LEVEL 1 (component -> family): her family KENDİ
-        # İÇİNDEKİ (finite) available component'lerin, `technical_indicator_
-        # weights`'teki relative oranlarıyla ağırlıklı ortalamasıdır. HATA
-        # 5B1 contract'ı RECURSIVE olarak burada da geçerlidir: finite 0.0
-        # available'dır (ağırlığı korunur), None/NaN/±inf unavailable'dır
-        # (hem numerator hem weight-denominator'dan çıkar), family'nin TÜM
-        # member'ları unavailable ise `family_score=None` (0.0 UYDURULMAZ) --
-        # `aggregate_available_scores` (== `aggregate_available_components`,
-        # bkz. scoring.py) İKİNCİ bir bağımsız implementasyon YAZILMADAN
-        # yeniden kullanılır.
-        #
-        # FINAL PRE-COMMIT GATE (27.08.2026, madde 4/5) — `round_digits=None`:
-        # bu adım TAM HASSASİYETLE (yuvarlanmadan) hesaplanır -- aksi halde
-        # Level 2 YUVARLANMIŞ family değerleri üzerinden çalışırdı ("double
-        # rounding"), final `technical_score` gerçek tam-hassasiyetli
-        # sonuçtan nadiren ama gerçek şekilde sapabilirdi.
-        raw_family_scores: dict[str, float | None] = {
-            family: aggregate_available_scores(
-                {member: components[member] for member in members},
-                {member: weights.get(member, 0.0) for member in members},
-                round_digits=None,
-            )
-            for family, members in FAMILY_MEMBERSHIP.items()
-        }
-
-        # HATA 5B2D — LEVEL 2 (family -> technical_score): AYNI contract, TAM
-        # HASSASİYETLİ `raw_family_scores` üzerinde -- unavailable (`None`)
-        # bir family hem numerator hem weight-denominator'dan çıkar, KALAN
-        # available family'lerin ağırlığı renormalize edilir. `aggregate_
-        # available_scores` zaten `is_available()` ile `None` değerleri doğru
-        # filtreler -- family_scores'u AYRICA filtrelemeye GEREK YOK. Bu
-        # ÇAĞRI, EN SON (`round_digits=2`, varsayılan) yuvarlamanın YAPILDIĞI
-        # TEK yerdir.
-        final_score = aggregate_available_scores(raw_family_scores, family_weights)
-
-        # Firestore'a/API'ye giden `components` dict'i unavailable component'leri
-        # OMIT eder (None/NaN sentinel TUTMAZ) — hem "bu component için skor
-        # yok" anlamını en dürüst şekilde taşır hem de downstream tüketicilerde
-        # (ör. ExplanationEngine._top_reasons'ın `abs()` çağrısı) bir sentinel
-        # değer nedeniyle crash riski oluşturmaz.
-        stored_components = {k: v for k, v in components.items() if is_available(v)}
-        # Aynı omit-unavailable/keep-valid-zero sözleşmesi `family_scores` için
-        # de geçerli (HATA 5B2D, madde 8) -- debugging/explanation/historical
-        # provenance için persist edilir. FINAL PRE-COMMIT GATE madde 7: bu
-        # yuvarlama YALNIZCA display/provenance'tır -- `final_score` KENDİ
-        # tam-hassasiyetli `raw_family_scores`'undan gelir, bu (yuvarlanmış)
-        # dict'ten ASLA yeniden hesaplanmaz/okunmaz.
-        stored_family_scores = {k: round(v, 2) for k, v in raw_family_scores.items() if is_available(v)}
-
-        # HATA 5C3A (28.08.2026): "Veri Kapsamı" (evidence_coverage) skor/
-        # confidence'tan BAĞIMSIZ, HER ZAMAN hesaplanabilir bir orandır (config
-        # geçerli olduğu sürece None ASLA üretilmez, bkz. scoring.py::
-        # compute_evidence_coverage) -- final_score None olsa BİLE (7/7
-        # component unavailable) coverage=0.0 dürüst bir değerdir.
-        evidence_coverage = compute_evidence_coverage(stored_components, weights, family_weights)
-
-        if final_score is None:
-            # Tüm 7 component birden unavailable — son derece nadir (HATA 5B1
-            # audit'i: gerçek 5-sembol/2-yıl veri setinde 0 gözlem), ama
-            # skor-bağımlı türetilmiş alanlar (confidence/trend) sahte bir
-            # sayı UYDURMAZ. FINAL PRE-COMMIT GATE (27.08.2026, madde 2):
-            # `trend="NEUTRAL"` da bir UYDURMAdır -- NEUTRAL, skorun
-            # HESAPLANDIĞI ama [-15, 15] aralığında kaldığı GERÇEK bir teknik
-            # yön bilgisidir; skor hiç hesaplanamadığında `trend=None` (bkz.
-            # models/technical_analysis.py, `trend: str | None`).
-            #
-            # HATA 5C3A: `confidence=None` -- "Sinyal Mutabakatı" ("mevcut
-            # kanıt final yönle ne kadar uyuşuyor") hesaplanacak KULLANILABİLİR
-            # weighted family evidence yok. `0.0` (gerçek, ölçülmüş TAM
-            # uyuşmazlık) ile KARIŞTIRILMAZ -- HATA 5B1'in "0.0 valid / None
-            # unavailable" sözleşmesi confidence tarafında da AYNEN korunur
-            # (bkz. HATA 5C2B, madde 1).
-            confidence = None
-            trend = None
-        else:
-            # HATA 5C3A: eski component sign-count agreement + volume
-            # confirmation heuristic (0.4 taban, 0.4/0.2 katsayılar) TAMAMEN
-            # KALDIRILDI. Yeni confidence yalnızca mevcut family'lerin
-            # `technical_family_weights` ile ağırlıklandırılmış directional
-            # agreement'ıdır (bkz. scoring.py::compute_family_agreement) --
-            # skor büyüklüğüne VE volume'e bağlı DEĞİLDİR (HATA 5C2/5C2A audit
-            # zincirinin kilitlediği contract). Volume, `relative_volume_class`
-            # zenginleştirmesinde (aşağıda, `_compute_enrichment`) AYRI bir
-            # sinyal/context olarak kalmaya devam ediyor -- yalnızca
-            # confidence'la bağlantısı kesildi, volume analizi SİLİNMEDİ.
-            agreement = compute_family_agreement(raw_family_scores, final_score, family_weights)
-            confidence = round(agreement, 2)
-            # `trend` alanı AYNI `technical_direction()` helper'ından üretilir
-            # -- dış sözleşme (BULLISH/BEARISH/NEUTRAL string'leri) DEĞİŞMEDİ,
-            # yalnızca +15/-15 sınırının tekilleştirilmiş (tek yerde tanımlı)
-            # hali kullanılıyor (bkz. HATA 5C2B, madde 3).
-            trend = {"POSITIVE": "BULLISH", "NEGATIVE": "BEARISH", "NEUTRAL": "NEUTRAL"}[
-                technical_direction(final_score)
-            ]
-
-        enrichment = _compute_enrichment(
+        # HATA 12M (10.09.2026): girdi-sözleşmesi (yukarıda) TAMAMLANDIKTAN
+        # SONRAKİ tüm skorlama/zenginleştirme/model-birleştirme mantığı artık
+        # `compute_technical_analysis()`'te -- bkz. o fonksiyonun docstring'i.
+        # Bu, prospective evidence-capture yolunun (ayrı bir modül, henüz
+        # yazılmadı) AYNI formülleri, formül kopyası OLMADAN kullanabilmesi
+        # içindir; bu satırdan sonrası artık yalnızca persist adımıdır.
+        analysis = compute_technical_analysis(
             df,
             symbol,
-            atr_val,
-            close_val,
-            final_score,
+            weights,
+            family_weights,
+            current_scoring_config_hash,
+            validation_status.value,
+            session_normalization_to_dict(session_normalization_result),
             provider=self._provider,
             benchmark_cache_repo=self._benchmark_cache_repo,
             now=now,
-        )
-
-        analysis = TechnicalAnalysis(
-            asset=symbol,
-            technical_score=final_score,
-            trend=trend,
-            confidence=confidence,
-            evidence_coverage=evidence_coverage,
-            components=stored_components,
-            family_scores=stored_family_scores,
-            scoring_config_hash=current_scoring_config_hash,
-            market_data_as_of=df.index[-1].to_pydatetime(),
-            history_validation_status=validation_status.value,
-            **session_normalization_to_dict(session_normalization_result),
-            **enrichment,
-            indicators={
-                "rsi": round(rsi_val, 2),
-                "macd_histogram": round(macd_hist_val, 4),
-                "ema_20": round(ema_short_val, 2),
-                "ema_50": round(ema_long_val, 2),
-                "ema_slope": round(ema_slope_val, 4),
-                "bollinger_upper": round(upper_val, 2),
-                "bollinger_middle": round(middle_val, 2),
-                "bollinger_lower": round(lower_val, 2),
-                "atr": round(atr_val, 4),
-                "momentum": round(momentum_val, 4),
-                "roc": round(roc_val, 4),
-                "volume": int(current_volume),
-                "volume_sma": round(volume_sma_val, 2),
-            },
-            created_at=datetime.now(timezone.utc),
-            engine_version=ENGINE_VERSION,
         )
 
         doc_id = self._analysis_repo.add(analysis) if persist else None
