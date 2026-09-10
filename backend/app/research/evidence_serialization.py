@@ -76,6 +76,20 @@ def _sha256_of(canonical: str) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _canonical_json_bytes(payload: object) -> bytes:
+    """HATA 12N1: `_canonical_json()` ile AYNI kanonikleştirmenin UTF-8
+    bayt hâli -- bu, bir evidence nesnesi için hem hash'in ÜZERİNDEN
+    hesaplandığı HEM DE GCS'e (ileride) yüklenecek TEK bayt kaynağıdır.
+    İki AYRI implementasyon ("hash temsili" ile "depolama temsili") ASLA
+    yazılmaz -- ikisi arasında sürüklenme (drift) riski böylece yapısal
+    olarak imkânsız kılınır."""
+    return _canonical_json(payload).encode("utf-8")
+
+
+def _sha256_of_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Sayısal değer kodlayıcıları
 # ---------------------------------------------------------------------------
@@ -210,8 +224,15 @@ def serialize_asset_snapshot(df: pd.DataFrame, symbol: str) -> dict:
     return {"symbol": symbol, "rows": rows}
 
 
+def asset_snapshot_bytes(df: pd.DataFrame, symbol: str) -> bytes:
+    """HATA 12N1: bu asset anlık-görüntüsü için GCS'e yüklenecek TEK,
+    kanonik bayt dizisi -- `asset_input_sha256()` BUNUN ÜZERİNDEN
+    hesaplanır (bkz. aşağı), ayrı bir "depolama temsili" YOKTUR."""
+    return _canonical_json_bytes(serialize_asset_snapshot(df, symbol))
+
+
 def asset_input_sha256(df: pd.DataFrame, symbol: str) -> str:
-    return _sha256_of(_canonical_json(serialize_asset_snapshot(df, symbol)))
+    return _sha256_of_bytes(asset_snapshot_bytes(df, symbol))
 
 
 def deserialize_asset_snapshot(snapshot: dict) -> tuple[pd.DataFrame, str]:
@@ -349,8 +370,15 @@ def serialize_benchmark_snapshot(series: pd.Series) -> dict:
     return {"rows": rows}
 
 
+def benchmark_snapshot_bytes(series: pd.Series) -> bytes:
+    """HATA 12N1: bu benchmark anlık-görüntüsü için GCS'e yüklenecek TEK,
+    kanonik bayt dizisi -- `benchmark_input_sha256()` BUNUN ÜZERİNDEN
+    hesaplanır."""
+    return _canonical_json_bytes(serialize_benchmark_snapshot(series))
+
+
 def benchmark_input_sha256(series: pd.Series) -> str:
-    return _sha256_of(_canonical_json(serialize_benchmark_snapshot(series)))
+    return _sha256_of_bytes(benchmark_snapshot_bytes(series))
 
 
 def deserialize_benchmark_snapshot(snapshot: dict) -> pd.Series:
@@ -422,13 +450,14 @@ def input_snapshot_sha256(asset_df: pd.DataFrame, symbol: str, benchmark_series:
 # ---------------------------------------------------------------------------
 
 
-def technical_output_sha256(analysis: TechnicalAnalysis) -> str:
-    """`TechnicalAnalysis.model_dump()`'ın `created_at` HARİÇ TÜM alanlarının
-    SHA-256'sı. `created_at`, modeldeki TEK deterministik olmayan alandır
-    (HATA 12K/12L tam alan-listesi denetimi: ne `analysis_id` ne
-    `updated_at`/`generated_at`/`provider_fetch_timestamp` diye bir alan
-    mevcut değil; Firestore doküman ID'si zaten ayrı bir `analyze_with_id()`
-    dönüş değeridir, model alanı DEĞİLDİR).
+def technical_output_bytes(analysis: TechnicalAnalysis) -> bytes:
+    """HATA 12N1: bu `TechnicalAnalysis` çıktısı için GCS'e yüklenecek TEK,
+    kanonik bayt dizisi -- `technical_output_sha256()` BUNUN ÜZERİNDEN
+    hesaplanır. `created_at` HARİÇ TÜM alanları kapsar (HATA 12K/12L tam
+    alan-listesi denetimi: ne `analysis_id` ne `updated_at`/`generated_at`/
+    `provider_fetch_timestamp` diye bir alan mevcut değil; Firestore
+    doküman ID'si zaten ayrı bir `analyze_with_id()` dönüş değeridir, model
+    alanı DEĞİLDİR).
 
     `compute_scoring_config_hash()` (scoring.py) ile AYNI basit
     `json.dumps(sort_keys=True)` deseni kullanılır -- Python'ın
@@ -437,6 +466,15 @@ def technical_output_sha256(analysis: TechnicalAnalysis) -> str:
     bu ticket girdi-provenance'ının TAM ikili doğruluğunu, çıktının ise
     YENİDEN ÜRETİLEBİLİRLİĞİNİ (aynı girdi -> aynı çıktı) doğrulamayı
     hedefler.
+
+    HATA 12N1 (10.09.2026) -- depolanacak bayt dizisi TAM OLARAK bu
+    fonksiyonun döndürdüğüdür: binary64-sarmalama YOK, `created_at` EKLEME
+    YOK, zarf (envelope)/operasyonel zaman damgası EKLEME YOK -- deterministik
+    payload'ı DEĞİŞTİRMEDEN, hash'in hesaplandığı AYNI bayt dizisi GCS'e gider.
     """
     payload = analysis.model_dump(mode="json", exclude={"created_at"})
-    return _sha256_of(_canonical_json(payload))
+    return _canonical_json_bytes(payload)
+
+
+def technical_output_sha256(analysis: TechnicalAnalysis) -> str:
+    return _sha256_of_bytes(technical_output_bytes(analysis))

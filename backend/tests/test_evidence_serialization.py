@@ -7,6 +7,7 @@ farklı hash), ve çıktı hash'inin `created_at`'e duyarsız/diğer alanlara
 duyarlı olması.
 """
 
+import hashlib
 import math
 import struct
 from datetime import date, datetime, timedelta, timezone
@@ -18,13 +19,16 @@ import pytest
 from app.models.technical_analysis import TechnicalAnalysis
 from app.research.evidence_serialization import (
     asset_input_sha256,
+    asset_snapshot_bytes,
     benchmark_input_sha256,
+    benchmark_snapshot_bytes,
     input_snapshot_sha256,
     serialize_asset_snapshot,
     serialize_benchmark_snapshot,
     serialize_float64,
     serialize_int64,
     serialize_optional_float64,
+    technical_output_bytes,
     technical_output_sha256,
 )
 
@@ -254,3 +258,92 @@ def test_technical_output_sha256_is_sensitive_to_other_field_changes():
     analysis_a = _sample_analysis(fixed_created_at, technical_score=42.0)
     analysis_b = _sample_analysis(fixed_created_at, technical_score=42.01)
     assert technical_output_sha256(analysis_a) != technical_output_sha256(analysis_b)
+
+
+# ---------------------------------------------------------------------------
+# HATA 12N1 -- kanonik GCS bayt yardimcilari + golden-hash regresyonu
+#
+# Bu golden degerler, `asset_snapshot_bytes`/`benchmark_snapshot_bytes`/
+# `technical_output_bytes` eklenmeden ONCE (HATA 12N1'in kendi bu turdaki
+# refactor'unden hemen once), su ANDA cagirilan AYNI fixture'lardan
+# (_valid_asset_df(), _valid_benchmark_series(), _sample_analysis(...))
+# uretilerek kaydedilmisti -- byte-ureten yardimci fonksiyonlarin eklenmesi
+# Technical V1 evidence kimligini SESSIZCE DEGISTIRMEDIGINI kanitlar.
+# ---------------------------------------------------------------------------
+
+_GOLDEN_ASSET_SHA256 = "d47fafa069eb433ae36dd2beb6bc1b1d22383e0b2d4124003fcb7757943bff75"
+_GOLDEN_BENCHMARK_SHA256 = "d86fef8c332d0b5400203f231f01c056433b865ae31edfae2ae0a2703f4e6130"
+_GOLDEN_OUTPUT_SHA256 = "7a15eee425dfdd04b0881cf0656d322bb191a95a2f3ee4bec5cd8b9e8e39b1b9"
+
+
+def test_golden_asset_input_sha256_unchanged_after_byte_helper_refactor():
+    df = _valid_asset_df()
+    assert asset_input_sha256(df, "TEST") == _GOLDEN_ASSET_SHA256
+
+
+def test_golden_benchmark_input_sha256_unchanged_after_byte_helper_refactor():
+    series = _valid_benchmark_series()
+    assert benchmark_input_sha256(series) == _GOLDEN_BENCHMARK_SHA256
+
+
+def test_golden_technical_output_sha256_unchanged_after_byte_helper_refactor():
+    analysis = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc))
+    assert technical_output_sha256(analysis) == _GOLDEN_OUTPUT_SHA256
+
+
+def test_asset_snapshot_bytes_sha256_matches_asset_input_sha256():
+    df = _valid_asset_df()
+    raw = asset_snapshot_bytes(df, "TEST")
+    assert isinstance(raw, bytes)
+    assert hashlib.sha256(raw).hexdigest() == asset_input_sha256(df, "TEST")
+
+
+def test_benchmark_snapshot_bytes_sha256_matches_benchmark_input_sha256():
+    series = _valid_benchmark_series()
+    raw = benchmark_snapshot_bytes(series)
+    assert isinstance(raw, bytes)
+    assert hashlib.sha256(raw).hexdigest() == benchmark_input_sha256(series)
+
+
+def test_technical_output_bytes_sha256_matches_technical_output_sha256():
+    analysis = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc))
+    raw = technical_output_bytes(analysis)
+    assert isinstance(raw, bytes)
+    assert hashlib.sha256(raw).hexdigest() == technical_output_sha256(analysis)
+
+
+def test_byte_helpers_are_deterministic_across_repeated_calls():
+    df = _valid_asset_df()
+    series = _valid_benchmark_series()
+    analysis = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc))
+
+    assert asset_snapshot_bytes(df, "TEST") == asset_snapshot_bytes(df.copy(deep=True), "TEST")
+    assert benchmark_snapshot_bytes(series) == benchmark_snapshot_bytes(series.copy(deep=True))
+    assert technical_output_bytes(analysis) == technical_output_bytes(analysis.model_copy())
+
+
+def test_asset_snapshot_bytes_are_utf8_compact_json_no_pretty_print():
+    df = _valid_asset_df(1)
+    raw = asset_snapshot_bytes(df, "TEST")
+    text = raw.decode("utf-8")
+    assert "\n" not in text
+    assert ", " not in text  # kompakt separators=(",", ":") -- bosluklu degil
+    assert ": " not in text
+
+
+def test_technical_output_bytes_insensitive_to_created_at_sensitive_to_other_fields():
+    analysis_a = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc))
+    analysis_b = _sample_analysis(datetime(2026, 9, 10, 9, 45, tzinfo=timezone.utc))
+    assert technical_output_bytes(analysis_a) == technical_output_bytes(analysis_b)
+
+    analysis_c = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc), technical_score=42.01)
+    assert technical_output_bytes(analysis_a) != technical_output_bytes(analysis_c)
+    assert hashlib.sha256(technical_output_bytes(analysis_a)).hexdigest() != hashlib.sha256(
+        technical_output_bytes(analysis_c)
+    ).hexdigest()
+
+
+def test_technical_output_bytes_does_not_contain_created_at_key():
+    analysis = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc))
+    text = technical_output_bytes(analysis).decode("utf-8")
+    assert '"created_at"' not in text
