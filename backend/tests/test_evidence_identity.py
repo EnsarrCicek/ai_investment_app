@@ -5,7 +5,7 @@ DIŞINDaki, saf giriş-doğrulama davranışı)."""
 
 import pytest
 
-from app.research.evidence_identity import compute_attempt_id, compute_evaluation_id
+from app.research.evidence_identity import compute_attempt_id, compute_evaluation_id, compute_session_id
 
 
 @pytest.mark.parametrize(
@@ -55,3 +55,39 @@ def test_compute_attempt_id_is_64_lowercase_hex():
     assert len(attempt_id) == 64
     assert attempt_id == attempt_id.lower()
     int(attempt_id, 16)
+
+
+@pytest.mark.parametrize(
+    "malformed_date",
+    ["20260909", "2026-9-9", "2026-W37-4", " 2026-09-09", "2026-09-09 ", "2026-09-09T00:00:00"],
+)
+def test_compute_session_id_rejects_noncanonical_date(malformed_date):
+    with pytest.raises(ValueError):
+        compute_session_id("TECHNICAL_V1_PROTOCOL_V1", malformed_date)
+
+
+def test_compute_session_id_rejects_empty_protocol_version():
+    with pytest.raises(ValueError):
+        compute_session_id("", "2026-09-09")
+
+
+def test_compute_session_id_is_64_lowercase_hex():
+    session_id = compute_session_id("TECHNICAL_V1_PROTOCOL_V1", "2026-09-09")
+    assert len(session_id) == 64
+    assert session_id == session_id.lower()
+    int(session_id, 16)
+
+
+def test_compute_session_id_deterministic_and_symbol_independent():
+    a = compute_session_id("TECHNICAL_V1_PROTOCOL_V1", "2026-09-09")
+    b = compute_session_id("TECHNICAL_V1_PROTOCOL_V1", "2026-09-09")
+    assert a == b
+    # HATA 12N3A: session_id sembol İÇERMEZ -- ayni {protocol_version,
+    # T_session_date} icin, hangi sembolun evaluation_id'si hesaplanirsa
+    # hesaplansin, session_id degismez (zaten symbol parametresi bile
+    # almiyor -- bu test session_id'nin evaluation_id'den farkli/ayri
+    # bir kimlik uzayinda oldugunu acikca gosterir).
+    eval_id_akbnk = compute_evaluation_id("TECHNICAL_V1_PROTOCOL_V1", "2026-09-09", "AKBNK")
+    eval_id_garan = compute_evaluation_id("TECHNICAL_V1_PROTOCOL_V1", "2026-09-09", "GARAN")
+    assert eval_id_akbnk != eval_id_garan
+    assert a not in (eval_id_akbnk, eval_id_garan)

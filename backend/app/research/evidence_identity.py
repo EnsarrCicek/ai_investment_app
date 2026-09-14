@@ -65,6 +65,24 @@ def compute_evaluation_id(protocol_version: str, t_session_date: str, symbol: st
     return content_sha256(identity)
 
 
+def compute_session_id(protocol_version: str, t_session_date: str) -> str:
+    """HATA 12N3A — fiziksel `session_id` -- `{protocol_version,
+    T_session_date}` kanonik kimlik nesnesinin SHA-256'sı, 64 küçük-harf
+    hex karakter. `evaluation_id`'in AYNI iki alanını paylaşır ama
+    KASITLI OLARAK `symbol`'ü İÇERMEZ -- bir seans, frozen evrendeki
+    TÜM sembolleri kapsar, tek bir sembole ait DEĞİLDİR. `attempt_number`/
+    kullanıcı/runtime/zaman damgası/scheduler execution ID de KATILMAZ --
+    fiziksel kimlik yalnızca mantıksal kimlikten türer (HATA 12O/12Q)."""
+    _validate_non_empty_str(protocol_version, "protocol_version")
+    _validate_canonical_date(t_session_date)
+
+    identity = {
+        "protocol_version": protocol_version,
+        "T_session_date": t_session_date,
+    }
+    return content_sha256(identity)
+
+
 def compute_attempt_id(evaluation_id: str, attempt_number: int) -> str:
     """Fiziksel `attempt_id` -- `{evaluation_id, attempt_number}` kanonik
     kimlik nesnesinin SHA-256'sı. `attempt_number` yalnızca 1 veya 2
