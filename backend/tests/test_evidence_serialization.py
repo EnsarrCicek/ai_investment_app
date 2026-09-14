@@ -23,6 +23,7 @@ from app.research.evidence_serialization import (
     benchmark_input_sha256,
     benchmark_snapshot_bytes,
     input_snapshot_sha256,
+    input_snapshot_sha256_from_hashes,
     serialize_asset_snapshot,
     serialize_benchmark_snapshot,
     serialize_float64,
@@ -274,6 +275,11 @@ def test_technical_output_sha256_is_sensitive_to_other_field_changes():
 _GOLDEN_ASSET_SHA256 = "d47fafa069eb433ae36dd2beb6bc1b1d22383e0b2d4124003fcb7757943bff75"
 _GOLDEN_BENCHMARK_SHA256 = "d86fef8c332d0b5400203f231f01c056433b865ae31edfae2ae0a2703f4e6130"
 _GOLDEN_OUTPUT_SHA256 = "7a15eee425dfdd04b0881cf0656d322bb191a95a2f3ee4bec5cd8b9e8e39b1b9"
+# HATA 12N2A: `input_snapshot_sha256()` bu golden'dan HEMEN ONCE (yeni
+# `input_snapshot_sha256_from_hashes()` combinator'una delege edilecek
+# sekilde refactor edilmeden ONCE), su anda kullanilan AYNI fixture'lardan
+# uretilerek kaydedildi.
+_GOLDEN_INPUT_SNAPSHOT_SHA256 = "6ed8904eb19f3d4e6c112c9bcb59f2062ce41f6fbb6bd97d8b6885d3a0256d8f"
 
 
 def test_golden_asset_input_sha256_unchanged_after_byte_helper_refactor():
@@ -289,6 +295,27 @@ def test_golden_benchmark_input_sha256_unchanged_after_byte_helper_refactor():
 def test_golden_technical_output_sha256_unchanged_after_byte_helper_refactor():
     analysis = _sample_analysis(datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc))
     assert technical_output_sha256(analysis) == _GOLDEN_OUTPUT_SHA256
+
+
+def test_golden_input_snapshot_sha256_unchanged_after_combinator_refactor():
+    df = _valid_asset_df()
+    series = _valid_benchmark_series()
+    assert input_snapshot_sha256(df, "TEST", series) == _GOLDEN_INPUT_SNAPSHOT_SHA256
+
+
+def test_input_snapshot_sha256_from_hashes_matches_direct_computation():
+    df = _valid_asset_df()
+    series = _valid_benchmark_series()
+    direct = input_snapshot_sha256(df, "TEST", series)
+    from_hashes = input_snapshot_sha256_from_hashes(asset_input_sha256(df, "TEST"), benchmark_input_sha256(series))
+    assert direct == from_hashes
+
+
+def test_input_snapshot_sha256_from_hashes_rejects_malformed_hash():
+    with pytest.raises(Exception):
+        input_snapshot_sha256_from_hashes("not-a-hash", "b" * 64)
+    with pytest.raises(Exception):
+        input_snapshot_sha256_from_hashes("a" * 64, "not-a-hash")
 
 
 def test_asset_snapshot_bytes_sha256_matches_asset_input_sha256():

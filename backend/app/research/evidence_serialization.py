@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 
 from app.models.technical_analysis import TechnicalAnalysis
+from app.research.evidence_models import validate_sha256_hex
 
 REQUIRED_ASSET_COLUMNS: tuple[str, ...] = ("Open", "High", "Low", "Close", "Volume")
 _FLOAT_ASSET_COLUMNS: tuple[str, ...] = ("Open", "High", "Low", "Close")
@@ -434,15 +435,34 @@ def deserialize_benchmark_snapshot(snapshot: dict) -> pd.Series:
     return series
 
 
+def input_snapshot_sha256_from_hashes(asset_input_sha256_value: str, benchmark_input_sha256_value: str) -> str:
+    """HATA 12N2A: `input_snapshot_sha256()`'ın ZATEN HESAPLANMIŞ asset/
+    benchmark hash'lerinden çalışan TEK, paylaşılan birleştirici (combinator)
+    implementasyonu -- örneğin bir repository, ham `df`/`series` nesnelerini
+    DEĞİL, önceden saklanmış iki hash string'ini elinde tutuyorsa (bkz.
+    `attempt_models.py`, girdi-tutarlılık doğrulaması) bunu kullanır.
+    `input_snapshot_sha256()` (aşağıda) da AYNI bu fonksiyonu çağırır --
+    birleştirme formülü İKİ AYRI yerde YAZILMAZ.
+
+    Fail-fast: her iki değer de kanonik (64 küçük-harf hex) SHA-256 formunda
+    olmalı -- aksi halde `EvidenceIntegrityError`."""
+    validate_sha256_hex(asset_input_sha256_value)
+    validate_sha256_hex(benchmark_input_sha256_value)
+    payload = {
+        "asset_input_sha256": asset_input_sha256_value,
+        "benchmark_input_sha256": benchmark_input_sha256_value,
+    }
+    return _sha256_of(_canonical_json(payload))
+
+
 def input_snapshot_sha256(asset_df: pd.DataFrame, symbol: str, benchmark_series: pd.Series) -> str:
     """Tek bir değerlendirmenin (evaluation) TÜM girdi kanıtını (asset +
     benchmark) TEK bir parmak izinde birleştirir -- ikisinden HERHANGİ
     BİRİ, tek bir bit bile değişse, bu hash değişir."""
-    payload = {
-        "asset_input_sha256": asset_input_sha256(asset_df, symbol),
-        "benchmark_input_sha256": benchmark_input_sha256(benchmark_series),
-    }
-    return _sha256_of(_canonical_json(payload))
+    return input_snapshot_sha256_from_hashes(
+        asset_input_sha256(asset_df, symbol),
+        benchmark_input_sha256(benchmark_series),
+    )
 
 
 # ---------------------------------------------------------------------------
