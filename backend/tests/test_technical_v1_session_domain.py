@@ -59,6 +59,8 @@ def _make_evaluation(
     symbol: str,
     protocol_version: str = PROTOCOL,
     T_session_date: str = T_DATE,
+    protocol_sha256: str = "a" * 64,
+    freeze_manifest_sha256: str = "b" * 64,
     capture_status: CaptureStatus = CaptureStatus.NO_VALID_CAPTURE_AVAILABLE,
     evaluation_integrity_status: EvaluationIntegrityStatus = EvaluationIntegrityStatus.AUDIT_INCOMPLETE,
     technical_observation_eligible: bool = False,
@@ -68,9 +70,9 @@ def _make_evaluation(
         protocol_version=protocol_version,
         T_session_date=T_session_date,
         symbol=symbol,
-        protocol_sha256="a" * 64,
+        protocol_sha256=protocol_sha256,
         methodology_git_commit="c1f0d439d40a709d55007bd8ff34b4a8b2347f95",
-        freeze_manifest_sha256="b" * 64,
+        freeze_manifest_sha256=freeze_manifest_sha256,
         engine_version="1.14.0",
         scoring_config_hash="c" * 64,
         E1_date="2026-09-10",
@@ -438,6 +440,102 @@ def test_build_session_manifest_rejects_wrong_protocol_version_record():
             frozen_symbols=symbols,
             final_evaluations=evaluations,
         )
+
+
+# ---------------------------------------------------------------------------
+# HATA 12N3A-F -- session-level protocol_sha256/freeze_manifest_sha256 vs
+# per-record değerleri arasındaki tutarlılık.
+# ---------------------------------------------------------------------------
+
+
+def test_build_session_manifest_rejects_one_record_protocol_sha256_mismatch():
+    symbols = _frozen_symbols()
+    evaluations = _make_full_session(symbols)
+    # Kayit KENDI ICINDE tamamen gecerli (evaluation_id/protocol_version/
+    # T_session_date/symbol tutarli) -- YALNIZCA protocol_sha256 oturumun
+    # sagladigi degerden FARKLI.
+    evaluations[-1] = _make_evaluation(symbols[-1], protocol_sha256="d" * 64)
+    with pytest.raises(ValueError):
+        sm.build_session_manifest(
+            protocol_version=PROTOCOL,
+            T_session_date=T_DATE,
+            protocol_sha256="a" * 64,
+            freeze_manifest_sha256="b" * 64,
+            frozen_symbols=symbols,
+            final_evaluations=evaluations,
+        )
+
+
+def test_build_session_manifest_rejects_one_record_freeze_manifest_sha256_mismatch():
+    symbols = _frozen_symbols()
+    evaluations = _make_full_session(symbols)
+    evaluations[-1] = _make_evaluation(symbols[-1], freeze_manifest_sha256="e" * 64)
+    with pytest.raises(ValueError):
+        sm.build_session_manifest(
+            protocol_version=PROTOCOL,
+            T_session_date=T_DATE,
+            protocol_sha256="a" * 64,
+            freeze_manifest_sha256="b" * 64,
+            frozen_symbols=symbols,
+            final_evaluations=evaluations,
+        )
+
+
+def test_build_session_manifest_rejects_all_100_records_with_wrong_protocol_sha256():
+    """Yalnizca kayitlarin KENDI ARALARINDA tutarli olmasi YETERSIZDIR --
+    hepsi KENDI ARALARINDA ayni (ama session'in sagladigi degerden FARKLI)
+    bir protocol_sha256 tasisa BILE reddedilmelidir."""
+    symbols = _frozen_symbols()
+    evaluations = [_make_evaluation(symbol, protocol_sha256="d" * 64) for symbol in symbols]
+    with pytest.raises(ValueError):
+        sm.build_session_manifest(
+            protocol_version=PROTOCOL,
+            T_session_date=T_DATE,
+            protocol_sha256="a" * 64,
+            freeze_manifest_sha256="b" * 64,
+            frozen_symbols=symbols,
+            final_evaluations=evaluations,
+        )
+
+
+def test_build_session_manifest_rejects_all_100_records_with_wrong_freeze_manifest_sha256():
+    symbols = _frozen_symbols()
+    evaluations = [_make_evaluation(symbol, freeze_manifest_sha256="e" * 64) for symbol in symbols]
+    with pytest.raises(ValueError):
+        sm.build_session_manifest(
+            protocol_version=PROTOCOL,
+            T_session_date=T_DATE,
+            protocol_sha256="a" * 64,
+            freeze_manifest_sha256="b" * 64,
+            frozen_symbols=symbols,
+            final_evaluations=evaluations,
+        )
+
+
+def test_build_session_manifest_happy_path_still_deterministic_with_matching_hashes():
+    """HATA 12N3A-F section 10: mevcut happy-path (protocol_sha256/
+    freeze_manifest_sha256 tum kayitlarda VE session girdisinde AYNI)
+    hala byte-bir-byte deterministik sekilde insa edilir -- yeni kontrol
+    GECERLI/tutarli girdiyi REDDETMEZ."""
+    symbols = _frozen_symbols()
+    evaluations = _make_full_session(symbols)
+    manifest_a = sm.build_session_manifest(
+        protocol_version=PROTOCOL,
+        T_session_date=T_DATE,
+        protocol_sha256="a" * 64,
+        freeze_manifest_sha256="b" * 64,
+        frozen_symbols=symbols,
+        final_evaluations=evaluations,
+    )
+    manifest_b = sm.build_session_manifest(
+        protocol_version=PROTOCOL,
+        T_session_date=T_DATE,
+        protocol_sha256="a" * 64,
+        freeze_manifest_sha256="b" * 64,
+        frozen_symbols=symbols,
+        final_evaluations=list(reversed(evaluations)),
+    )
+    assert manifest_a.to_document_fields() == manifest_b.to_document_fields()
 
 
 # ---------------------------------------------------------------------------

@@ -489,6 +489,26 @@ def build_session_manifest(
                 f"FinalEvaluation.T_session_date ({evaluation.T_session_date!r}) oturumun "
                 f"T_session_date'i ({T_session_date!r}) ile eşleşmiyor -- yanlış oturuma ait kayıt."
             )
+        # HATA 12N3A-F: manifest'in KENDİ session-seviyesi `protocol_sha256`/
+        # `freeze_manifest_sha256` alanları, BAĞLI 100 FinalEvaluation
+        # kaydının AYNI alanlarıyla ÇELİŞEBİLİRDİ -- `final_evaluation_
+        # records_sha256` yalnızca sağlanan kayıtların KENDİ İÇERİĞİNE
+        # commit eder, session-seviyesi metadata'nın bu içerikle TUTARLI
+        # olduğunu GARANTİ ETMEZ. Bu yüzden builder, manifest'i inşa etmeden
+        # ÖNCE bu tutarlılığı AÇIKÇA doğrular.
+        if evaluation.protocol_sha256 != protocol_sha256:
+            raise ValueError(
+                f"FinalEvaluation.protocol_sha256 ({evaluation.protocol_sha256!r}, evaluation_id="
+                f"{evaluation.evaluation_id}) oturumun protocol_sha256'ı ({protocol_sha256!r}) ile "
+                f"eşleşmiyor -- session-seviyesi metadata ile kayıt içeriği ÇELİŞİYOR."
+            )
+        if evaluation.freeze_manifest_sha256 != freeze_manifest_sha256:
+            raise ValueError(
+                f"FinalEvaluation.freeze_manifest_sha256 ({evaluation.freeze_manifest_sha256!r}, "
+                f"evaluation_id={evaluation.evaluation_id}) oturumun freeze_manifest_sha256'ı "
+                f"({freeze_manifest_sha256!r}) ile eşleşmiyor -- session-seviyesi metadata ile kayıt "
+                f"içeriği ÇELİŞİYOR."
+            )
         recomputed_id = compute_evaluation_id(evaluation.protocol_version, evaluation.T_session_date, evaluation.symbol)
         if recomputed_id != evaluation.evaluation_id:
             raise ValueError(
