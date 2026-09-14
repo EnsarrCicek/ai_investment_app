@@ -31,7 +31,7 @@ from enum import Enum
 from app.research.attempt_models import ALLOWED_ATTEMPT_NUMBERS as _ALLOWED_ATTEMPT_NUMBERS
 from app.research.canonical_hash import content_sha256
 from app.research.evidence_identity import compute_evaluation_id
-from app.research.evidence_models import EvidenceObjectRef, validate_sha256_hex
+from app.research.evidence_models import EvidenceObjectKind, EvidenceObjectRef, validate_sha256_hex
 
 
 class FinalizationRetryableError(RuntimeError):
@@ -292,6 +292,25 @@ class AttemptSummary:
             "verification_reason_code": self.verification_reason_code,
         }
 
+    @classmethod
+    def from_content_fields(cls, data: dict) -> AttemptSummary:
+        """`to_content_fields()`'ın TERSİ -- HATA 12N2B2 section 13.
+        Bilinmeyen/geçersiz bir enum string'i burada doğrudan `ValueError`
+        fırlatır (ör. `AttemptRequirementState("BOZUK")`) -- çağıran
+        repository katmanı bunu KENDİ `ProvenanceConflictError`'ına
+        çevirir, burada SESSİZCE onarılmaz/normalize edilmez."""
+        return cls(
+            attempt_number=data["attempt_number"],
+            attempt_id=data["attempt_id"],
+            requirement_state=AttemptRequirementState(data["requirement_state"]),
+            claim_presence=ClaimPresence(data["claim_presence"]),
+            result_state=ResultState(data["result_state"]),
+            result_classification=data.get("result_classification"),
+            native_reason_code=data.get("native_reason_code"),
+            verification_state=VerificationState(data["verification_state"]),
+            verification_reason_code=data.get("verification_reason_code"),
+        )
+
 
 # ---------------------------------------------------------------------------
 # FinalEvaluation (HATA 12N2B1 section 38)
@@ -308,6 +327,18 @@ def _object_ref_to_content_fields(ref: EvidenceObjectRef | None) -> dict | None:
         "size_bytes": ref.size_bytes,
         "bucket_name": ref.bucket_name,
     }
+
+
+def _object_ref_from_content_fields(data: dict | None) -> EvidenceObjectRef | None:
+    if data is None:
+        return None
+    return EvidenceObjectRef(
+        kind=EvidenceObjectKind(data["kind"]),
+        sha256=data["sha256"],
+        object_name=data["object_name"],
+        size_bytes=data["size_bytes"],
+        bucket_name=data.get("bucket_name"),
+    )
 
 
 @dataclass(frozen=True)
@@ -404,3 +435,53 @@ class FinalEvaluation:
 
     def to_document_fields(self) -> dict:
         return {**self.to_content_fields(), "record_content_sha256": self.record_content_sha256}
+
+    @classmethod
+    def from_document_fields(cls, data: dict) -> FinalEvaluation:
+        """`to_document_fields()`'ın TERSİ -- HATA 12N2B2 section 13.
+        `record_content_sha256` alanı KASITLI OLARAK okunmaz/kullanılmaz
+        (constructor'ın bir parametresi DEĞİLDİR, her zaman `content_
+        sha256` property'si üzerinden yeniden TÜRETİLİR); çağıran taraf
+        (repository) tamper/tutarlılık kontrolü için `evaluation.record_
+        content_sha256`'yı dokümanın saklanan `record_content_sha256`
+        alanıyla AYRICA, bu fonksiyon ÇAĞRILMADAN ÖNCE karşılaştırmalıdır
+        -- bu metod SEMANTİK yeniden kuruluşu yapar, ham içerik-hash
+        doğrulamasını YAPMAZ (o, repository'nin sorumluluğudur).
+
+        Bilinmeyen/geçersiz bir enum string'i veya eksik bir anahtar
+        burada doğrudan `ValueError`/`KeyError` fırlatır -- SESSİZCE
+        onarılmaz/normalize edilmez; çağıran repository bunu KENDİ
+        `ProvenanceConflictError`'ına çevirir."""
+        return cls(
+            evaluation_id=data["evaluation_id"],
+            protocol_version=data["protocol_version"],
+            T_session_date=data["T_session_date"],
+            symbol=data["symbol"],
+            protocol_sha256=data["protocol_sha256"],
+            methodology_git_commit=data["methodology_git_commit"],
+            freeze_manifest_sha256=data["freeze_manifest_sha256"],
+            engine_version=data["engine_version"],
+            scoring_config_hash=data["scoring_config_hash"],
+            E1_date=data["E1_date"],
+            formal_cutoff_timestamp=data["formal_cutoff_timestamp"],
+            capture_status=CaptureStatus(data["capture_status"]),
+            evaluation_integrity_status=EvaluationIntegrityStatus(data["evaluation_integrity_status"]),
+            technical_observation_eligible=data["technical_observation_eligible"],
+            selected_evidence_integrity_complete=data.get("selected_evidence_integrity_complete"),
+            attempt_history_complete=data["attempt_history_complete"],
+            selected_attempt_id=data.get("selected_attempt_id"),
+            attempt_1_summary=AttemptSummary.from_content_fields(data["attempt_1_summary"]),
+            attempt_2_summary=AttemptSummary.from_content_fields(data["attempt_2_summary"]),
+            orchestration_anomaly_codes=frozenset(
+                OrchestrationAnomalyCode(code) for code in data.get("orchestration_anomaly_codes", [])
+            ),
+            selected_asset_input_sha256=data.get("selected_asset_input_sha256"),
+            selected_benchmark_input_sha256=data.get("selected_benchmark_input_sha256"),
+            selected_input_snapshot_sha256=data.get("selected_input_snapshot_sha256"),
+            selected_technical_output_sha256=data.get("selected_technical_output_sha256"),
+            selected_asset_object_ref=_object_ref_from_content_fields(data.get("selected_asset_object_ref")),
+            selected_benchmark_object_ref=_object_ref_from_content_fields(data.get("selected_benchmark_object_ref")),
+            selected_technical_output_object_ref=_object_ref_from_content_fields(
+                data.get("selected_technical_output_object_ref")
+            ),
+        )
