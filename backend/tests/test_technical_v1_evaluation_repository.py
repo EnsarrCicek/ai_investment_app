@@ -277,6 +277,133 @@ def test_existing_document_with_extra_unexpected_field_is_conflict(repo, fake_db
         repo.create(evaluation)
 
 
+# ---------------------------------------------------------------------------
+# HATA 12N2B2-F -- ADVERSARIAL "hash-consistent ama kanonik DEGIL" senaryolari.
+#
+# Yukaridaki testler, tamper YAPILIP hash'in ESKI/stale KALDIGI (veya baska
+# bir gecerli hash ile DEGISTIRILDIGI) durumlari kapsar -- bunlarin hepsi
+# HAM ICERIK HASH KONTROLUNDE (adim 2) yakalanir. Asagidaki testler ise
+# DAHA GUCLU bir saldirgan modelini kapsar: saldirgan/bozuk bir yazici
+# gövdeyi degistirir VE `record_content_sha256`'yi o DEGISTIRILMIS govde
+# uzerinden DOGRU sekilde yeniden hesaplar -- yani ham hash kontrolu
+# GECER. Bu durumda YALNIZCA yeni "tam ham sema roundtrip" kontrolu
+# (`canonical_reconstructed == raw_fields`) bu tahribati yakalayabilir.
+# ---------------------------------------------------------------------------
+
+
+def _rehash(content_fields: dict) -> str:
+    """Verilen (record_content_sha256 HARIC) icerik alanlari uzerinden
+    KANONIK/DOGRU record_content_sha256'yi yeniden hesaplar -- testlerde
+    "saldirgan kendi hash'ini dogru hesapladi" senaryosunu simule etmek
+    icin kullanilir."""
+    return content_sha256({k: v for k, v in content_fields.items() if k != "record_content_sha256"})
+
+
+def test_top_level_extra_field_with_correctly_recomputed_hash_is_conflict(repo, fake_db):
+    """Section 5: ham hash icsel olarak GECERLI (saldirgan dogru
+    hesapladi), ama kanonik semada olmayan bir ust-duzey alan var --
+    yalnizca YENI roundtrip kontrolu bunu yakalayabilir."""
+    evaluation = _make_final_evaluation()
+    stored = _seed_existing(fake_db, evaluation)
+
+    tampered = dict(stored)
+    tampered["unexpected_field"] = "x"
+    tampered["record_content_sha256"] = _rehash(tampered)
+    fake_db.raw_store(COLLECTION)[evaluation.evaluation_id] = tampered
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.create(evaluation)
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.get_verified(evaluation.evaluation_id)
+
+
+def test_nested_extra_field_with_correctly_recomputed_hash_is_conflict(repo, fake_db):
+    """Section 6: `attempt_1_summary` icine beklenmeyen bir IC ICE
+    (nested) alan eklenir, UST-DUZEY hash DOGRU sekilde yeniden
+    hesaplanir -- nested normalizasyon da yasaklanmalidir."""
+    evaluation = _make_final_evaluation()
+    stored = _seed_existing(fake_db, evaluation)
+
+    tampered = dict(stored)
+    tampered["attempt_1_summary"] = {**tampered["attempt_1_summary"], "unexpected_nested_field": "x"}
+    tampered["record_content_sha256"] = _rehash(tampered)
+    fake_db.raw_store(COLLECTION)[evaluation.evaluation_id] = tampered
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.create(evaluation)
+
+
+def test_missing_top_level_nullable_key_with_correctly_recomputed_hash_is_conflict(repo, fake_db):
+    """Section 7: `to_document_fields()` `selected_attempt_id`'yi HER
+    ZAMAN acikca (deger `None` olsa bile) bir anahtar olarak yayinlar.
+    Bu anahtar ham dokumandan TAMAMEN silinip ust-duzey hash DOGRU
+    yeniden hesaplanirsa, "anahtar eksik" ile "anahtar: null" ayni
+    SAYILMAMALIDIR."""
+    evaluation = _make_final_evaluation()
+    stored = _seed_existing(fake_db, evaluation)
+    assert "selected_attempt_id" in stored
+    assert stored["selected_attempt_id"] is None
+
+    tampered = dict(stored)
+    del tampered["selected_attempt_id"]
+    tampered["record_content_sha256"] = _rehash(tampered)
+    fake_db.raw_store(COLLECTION)[evaluation.evaluation_id] = tampered
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.create(evaluation)
+
+
+def test_missing_nested_nullable_key_with_correctly_recomputed_hash_is_conflict(repo, fake_db):
+    """Section 8: `AttemptSummary.to_content_fields()` `native_reason_
+    code`'u HER ZAMAN acikca (deger `None` olsa bile) yayinlar. Bu ic ice
+    (nested) anahtar tamamen silinip UST-DUZEY hash DOGRU yeniden
+    hesaplanirsa, yeniden kuruluş bunu SESSIZCE `None`'a normalize
+    ETMEMELIDIR."""
+    evaluation = _make_final_evaluation()
+    stored = _seed_existing(fake_db, evaluation)
+    assert "native_reason_code" in stored["attempt_1_summary"]
+    assert stored["attempt_1_summary"]["native_reason_code"] is None
+
+    tampered = dict(stored)
+    nested = dict(tampered["attempt_1_summary"])
+    del nested["native_reason_code"]
+    tampered["attempt_1_summary"] = nested
+    tampered["record_content_sha256"] = _rehash(tampered)
+    fake_db.raw_store(COLLECTION)[evaluation.evaluation_id] = tampered
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.create(evaluation)
+
+
+def test_duplicate_anomaly_codes_are_not_silently_deduplicated(repo, fake_db):
+    """Section 9: GERCEK bir normalizasyon yolu -- `orchestration_
+    anomaly_codes` yeniden kuruluş sirasinda bir `frozenset` uzerinden
+    gecer (`FinalEvaluation.from_document_fields`), bu da ham listede
+    var olan YINELENEN (duplicate) girdileri SESSIZCE tekillestirir.
+    Ham listede iki KEZ tekrar eden ayni kod + DOGRU yeniden hesaplanmis
+    bir ust-duzey hash ile, eski (roundtrip-oncesi) kontrol bunu
+    YAKALAYAMAZDI -- yeni tam-sema roundtrip kontrolu YAKALAR (yeniden
+    kurulan modelin sirali/tekil listesi, ham dokumanin 2 elemanli
+    listesiyle ARTIK ESLESMEZ)."""
+    evaluation = _make_final_evaluation(
+        anomaly_codes=frozenset({OrchestrationAnomalyCode.ATTEMPT_2_EXECUTED_DESPITE_NOT_REQUIRED})
+    )
+    stored = _seed_existing(fake_db, evaluation)
+    assert stored["orchestration_anomaly_codes"] == ["ATTEMPT_2_EXECUTED_DESPITE_NOT_REQUIRED"]
+
+    tampered = dict(stored)
+    tampered["orchestration_anomaly_codes"] = [
+        "ATTEMPT_2_EXECUTED_DESPITE_NOT_REQUIRED",
+        "ATTEMPT_2_EXECUTED_DESPITE_NOT_REQUIRED",
+    ]
+    tampered["record_content_sha256"] = _rehash(tampered)
+    fake_db.raw_store(COLLECTION)[evaluation.evaluation_id] = tampered
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.create(evaluation)
+
+
 @pytest.mark.parametrize(
     "malformed_hash",
     [

@@ -68,12 +68,28 @@ def _verify_and_reconstruct(expected_evaluation_id: str, raw_fields: dict) -> Fi
       1. saklanan `record_content_sha256` kanonik (64 küçük-harf hex) mi?
       2. TÜM diğer alanlardan (kendisi HARİÇ) yeniden hesaplanan hash,
          saklanan değerle EŞLEŞİYOR mu? (nesne ADI/saklanan string TEK
-         BAŞINA ASLA güvenilmez; beklenmeyen bir FAZLA alan bile bu
-         karşılaştırmayı BAŞARISIZ KILAR -- section 9.)
+         BAŞINA ASLA güvenilmez.)
       3. semantik yeniden kuruluş (`FinalEvaluation.from_document_
          fields()`) başarılı mı? (hash-tutarlı ama enum/şema açısından
          imkânsız bir doküman burada YAKALANIR.)
-      4. yeniden kurulan kaydın KENDİ kimlik alanları (evaluation_id/
+      4. HATA 12N2B2-F -- TAM HAM ŞEMA ROUNDTRIP KONTROLÜ: yeniden
+         kurulan modelin KENDİ `to_document_fields()` çıktısı, ham
+         dokümanla (`raw_fields`, `record_content_sha256` dahil) TAM
+         OLARAK (Python yapısal `==`) aynı mı? Ham içerik-hash TEK
+         BAŞINA bunu YAKALAYAMAZ, çünkü bir saldırgan/bozuk bir yazıcı
+         KENDİ değiştirilmiş gövdesi üzerinden `record_content_sha256`'yı
+         DOĞRU şekilde yeniden hesaplayabilir (iç tutarlı ama kanonik
+         DEĞİL). Bu adım şunları yakalar: beklenmeyen bir üst-düzey FAZLA
+         alan, beklenmeyen bir İÇ İÇE (nested, ör. `attempt_1_summary`
+         içinde) fazla alan, `to_document_fields()`'in HER ZAMAN açıkça
+         yaydığı (`null` olsa bile) bir anahtarın ham dokümandan TAMAMEN
+         EKSİK olması (üst-düzey veya iç içe), ve yeniden kuruluş
+         sırasında sessizce normalize edilen herhangi bir temsil (ör.
+         yinelenen `orchestration_anomaly_codes` girdilerinin bir
+         `frozenset` üzerinden SESSİZCE tekilleştirilmesi). SADECE bu
+         kontrol GEÇTİKTEN SONRA doküman kanonik şemayla TAM eşleşmiş
+         SAYILIR.
+      5. yeniden kurulan kaydın KENDİ kimlik alanları (evaluation_id/
          protocol_version/T_session_date/symbol), hem bağımsız olarak
          yeniden hesaplanan `compute_evaluation_id(...)` İLE hem de
          BEKLENEN (istenen) doküman ID'si İLE eşleşiyor mu?
@@ -115,6 +131,20 @@ def _verify_and_reconstruct(expected_evaluation_id: str, raw_fields: dict) -> Fi
             f"technical_v1_evaluations/{expected_evaluation_id}: içerik hash'i geçerli ama doküman "
             f"semantik olarak FinalEvaluation şemasıyla tutarsız: {exc}"
         ) from exc
+
+    # HATA 12N2B2-F: ham hash tek başına yeterli değil -- yeniden kurulan
+    # modelin kanonik yazımı, ham dokümanla (kendisi HARİÇ hiçbir alan
+    # ELENMEDEN) TAM OLARAK eşleşmek ZORUNDADIR. Aksi halde bilinmeyen/
+    # eksik/normalize edilmiş bir alan (üst-düzey veya iç içe) SESSİZCE
+    # kabul edilmiş olurdu.
+    canonical_reconstructed = evaluation.to_document_fields()
+    if canonical_reconstructed != raw_fields:
+        raise ProvenanceConflictError(
+            f"technical_v1_evaluations/{expected_evaluation_id}: ham doküman içerik-hash açısından "
+            f"içsel olarak tutarlı olsa da, yeniden kurulan modelin kanonik `to_document_fields()` "
+            f"çıktısı ham dokümanla TAM OLARAK eşleşmiyor -- bilinmeyen/eksik/normalize edilmiş bir "
+            f"alan şüphesi (üst-düzey veya iç içe). Sessiz şema normalizasyonu ASLA kabul edilmez."
+        )
 
     recomputed_evaluation_id = compute_evaluation_id(
         evaluation.protocol_version, evaluation.T_session_date, evaluation.symbol
