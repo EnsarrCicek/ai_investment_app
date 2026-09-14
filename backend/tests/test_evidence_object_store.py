@@ -13,10 +13,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from google.api_core.exceptions import PreconditionFailed
+from google.cloud.exceptions import NotFound
 
 from app.research.evidence_models import (
     EvidenceIntegrityError,
     EvidenceObjectKind,
+    EvidenceObjectNotFoundError,
     EvidenceObjectRef,
     ObjectStoreError,
     ProvenanceConflictError,
@@ -183,11 +185,15 @@ def test_fake_store_get_verified_detects_internal_content_corruption():
         store.get_verified(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
 
 
-def test_fake_store_get_verified_missing_object_raises_object_store_error():
+def test_fake_store_get_verified_missing_object_raises_evidence_object_not_found_error():
+    """HATA 12N1-F: eksik nesne artik daha KESIN bir alt-siniftir --
+    `isinstance(error, ObjectStoreError)` HALA True olmali (geriye donuk
+    uyumluluk, mevcut genel yakalama noktalari bozulmaz)."""
     store = FakeEvidenceObjectStore()
     digest = "d" * 64
-    with pytest.raises(ObjectStoreError):
+    with pytest.raises(EvidenceObjectNotFoundError) as exc_info:
         store.get_verified(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    assert isinstance(exc_info.value, ObjectStoreError)
 
 
 def test_fake_store_different_kinds_do_not_collide_even_with_same_bytes():
@@ -303,8 +309,48 @@ def test_gcs_store_transport_exception_does_not_become_idempotent_success():
     blob = bucket.blob(object_name)
     blob.upload_from_string.side_effect = ConnectionError("network blip")
 
-    with pytest.raises(ObjectStoreError):
+    with pytest.raises(ObjectStoreError) as exc_info:
         store.put_immutable(EvidenceObjectKind.ASSET_SNAPSHOT, digest, raw)
+    # HATA 12N1-F kritik regresyon: bilinmeyen/gecici bir transport hatasi
+    # ASLA "kesin olarak yok" olarak YORUMLANMAZ.
+    assert not isinstance(exc_info.value, EvidenceObjectNotFoundError)
+
+
+def test_gcs_store_precondition_failed_then_subsequent_notfound_is_not_idempotent():
+    """HATA 12N1-F section 6/13: NADIR YARIS DURUMU -- upload
+    `PreconditionFailed` doner (nesne bir an once VARDI), ama yeniden-okuma
+    GERCEK bir `NotFound` ile karsilasir (ornegin out-of-band bir silme).
+    Bu ASLA IDEMPOTENT_REUSE'a (basarili donuse) DUSMEMELI -- acikca
+    `EvidenceObjectNotFoundError` firlatmali."""
+    store, bucket = _make_store_with_mock_bucket()
+    raw = b'{"a":1}'
+    digest = _sha256_hex(raw)
+    object_name = object_name_for(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+
+    blob = bucket.blob(object_name)
+    blob.upload_from_string.side_effect = PreconditionFailed("already exists")
+    blob.download_as_bytes.side_effect = NotFound("object vanished between check and read")
+
+    with pytest.raises(EvidenceObjectNotFoundError):
+        store.put_immutable(EvidenceObjectKind.ASSET_SNAPSHOT, digest, raw)
+
+
+def test_gcs_store_precondition_failed_then_subsequent_transient_error_is_not_idempotent():
+    """Ayni yaris durumu ama yeniden-okuma NotFound DEGIL, bilinmeyen/gecici
+    bir hata ile karsilasirsa -- yine ASLA idempotent basari OLMAMALI, ve
+    ASLA EvidenceObjectNotFoundError olarak YANLIS siniflandirilmamali."""
+    store, bucket = _make_store_with_mock_bucket()
+    raw = b'{"a":1}'
+    digest = _sha256_hex(raw)
+    object_name = object_name_for(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+
+    blob = bucket.blob(object_name)
+    blob.upload_from_string.side_effect = PreconditionFailed("already exists")
+    blob.download_as_bytes.side_effect = ConnectionError("network blip during race re-read")
+
+    with pytest.raises(ObjectStoreError) as exc_info:
+        store.put_immutable(EvidenceObjectKind.ASSET_SNAPSHOT, digest, raw)
+    assert not isinstance(exc_info.value, EvidenceObjectNotFoundError)
 
 
 def test_gcs_store_wrong_expected_hash_fails_before_upload_call():
@@ -337,18 +383,60 @@ def test_gcs_store_get_verified_mismatch_raises_provenance_conflict():
     object_name = object_name_for(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
     bucket.blob(object_name).download_as_bytes.return_value = b'{"a":999}'  # istenenle TUTARSIZ
 
-    with pytest.raises(ProvenanceConflictError):
+    with pytest.raises(ProvenanceConflictError) as exc_info:
         store.get_verified(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    # HATA 12N1-F section 12: hash uyusmazligi ASLA EvidenceObjectNotFoundError
+    # olarak yanlis siniflandirilmamali -- nesne INDIRILDI, sadece icerigi yanlis.
+    assert not isinstance(exc_info.value, EvidenceObjectNotFoundError)
+
+
+def test_gcs_store_get_verified_notfound_raises_evidence_object_not_found_error():
+    """HATA 12N1-F section 10: gercek, dogrulanmis bir GCS NotFound ->
+    EvidenceObjectNotFoundError (kesin), gecici/bilinmeyen bir hatadan
+    AYRI ve DAHA KESIN."""
+    store, bucket = _make_store_with_mock_bucket()
+    digest = "e" * 64
+    object_name = object_name_for(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    bucket.blob(object_name).download_as_bytes.side_effect = NotFound("object does not exist")
+
+    with pytest.raises(EvidenceObjectNotFoundError) as exc_info:
+        store.get_verified(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    assert isinstance(exc_info.value, ObjectStoreError)
 
 
 def test_gcs_store_get_verified_transport_exception_raises_object_store_error():
+    """HATA 12N1-F section 11: N2B icin KRITIK regresyon testi -- bilinmeyen/
+    gecici bir depolama hatasi (ornegin ag kesintisi) ASLA EvidenceObjectNotFoundError
+    olarak YANLIS siniflandirilmamali; yalnizca genel ObjectStoreError'dur."""
     store, bucket = _make_store_with_mock_bucket()
     digest = "e" * 64
     object_name = object_name_for(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
     bucket.blob(object_name).download_as_bytes.side_effect = ConnectionError("network blip")
 
-    with pytest.raises(ObjectStoreError):
+    with pytest.raises(ObjectStoreError) as exc_info:
         store.get_verified(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    assert not isinstance(exc_info.value, EvidenceObjectNotFoundError)
+
+
+@pytest.mark.parametrize(
+    "transient_exc",
+    [
+        ConnectionError("network blip"),
+        TimeoutError("timed out"),
+    ],
+)
+def test_gcs_store_get_verified_various_transient_errors_never_classified_as_not_found(transient_exc):
+    """HATA 12N1-F section 5: timeout/DNS/servis-kullanilamiyor/yetkilendirme/
+    izin/bilinmeyen istisnalarin HICBIRI 'kesin olarak yok' olarak
+    yorumlanmamali -- yalnizca gercek NotFound bu anlami tasir."""
+    store, bucket = _make_store_with_mock_bucket()
+    digest = "f" * 64
+    object_name = object_name_for(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    bucket.blob(object_name).download_as_bytes.side_effect = transient_exc
+
+    with pytest.raises(ObjectStoreError) as exc_info:
+        store.get_verified(EvidenceObjectKind.ASSET_SNAPSHOT, digest)
+    assert not isinstance(exc_info.value, EvidenceObjectNotFoundError)
 
 
 def test_gcs_store_never_calls_generic_update_or_set_methods():

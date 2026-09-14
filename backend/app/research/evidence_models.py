@@ -44,7 +44,39 @@ class ObjectStoreError(RuntimeError):
     çelişki olduğunu, bu ise depolama katmanının KENDİSİNİN (geçici veya
     kalıcı) başarısız olduğunu gösterir -- üçü de FARKLI kurtarma/retry
     semantikleri gerektirir, bu yüzden ASLA aynı istisna sınıfına
-    indirgenmez. Bir transport hatası ASLA idempotent başarı sayılmaz."""
+    indirgenmez. Bir transport hatası ASLA idempotent başarı sayılmaz.
+
+    Bu sınıfın KENDİSİ "bilinmeyen/geçici" anlamına gelir -- "bu nesne
+    kesin olarak yok" İDDİASINI TAŞIMAZ (bkz. `EvidenceObjectNotFoundError`,
+    aşağıda, HATA 12N1-F)."""
+
+
+class EvidenceObjectNotFoundError(ObjectStoreError):
+    """HATA 12N1-F: istenen içerik-adresli evidence nesnesi KESİN OLARAK
+    yok (ör. GCS'in kendi gerçek `NotFound`/404 yanıtı doğrulandı) --
+    `ObjectStoreError`'ın bir ALT SINIFIDIR (mevcut genel `except
+    ObjectStoreError` yakalama noktaları bunu da geriye dönük uyumlu
+    şekilde yakalar), ama DAHA KESİN bir anlam taşır.
+
+    KASITLI OLARAK ŞUNLARI TEMSİL ETMEZ (bunlar düz `ObjectStoreError`
+    olarak KALIR -- "bilmiyorum, geçici olabilir, tekrar dene" anlamına
+    gelir, ASLA "kesin olarak yok" olarak YORUMLANMAZ):
+      - timeout
+      - DNS/ağ hatası
+      - servis kullanılamıyor (ServiceUnavailable)
+      - kimlik doğrulama hatası
+      - izin hatası (Forbidden/Unauthorized)
+      - hız sınırı (TooManyRequests)
+      - ağ geçidi zaman aşımı (GatewayTimeout)
+      - bilinmeyen/sınıflandırılamayan depolama istisnası
+      - SHA/içerik uyuşmazlığı (bu `ProvenanceConflictError`'dır, AYRI)
+
+    Bu ayrım, ileride bir N2B finalizer'ının 'bu nesne kesin olarak yok,
+    kalıcı bir evidence-integrity durumu üret' ile 'bilinmiyor, şimdi
+    kesin bir sonuç ÜRETME, tekrar dene' kararları arasında GÜVENLE
+    seçim yapabilmesi için gereklidir -- geçici bir depolama arızasının
+    kalıcı bir prospective veri kümesi kararını YANLIŞLIKLA değiştirmesini
+    önler."""
 
 
 class EvidenceObjectKind(str, Enum):

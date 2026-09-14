@@ -33,6 +33,7 @@ from typing import Protocol, runtime_checkable
 from app.research.evidence_models import (
     EvidenceIntegrityError,
     EvidenceObjectKind,
+    EvidenceObjectNotFoundError,
     EvidenceObjectRef,
     ObjectStoreError,
     ProvenanceConflictError,
@@ -99,7 +100,7 @@ class FakeEvidenceObjectStore:
         object_name = object_name_for(kind, expected_sha256)
         raw_bytes = self._objects.get(object_name)
         if raw_bytes is None:
-            raise ObjectStoreError(f"Nesne bulunamadı: {object_name}")
+            raise EvidenceObjectNotFoundError(f"Nesne bulunamadı: {object_name}")
         actual = hashlib.sha256(raw_bytes).hexdigest()
         if actual != expected_sha256:
             raise ProvenanceConflictError(
@@ -132,6 +133,25 @@ class GCSEvidenceObjectStore:
             self._client = storage.Client()
         return self._client.bucket(self._bucket_name)
 
+    @staticmethod
+    def _download_verified_bytes(bucket, object_name: str) -> bytes:
+        """HATA 12N1-F: `put_immutable()`'ın var-olan-nesne yeniden-okuma
+        yolu (aşağıda, `PreconditionFailed` sonrası) ile `get_verified()`
+        AYNI istisna sınıflandırma mantığını kullanır -- iki AYRI yerde
+        YAZILMAZ. `NotFound` KESİN OLARAK yok anlamına gelir; başka HER
+        ŞEY (timeout/ağ/yetkilendirme/servis kullanılamıyor/bilinmeyen)
+        geçici/bilinmeyen kabul edilir, ASLA "kesin olarak yok" değildir."""
+        from google.cloud.exceptions import NotFound
+
+        try:
+            return bucket.blob(object_name).download_as_bytes()
+        except NotFound as exc:
+            raise EvidenceObjectNotFoundError(
+                f"GCS nesnesi kesin olarak bulunamadı (object_name={object_name}): {exc}"
+            ) from exc
+        except Exception as exc:
+            raise ObjectStoreError(f"GCS indirme başarısız (object_name={object_name}): {exc}") from exc
+
     def put_immutable(
         self, kind: EvidenceObjectKind, expected_sha256: str, raw_bytes: bytes
     ) -> EvidenceObjectRef:
@@ -149,7 +169,20 @@ class GCSEvidenceObjectStore:
             # olan nesnenin HAM baytları indirilip yeniden hash'lenir.
             # GCS'in kendi MD5/CRC32C'si KULLANILMAZ (Technical V1'in
             # kanonik kimliği DEĞİLDİR).
-            existing_bytes = bucket.blob(object_name).download_as_bytes()
+            #
+            # HATA 12N1-F: NADİR YARIŞ DURUMU -- `upload_from_string()`
+            # `PreconditionFailed` döndürdü (nesne bir an önce VARDI), ama
+            # bu yeniden-okuma (ör. bir out-of-band silme nedeniyle) GERÇEK
+            # bir `NotFound`/geçici bir hata ile karşılaşabilir. Bu çağrı
+            # KASITLI OLARAK BURADA (bu `except` bloğunun İÇİNDE) hiçbir ek
+            # try/except OLMADAN `_download_verified_bytes()`'i çağırır --
+            # bu yardımcı KENDİ İÇİNDE `EvidenceObjectNotFoundError`/
+            # `ObjectStoreError` fırlatırsa, bu istisna doğrudan yukarı
+            # (bu fonksiyonun DIŞINA) yayılır ve ASLA aşağıdaki genel
+            # `except Exception` dalına (o yalnızca ORİJİNAL `try` gövdesini
+            # sarar) YAKALANMAZ -- dolayısıyla ASLA `IDEMPOTENT_REUSE`'a
+            # (bu fonksiyonun normal dönüşüne) SESSİZCE düşemez.
+            existing_bytes = self._download_verified_bytes(bucket, object_name)
             existing_actual = hashlib.sha256(existing_bytes).hexdigest()
             if existing_actual != expected_sha256 or existing_bytes != raw_bytes:
                 raise ProvenanceConflictError(
@@ -174,10 +207,14 @@ class GCSEvidenceObjectStore:
         validate_sha256_hex(expected_sha256)
         object_name = object_name_for(kind, expected_sha256)
         bucket = self._get_bucket()
-        try:
-            raw_bytes = bucket.blob(object_name).download_as_bytes()
-        except Exception as exc:
-            raise ObjectStoreError(f"GCS indirme başarısız (object_name={object_name}): {exc}") from exc
+
+        # HATA 12N1-F: `put_immutable()`'ın var-olan-nesne yeniden-okuma
+        # yoluyla AYNI istisna sınıflandırma mantığı -- `NotFound` ->
+        # `EvidenceObjectNotFoundError` (kesin), başka HER ŞEY (timeout/
+        # ağ/yetkilendirme/servis kullanılamıyor/bilinmeyen) ->
+        # `ObjectStoreError` (geçici/bilinmeyen, ASLA "kesin olarak yok"
+        # değil).
+        raw_bytes = self._download_verified_bytes(bucket, object_name)
 
         actual = hashlib.sha256(raw_bytes).hexdigest()
         if actual != expected_sha256:
