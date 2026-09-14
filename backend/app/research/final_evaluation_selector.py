@@ -118,6 +118,41 @@ def _classify_claim(
     return ClaimPresence.CLAIMED, actual_identity == expected_identity
 
 
+_BLOCKED_CLASSIFICATION_REQUIRED_FAILING_GATE: dict[AttemptResultClassification, str] = {
+    AttemptResultClassification.BLOCKED_CONFIG_DRIFT: "config_gate_result",
+    AttemptResultClassification.BLOCKED_METHODOLOGY_DRIFT: "methodology_gate_result",
+    AttemptResultClassification.BLOCKED_RUNTIME_IDENTITY: "runtime_gate_result",
+    AttemptResultClassification.BLOCKED_UNIVERSE_OR_ASSET_CONFIG: "universe_gate_result",
+}
+
+
+def _classification_gate_consistency_holds(result: AttemptResult) -> bool:
+    """HATA 12N2B1-F: `result_classification` ile frozen gate alanları
+    arasında taksonominin KENDİSİNDEN gelen, KAÇINILMAZ ilişkileri
+    doğrular -- kanıtsız bir tam-matris İCAT EDİLMEZ (section 4/5):
+
+      - `VALID_CANDIDATE` <=> dört gate'in TÜMÜ `PASS` (aksi halde kayıt
+        kendi içinde ÇELİŞKİLİDİR -- "geçerli aday" iddiası ile
+        "bir ön-uçuş kapısı geçmedi" gerçeği AYNI ANDA doğru olamaz).
+      - Her `BLOCKED_*` sınıflandırması <=> KENDİ karşılık gelen
+        gate'inin `FAIL` olması (ör. `BLOCKED_CONFIG_DRIFT` yalnızca
+        `config_gate_result == FAIL` iken anlamlıdır). DİĞER üç gate'in
+        değeri BU KURAL TARAFINDAN KISITLANMAZ -- worker'ın gate
+        değerlendirme SIRASI hakkında (henüz hiçbir worker
+        implementasyonu YOKKEN) kanıtsız bir varsayım YAPILMAZ.
+      - `EXCLUSION`/`FAILED` için HİÇBİR gate ilişkisi taksonomiden
+        GARANTİ EDİLMEZ (section 5) -- bu ikisi için HER ZAMAN `True`
+        döner, yapay bir kısıt EKLENMEZ.
+    """
+    classification = result.result_classification
+    if classification == AttemptResultClassification.VALID_CANDIDATE:
+        return _all_gates_pass(result)
+    required_failing_gate_field = _BLOCKED_CLASSIFICATION_REQUIRED_FAILING_GATE.get(classification)
+    if required_failing_gate_field is not None:
+        return getattr(result, required_failing_gate_field) == GateCheckResult.FAIL
+    return True  # EXCLUSION / FAILED
+
+
 def _classify_result(
     result_doc: PersistedAttemptResultDocument | None,
     expected_identity: dict,
@@ -171,6 +206,16 @@ def _classify_result(
             or trusted_result.technical_output_object_ref is None
         ):
             return ResultState.INTEGRITY_INVALID, VerificationState.RESULT_SEMANTIC_INVALID, None, None, None
+
+    # HATA 12N2B1-F: `result_classification` ile frozen gate alanları
+    # arasındaki taksonomiden-kaynaklanan kaçınılmaz ilişki de AYNI adımda
+    # (5) doğrulanır -- `VALID_CANDIDATE` iddiası + herhangi bir gate'in
+    # `FAIL` olması (veya tersine, bir `BLOCKED_*` iddiası + karşılık
+    # gelen gate'in `PASS` olması) kendi içinde ÇELİŞKİLİDİR; bu bir
+    # ordinary/trusted terminal sonuç OLARAK KABUL EDİLMEZ, sınıflandırma/
+    # native reason YİNE DE dışarı sızdırılmaz.
+    if not _classification_gate_consistency_holds(trusted_result):
+        return ResultState.INTEGRITY_INVALID, VerificationState.RESULT_SEMANTIC_INVALID, None, None, None
 
     # Adım 6: claim/result kimlik ilişkisi -- kayıt kendi içinde tutarlı
     # (adım 4/5 geçti) OLSA BİLE, karşılık gelen claim yoksa/tutarsızsa

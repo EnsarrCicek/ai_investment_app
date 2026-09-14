@@ -130,7 +130,29 @@ def _make_valid_result(
     return AttemptResult(**kwargs)
 
 
+_BLOCKED_CLASSIFICATION_FAILING_GATE_FIELD = {
+    AttemptResultClassification.BLOCKED_CONFIG_DRIFT: "config_gate_result",
+    AttemptResultClassification.BLOCKED_METHODOLOGY_DRIFT: "methodology_gate_result",
+    AttemptResultClassification.BLOCKED_RUNTIME_IDENTITY: "runtime_gate_result",
+    AttemptResultClassification.BLOCKED_UNIVERSE_OR_ASSET_CONFIG: "universe_gate_result",
+}
+
+
 def _make_nonvalid_result(attempt_number: int, classification: AttemptResultClassification, native_reason_code: str | None = None) -> AttemptResult:
+    # HATA 12N2B1-F: bir BLOCKED_* siniflandirmasi, KENDI karsilik gelen
+    # gate'inin FAIL olmasini GEREKTIRIR (taksonomiden kaynaklanan
+    # kacinilmaz iliski) -- diger uc gate PASS'ta birakilir (section 4:
+    # onlarin degeri bu siniflandirma tarafindan KISITLANMAZ).
+    gates = dict(
+        config_gate_result=GateCheckResult.PASS,
+        methodology_gate_result=GateCheckResult.PASS,
+        runtime_gate_result=GateCheckResult.PASS,
+        universe_gate_result=GateCheckResult.PASS,
+    )
+    failing_field = _BLOCKED_CLASSIFICATION_FAILING_GATE_FIELD.get(classification)
+    if failing_field is not None:
+        gates[failing_field] = GateCheckResult.FAIL
+
     return AttemptResult(
         attempt_id=_attempt_id(attempt_number),
         evaluation_id=_eval_id(),
@@ -140,14 +162,11 @@ def _make_nonvalid_result(attempt_number: int, classification: AttemptResultClas
         symbol=SYMBOL,
         scheduled_for="2026-09-10T09:00:00+03:00",
         runtime_fingerprint="rev-x",
-        config_gate_result=GateCheckResult.PASS,
-        methodology_gate_result=GateCheckResult.PASS,
-        runtime_gate_result=GateCheckResult.PASS,
-        universe_gate_result=GateCheckResult.PASS,
         result_classification=classification,
         native_reason_code=native_reason_code,
         started_at="2026-09-10T09:00:00+03:00",
         finished_at="2026-09-10T09:00:05+03:00",
+        **gates,
     )
 
 
@@ -704,11 +723,15 @@ def test_claim_identity_mismatch_is_claim_relation_invalid():
     assert fe.attempt_1_summary.verification_state == VerificationState.CLAIM_RELATION_INVALID
 
 
-def test_gate_not_all_pass_on_valid_candidate_stays_trusted_but_does_not_qualify():
-    """HATA 12N2B1 duzeltmesi: bu ARTIK RESULT_SEMANTIC_INVALID DEGIL --
-    kayit VERIFIED/TERMINAL_RESULT olarak GUVENILIR kalir, yalnizca
-    adaylik saglamaz (section 16/23'un ayirdigi semantik-doğrulama vs
-    siniflandirma/gate adimlari)."""
+def test_gate_not_all_pass_on_valid_candidate_is_semantically_invalid():
+    """HATA 12N2B1-F duzeltmesi (ONCEKI HATA 12N2B1 raporunun tersine):
+    `VALID_CANDIDATE` iddiasi + herhangi bir gate'in `FAIL` olmasi kendi
+    icinde CELISKILIDIR -- bu kayit ARTIK guvenilir bir TERMINAL_RESULT
+    SAYILMAZ, RESULT_SEMANTIC_INVALID'dir. `AttemptResult.__post_init__`
+    bu iliskiyi ZORUNLU KILMADIGINDAN (N2A'yi etkilememek icin bilincli
+    olarak) bu kayit yine de FIZIKSEL OLARAK olusturulabilir/depolanabilir
+    -- ama N2B1 finalizer'i onu bir provenance/semantic celiskisi olarak
+    tanir."""
     store = FakeEvidenceObjectStore()
     asset_hash, benchmark_hash, output_hash = _upload_evidence(store)
     result1 = _make_valid_result(1, asset_hash, benchmark_hash, output_hash, gates_all_pass=False)
@@ -719,12 +742,171 @@ def test_gate_not_all_pass_on_valid_candidate_stays_trusted_but_does_not_qualify
         attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC),
         object_store=store,
     )
-    assert fe.attempt_1_summary.result_state == ResultState.TERMINAL_RESULT
-    assert fe.attempt_1_summary.verification_state == VerificationState.VERIFIED
-    assert fe.attempt_1_summary.result_classification == "VALID_CANDIDATE"
+    assert fe.attempt_1_summary.result_state == ResultState.INTEGRITY_INVALID
+    assert fe.attempt_1_summary.verification_state == VerificationState.RESULT_SEMANTIC_INVALID
+    assert fe.attempt_1_summary.result_classification is None
+    assert fe.attempt_1_summary.native_reason_code is None
     assert fe.technical_observation_eligible is False
     assert fe.selected_attempt_id is None
-    assert fe.evaluation_integrity_status == EvaluationIntegrityStatus.AUDIT_INCOMPLETE  # attempt2 hic yok
+    assert fe.attempt_history_complete is False
+    assert fe.evaluation_integrity_status == EvaluationIntegrityStatus.PROVENANCE_CONFLICT
+    assert fe.capture_status == CaptureStatus.NO_VALID_CAPTURE_AVAILABLE
+
+
+def test_gate_not_all_pass_on_valid_candidate_indeterminate_for_attempt2():
+    """Ayni senaryo -- attempt1 artik INTEGRITY_INVALID oldugundan attempt2
+    icin requirement_state INDETERMINATE_PROVENANCE olmali (section 8/9
+    ile ayni desen)."""
+    store = FakeEvidenceObjectStore()
+    asset_hash, benchmark_hash, output_hash = _upload_evidence(store)
+    result1 = _make_valid_result(1, asset_hash, benchmark_hash, output_hash, gates_all_pass=False)
+    claim1 = _make_claim(1)
+
+    fe = _select(
+        attempt1_claim=_wrap_claim(claim1),
+        attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC),
+        object_store=store,
+    )
+    assert fe.attempt_2_summary.requirement_state == AttemptRequirementState.INDETERMINATE_PROVENANCE
+
+
+def test_gate_not_all_pass_on_valid_candidate_valid_sibling_still_wins():
+    """HATA 12N2B1-F section 8: attempt1 hash-gecerli ama semantik olarak
+    tutarsiz (VALID_CANDIDATE + non-PASS gate); attempt2 tamamen temiz.
+    attempt2 KAZANMALI, ama sibling'in celiskisi PROVENANCE_CONFLICT
+    olarak GORUNUR KALMALI."""
+    store = FakeEvidenceObjectStore()
+    asset_hash1, benchmark_hash1, output_hash1 = _upload_evidence(store, salt="1")
+    result1 = _make_valid_result(1, asset_hash1, benchmark_hash1, output_hash1, gates_all_pass=False)
+    claim1 = _make_claim(1)
+
+    asset_hash2, benchmark_hash2, output_hash2 = _upload_evidence(store, salt="2")
+    result2 = _make_valid_result(2, asset_hash2, benchmark_hash2, output_hash2)
+    claim2 = _make_claim(2)
+
+    fe = _select(
+        attempt1_claim=_wrap_claim(claim1),
+        attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC),
+        attempt2_claim=_wrap_claim(claim2),
+        attempt2_result=_wrap_result(result2, DECISION_UTC + timedelta(minutes=10)),
+        object_store=store,
+    )
+
+    assert fe.selected_attempt_id == _attempt_id(2)
+    assert fe.technical_observation_eligible is True
+    assert fe.selected_evidence_integrity_complete is True
+    assert fe.attempt_history_complete is False
+    assert fe.evaluation_integrity_status == EvaluationIntegrityStatus.PROVENANCE_CONFLICT
+    assert fe.capture_status == CaptureStatus.VALID_CAPTURE_AVAILABLE
+
+
+def test_gate_not_all_pass_on_valid_candidate_no_sibling_no_selection():
+    """HATA 12N2B1-F section 9: ayni semantik-olarak-tutarsiz attempt1,
+    NITELIKLI bir sibling YOKKEN."""
+    store = FakeEvidenceObjectStore()
+    asset_hash, benchmark_hash, output_hash = _upload_evidence(store)
+    result1 = _make_valid_result(1, asset_hash, benchmark_hash, output_hash, gates_all_pass=False)
+    claim1 = _make_claim(1)
+
+    fe = _select(
+        attempt1_claim=_wrap_claim(claim1),
+        attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC),
+        object_store=store,
+    )
+
+    assert fe.technical_observation_eligible is False
+    assert fe.selected_attempt_id is None
+    assert fe.selected_evidence_integrity_complete is None
+    assert fe.evaluation_integrity_status == EvaluationIntegrityStatus.PROVENANCE_CONFLICT
+    assert fe.capture_status == CaptureStatus.NO_VALID_CAPTURE_AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# HATA 12N2B1-F: BLOCKED_* classification/gate consistency
+# ---------------------------------------------------------------------------
+
+
+def test_blocked_config_drift_with_config_gate_failing_is_trusted_terminal_result():
+    claim1 = _make_claim(1)
+    result1 = _make_nonvalid_result(1, AttemptResultClassification.BLOCKED_CONFIG_DRIFT, "SCORING_CONFIG_HASH_MISMATCH")
+    fe = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC))
+    assert fe.attempt_1_summary.result_state == ResultState.TERMINAL_RESULT
+    assert fe.attempt_1_summary.verification_state == VerificationState.VERIFIED
+    assert fe.attempt_1_summary.result_classification == "BLOCKED_CONFIG_DRIFT"
+
+
+def test_blocked_config_drift_with_config_gate_passing_is_semantic_invalid():
+    """BLOCKED_CONFIG_DRIFT iddiasi + config_gate_result == PASS de kendi
+    icinde celiskilidir -- bu blok, ilgili gate'in FAIL oldugu durumu
+    temsil ETMEK ICIN vardir."""
+    claim1 = _make_claim(1)
+    result1 = AttemptResult(
+        attempt_id=_attempt_id(1), evaluation_id=_eval_id(), attempt_number=1,
+        protocol_version=PROTOCOL, T_session_date=T_DATE, symbol=SYMBOL,
+        scheduled_for="2026-09-10T09:00:00+03:00", runtime_fingerprint="rev-x",
+        config_gate_result=GateCheckResult.PASS,  # celiski: BLOCKED_CONFIG_DRIFT ama gate PASS
+        methodology_gate_result=GateCheckResult.PASS,
+        runtime_gate_result=GateCheckResult.PASS,
+        universe_gate_result=GateCheckResult.PASS,
+        result_classification=AttemptResultClassification.BLOCKED_CONFIG_DRIFT,
+        native_reason_code="SCORING_CONFIG_HASH_MISMATCH",
+        started_at="2026-09-10T09:00:00+03:00", finished_at="2026-09-10T09:00:05+03:00",
+    )
+    fe = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC))
+    assert fe.attempt_1_summary.result_state == ResultState.INTEGRITY_INVALID
+    assert fe.attempt_1_summary.verification_state == VerificationState.RESULT_SEMANTIC_INVALID
+    assert fe.attempt_1_summary.result_classification is None
+
+
+@pytest.mark.parametrize(
+    "classification,failing_field",
+    [
+        (AttemptResultClassification.BLOCKED_METHODOLOGY_DRIFT, "methodology_gate_result"),
+        (AttemptResultClassification.BLOCKED_RUNTIME_IDENTITY, "runtime_gate_result"),
+        (AttemptResultClassification.BLOCKED_UNIVERSE_OR_ASSET_CONFIG, "universe_gate_result"),
+    ],
+)
+def test_other_blocked_classifications_require_matching_gate_to_fail(classification, failing_field):
+    claim1 = _make_claim(1)
+    # Dogru: _make_nonvalid_result ilgili gate'i zaten FAIL yapiyor.
+    result_correct = _make_nonvalid_result(1, classification, "SOME_REASON")
+    fe_correct = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result_correct, ATTEMPT1_SCHEDULED_UTC))
+    assert fe_correct.attempt_1_summary.result_state == ResultState.TERMINAL_RESULT
+
+    # Yanlis: ayni siniflandirma ama ilgili gate PASS -- semantik celiski.
+    gates = dict(
+        config_gate_result=GateCheckResult.PASS, methodology_gate_result=GateCheckResult.PASS,
+        runtime_gate_result=GateCheckResult.PASS, universe_gate_result=GateCheckResult.PASS,
+    )
+    result_wrong = AttemptResult(
+        attempt_id=_attempt_id(1), evaluation_id=_eval_id(), attempt_number=1,
+        protocol_version=PROTOCOL, T_session_date=T_DATE, symbol=SYMBOL,
+        scheduled_for="2026-09-10T09:00:00+03:00", runtime_fingerprint="rev-x",
+        result_classification=classification, native_reason_code="SOME_REASON",
+        started_at="2026-09-10T09:00:00+03:00", finished_at="2026-09-10T09:00:05+03:00",
+        **gates,
+    )
+    fe_wrong = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result_wrong, ATTEMPT1_SCHEDULED_UTC))
+    assert fe_wrong.attempt_1_summary.result_state == ResultState.INTEGRITY_INVALID
+    assert fe_wrong.attempt_1_summary.verification_state == VerificationState.RESULT_SEMANTIC_INVALID
+
+
+def test_exclusion_and_failed_have_no_gate_constraints():
+    """Section 5: EXCLUSION/FAILED icin taksonomiden hicbir gate iliskisi
+    GARANTI EDILMEZ -- hangi gate kombinasyonuyla olursa olsun (burada:
+    hepsi PASS) trusted TERMINAL_RESULT olarak kalir."""
+    claim1, claim2 = _make_claim(1), _make_claim(2)
+    result1 = _make_nonvalid_result(1, AttemptResultClassification.EXCLUSION, "EXCLUDED_CONTINUITY")
+    result2 = _make_nonvalid_result(2, AttemptResultClassification.FAILED, "PROVIDER_EXHAUSTED")
+    fe = _select(
+        attempt1_claim=_wrap_claim(claim1),
+        attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC),
+        attempt2_claim=_wrap_claim(claim2),
+        attempt2_result=_wrap_result(result2, DECISION_UTC + timedelta(minutes=10)),
+    )
+    assert fe.attempt_1_summary.result_state == ResultState.TERMINAL_RESULT
+    assert fe.attempt_2_summary.result_state == ResultState.TERMINAL_RESULT
+    assert fe.evaluation_integrity_status == EvaluationIntegrityStatus.CLEAN
 
 
 # ---------------------------------------------------------------------------
