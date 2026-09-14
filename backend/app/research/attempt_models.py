@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from app.research.canonical_hash import content_sha256
 from app.research.evidence_identity import ALLOWED_ATTEMPT_NUMBERS
 from app.research.evidence_models import (
     EvidenceIntegrityError,
@@ -344,9 +345,13 @@ class AttemptResult:
 
     @property
     def content_sha256(self) -> str:
-        from app.research.canonical_hash import content_sha256 as _content_sha256
-
-        return _content_sha256(self.to_content_fields())
+        # Not: `content_sha256` adı hem burada (property) hem modül
+        # seviyesinde (import edilen fonksiyon) var -- çakışma YOKTUR,
+        # çünkü Python bir metod gövdesi içindeki çıplak isim çözümlemesini
+        # sınıf namespace'i ÜZERİNDEN yapmaz (yalnızca yerel/modül/builtin);
+        # bu yüzden aşağıdaki çağrı MODÜL SEVİYESİNDEKİ import edilen
+        # fonksiyona gider, kendi kendine özyinelemeli ÇAĞRI YAPMAZ.
+        return content_sha256(self.to_content_fields())
 
     def to_document_fields(self) -> dict:
         """Firestore'a YAZILACAK TAM alan seti -- içerik alanları + türetilmiş

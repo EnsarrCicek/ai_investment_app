@@ -27,7 +27,6 @@ verilen veri yapılarını (DataFrame/Series/Pydantic model) işler.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import struct
 from datetime import date, datetime, timedelta
@@ -37,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 from app.models.technical_analysis import TechnicalAnalysis
+from app.research.canonical_hash import canonical_document_bytes, content_sha256
 from app.research.evidence_models import validate_sha256_hex
 
 REQUIRED_ASSET_COLUMNS: tuple[str, ...] = ("Open", "High", "Low", "Close", "Volume")
@@ -67,27 +67,13 @@ _BENCHMARK_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ASSET_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?[+-]\d{2}:\d{2}$")
 
 
-def _canonical_json(payload: object) -> str:
-    """`compute_scoring_config_hash()`'teki (scoring.py) AYNI kanonikleştirme
-    deseni -- dict insertion sırasından bağımsız, tek/sabit bir string."""
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
-
-
-def _sha256_of(canonical: str) -> str:
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _canonical_json_bytes(payload: object) -> bytes:
-    """HATA 12N1: `_canonical_json()` ile AYNI kanonikleştirmenin UTF-8
-    bayt hâli -- bu, bir evidence nesnesi için hem hash'in ÜZERİNDEN
-    hesaplandığı HEM DE GCS'e (ileride) yüklenecek TEK bayt kaynağıdır.
-    İki AYRI implementasyon ("hash temsili" ile "depolama temsili") ASLA
-    yazılmaz -- ikisi arasında sürüklenme (drift) riski böylece yapısal
-    olarak imkânsız kılınır."""
-    return _canonical_json(payload).encode("utf-8")
-
-
 def _sha256_of_bytes(raw: bytes) -> str:
+    """HATA 12N2A-F: bu, `json.dumps` KANONİKLEŞTİRMESİNİN bir kopyası
+    DEĞİLDİR -- yalnızca ZATEN kanonik/depolama-kimliği olan HAM baytları
+    hash'ler. Kanonik JSON üretiminin TEK, paylaşılan implementasyonu
+    `canonical_hash.py`'dedir (`canonical_document_bytes`/`content_sha256`)
+    -- bu modül kendi ikinci bir `json.dumps(sort_keys=True, ...)`
+    algoritmasını ASLA yeniden yazmaz."""
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -229,7 +215,7 @@ def asset_snapshot_bytes(df: pd.DataFrame, symbol: str) -> bytes:
     """HATA 12N1: bu asset anlık-görüntüsü için GCS'e yüklenecek TEK,
     kanonik bayt dizisi -- `asset_input_sha256()` BUNUN ÜZERİNDEN
     hesaplanır (bkz. aşağı), ayrı bir "depolama temsili" YOKTUR."""
-    return _canonical_json_bytes(serialize_asset_snapshot(df, symbol))
+    return canonical_document_bytes(serialize_asset_snapshot(df, symbol))
 
 
 def asset_input_sha256(df: pd.DataFrame, symbol: str) -> str:
@@ -375,7 +361,7 @@ def benchmark_snapshot_bytes(series: pd.Series) -> bytes:
     """HATA 12N1: bu benchmark anlık-görüntüsü için GCS'e yüklenecek TEK,
     kanonik bayt dizisi -- `benchmark_input_sha256()` BUNUN ÜZERİNDEN
     hesaplanır."""
-    return _canonical_json_bytes(serialize_benchmark_snapshot(series))
+    return canonical_document_bytes(serialize_benchmark_snapshot(series))
 
 
 def benchmark_input_sha256(series: pd.Series) -> str:
@@ -452,7 +438,7 @@ def input_snapshot_sha256_from_hashes(asset_input_sha256_value: str, benchmark_i
         "asset_input_sha256": asset_input_sha256_value,
         "benchmark_input_sha256": benchmark_input_sha256_value,
     }
-    return _sha256_of(_canonical_json(payload))
+    return content_sha256(payload)
 
 
 def input_snapshot_sha256(asset_df: pd.DataFrame, symbol: str, benchmark_series: pd.Series) -> str:
@@ -493,7 +479,7 @@ def technical_output_bytes(analysis: TechnicalAnalysis) -> bytes:
     payload'ı DEĞİŞTİRMEDEN, hash'in hesaplandığı AYNI bayt dizisi GCS'e gider.
     """
     payload = analysis.model_dump(mode="json", exclude={"created_at"})
-    return _canonical_json_bytes(payload)
+    return canonical_document_bytes(payload)
 
 
 def technical_output_sha256(analysis: TechnicalAnalysis) -> str:
