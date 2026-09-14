@@ -439,6 +439,48 @@ class TechnicalV1SessionManifest:
     def to_document_fields(self) -> dict:
         return {**self.to_content_fields(), "record_content_sha256": self.record_content_sha256}
 
+    @classmethod
+    def from_document_fields(cls, data: dict) -> TechnicalV1SessionManifest:
+        """`to_document_fields()`'ın TERSİ -- HATA 12N3B section 8. N3A
+        BİLİNÇLİ OLARAK ertelemişti (henüz somut bir çağıran yoktu); N3B'nin
+        Firestore repository'si artık TEK çağıranıdır. `record_content_
+        sha256` alanı KASITLI OLARAK okunmaz/kullanılmaz (constructor'ın bir
+        parametresi DEĞİLDİR, her zaman `content_sha256` property'si
+        üzerinden yeniden TÜRETİLİR); çağıran taraf (repository) tamper/
+        tutarlılık kontrolü için `manifest.record_content_sha256`'yı
+        dokümanın saklanan `record_content_sha256` alanıyla AYRICA, bu
+        fonksiyon ÇAĞRILMADAN ÖNCE karşılaştırmalıdır -- bu metod SEMANTİK
+        yeniden kuruluşu yapar, ham içerik-hash doğrulamasını YAPMAZ (o,
+        repository'nin sorumluluğudur).
+
+        `capture_status_counts`/`evaluation_integrity_status_counts` zaten
+        düz `dict[str, int]` olarak saklanır (Enum nesnesi YOK) -- bu
+        yüzden `FinalEvaluation.from_document_fields()`'in aksine, iç içe
+        bir enum-coercion adımına gerek YOKTUR; sözlükler OLDUĞU GİBİ
+        `__post_init__`'e geçirilir (o da anahtar kümesinin TAM olarak
+        beklenen enum değerlerinden oluştuğunu zaten doğrular).
+
+        Bilinmeyen/geçersiz bir şema sürümü, eksik bir anahtar veya
+        semantik olarak imkânsız bir sayım/kimlik burada doğrudan
+        `ValueError`/`KeyError` fırlatır (dataclass'ın kendi `__post_init__`
+        doğrulamaları üzerinden) -- SESSİZCE onarılmaz/normalize edilmez;
+        çağıran repository bunu KENDİ `ProvenanceConflictError`'ına çevirir.
+        """
+        return cls(
+            manifest_schema_version=data["manifest_schema_version"],
+            session_id=data["session_id"],
+            protocol_version=data["protocol_version"],
+            T_session_date=data["T_session_date"],
+            protocol_sha256=data["protocol_sha256"],
+            freeze_manifest_sha256=data["freeze_manifest_sha256"],
+            expected_symbol_count=data["expected_symbol_count"],
+            expected_evaluation_ids_sha256=data["expected_evaluation_ids_sha256"],
+            final_evaluation_records_sha256=data["final_evaluation_records_sha256"],
+            capture_status_counts=data["capture_status_counts"],
+            evaluation_integrity_status_counts=data["evaluation_integrity_status_counts"],
+            technical_observation_eligible_count=data["technical_observation_eligible_count"],
+        )
+
 
 # ---------------------------------------------------------------------------
 # Saf manifest builder (HATA 12N3-A4 section 24-32, HATA 12N3-A5 section 28)
