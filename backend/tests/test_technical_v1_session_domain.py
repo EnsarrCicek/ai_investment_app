@@ -792,3 +792,147 @@ def test_manifest_has_no_session_status_or_operational_fields():
     forbidden = {"session_status", "retry", "completion_flag", "operational_error", "last_error"}
     content_keys = {key.lower() for key in manifest.to_content_fields()}
     assert forbidden.isdisjoint(content_keys)
+
+
+# ---------------------------------------------------------------------------
+# HATA 12N3B-F -- TechnicalV1SessionManifest'in sayım eşlemeleri (nested
+# dict) derinlemesine değişmez olmalı; `frozen=True` yalnızca ALANLARIN
+# KENDİSİNİN yeniden atanmasını engeller, İÇERİKLERİNİ DEĞİL.
+# ---------------------------------------------------------------------------
+
+
+def test_count_maps_are_mappingproxy_after_construction():
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    import types
+
+    assert isinstance(manifest.capture_status_counts, types.MappingProxyType)
+    assert isinstance(manifest.evaluation_integrity_status_counts, types.MappingProxyType)
+
+
+def test_direct_nested_mutation_of_capture_status_counts_is_blocked():
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    with pytest.raises(TypeError):
+        manifest.capture_status_counts["VALID_CAPTURE_AVAILABLE"] += 1
+
+
+def test_direct_nested_mutation_of_evaluation_integrity_status_counts_is_blocked():
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    with pytest.raises(TypeError):
+        manifest.evaluation_integrity_status_counts["CLEAN"] += 1
+
+
+def test_constructor_input_alias_mutation_cannot_affect_manifest():
+    kwargs = _valid_manifest_kwargs()
+    external_capture_counts = dict(kwargs["capture_status_counts"])
+    external_integrity_counts = dict(kwargs["evaluation_integrity_status_counts"])
+    kwargs["capture_status_counts"] = external_capture_counts
+    kwargs["evaluation_integrity_status_counts"] = external_integrity_counts
+
+    manifest = sm.TechnicalV1SessionManifest(**kwargs)
+    hash_before = manifest.record_content_sha256
+
+    external_capture_counts["VALID_CAPTURE_AVAILABLE"] = 999
+    external_capture_counts["NO_VALID_CAPTURE_AVAILABLE"] = 1
+    external_integrity_counts["CLEAN"] = 999
+    external_integrity_counts["AUDIT_INCOMPLETE"] = 1
+
+    assert manifest.capture_status_counts["VALID_CAPTURE_AVAILABLE"] == 0
+    assert manifest.evaluation_integrity_status_counts["CLEAN"] == 0
+    assert manifest.record_content_sha256 == hash_before
+
+
+def test_from_document_fields_raw_input_alias_mutation_cannot_affect_manifest():
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    raw = manifest.to_document_fields()
+    reconstructed = sm.TechnicalV1SessionManifest.from_document_fields(
+        {k: v for k, v in raw.items() if k != "record_content_sha256"}
+    )
+    hash_before = reconstructed.record_content_sha256
+
+    raw["capture_status_counts"]["VALID_CAPTURE_AVAILABLE"] += 1
+    raw["evaluation_integrity_status_counts"]["CLEAN"] += 1
+
+    assert reconstructed.capture_status_counts["VALID_CAPTURE_AVAILABLE"] == 0
+    assert reconstructed.evaluation_integrity_status_counts["CLEAN"] == 0
+    assert reconstructed.record_content_sha256 == hash_before
+
+
+def test_to_content_fields_output_mutation_cannot_affect_manifest():
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    hash_before = manifest.record_content_sha256
+
+    fields = manifest.to_content_fields()
+    fields["capture_status_counts"]["VALID_CAPTURE_AVAILABLE"] += 1
+    fields["evaluation_integrity_status_counts"]["CLEAN"] += 1
+
+    assert manifest.capture_status_counts["VALID_CAPTURE_AVAILABLE"] == 0
+    assert manifest.evaluation_integrity_status_counts["CLEAN"] == 0
+    assert manifest.record_content_sha256 == hash_before
+
+
+def test_record_content_sha256_stable_under_all_external_mutation_attempts():
+    """HATA 12N3B-F section 9 -- kilit regresyon özelliği: hicbir dis/ham/
+    cikti-dict mutasyonu, insa edilmis bir manifest'in KENDI türetilmis
+    hash'ini degistiremez."""
+    kwargs = _valid_manifest_kwargs()
+    external_capture_counts = dict(kwargs["capture_status_counts"])
+    kwargs["capture_status_counts"] = external_capture_counts
+    manifest = sm.TechnicalV1SessionManifest(**kwargs)
+    hash_before = manifest.record_content_sha256
+
+    external_capture_counts["VALID_CAPTURE_AVAILABLE"] = 12345  # constructor-alias
+
+    fields = manifest.to_content_fields()
+    fields["capture_status_counts"]["VALID_CAPTURE_AVAILABLE"] = 999  # to_content_fields output
+
+    doc = manifest.to_document_fields()
+    doc["capture_status_counts"]["VALID_CAPTURE_AVAILABLE"] = 999  # to_document_fields output
+
+    assert manifest.record_content_sha256 == hash_before
+
+
+def test_external_firestore_schema_unchanged_by_immutability_fix():
+    """HATA 12N3B-F section 10: to_document_fields() ciktisindaki sayim
+    eslemeleri hala DUZ dict[str, int] olmali -- mappingproxy/ozel bir
+    serilestirme isareti SIZDIRILMAZ."""
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    doc = manifest.to_document_fields()
+    assert type(doc["capture_status_counts"]) is dict
+    assert type(doc["evaluation_integrity_status_counts"]) is dict
+    assert set(doc["capture_status_counts"].keys()) == {
+        "VALID_CAPTURE_AVAILABLE",
+        "NO_VALID_CAPTURE_AVAILABLE",
+        "INFRASTRUCTURE_BLOCKED",
+    }
+    assert set(doc["evaluation_integrity_status_counts"].keys()) == {
+        "CLEAN",
+        "AUDIT_INCOMPLETE",
+        "EVIDENCE_INTEGRITY_FAILURE",
+        "PROVENANCE_CONFLICT",
+    }
+
+
+def test_same_logical_content_hash_unchanged_by_internal_representation():
+    """HATA 12N3B-F section 11: bu degisiklik SADECE dahili Python
+    temsili -- ayni mantiksal girdi icin iki bagimsiz insa edilen
+    manifest, to_document_fields()/record_content_sha256 acisindan
+    HALA bit-bit ozdes olmali."""
+    manifest = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    manifest2 = sm.TechnicalV1SessionManifest(**_valid_manifest_kwargs())
+    assert manifest.to_document_fields() == manifest2.to_document_fields()
+    assert manifest.record_content_sha256 == manifest2.record_content_sha256
+
+
+def test_other_mutable_containers_in_manifest_none_found():
+    """HATA 12N3B-F section 14: TechnicalV1SessionManifest'teki DIGER TUM
+    alanlar (str/int) zaten degismez -- sayim eslemeleri DISINDA baska
+    hicbir nested mutable container YOKTUR."""
+    import dataclasses
+
+    field_types = {f.name: f.type for f in dataclasses.fields(sm.TechnicalV1SessionManifest)}
+    mutable_container_fields = {
+        name
+        for name, type_str in field_types.items()
+        if "Mapping" in str(type_str) or "list" in str(type_str).lower() or "set" in str(type_str).lower()
+    }
+    assert mutable_container_fields == {"capture_status_counts", "evaluation_integrity_status_counts"}

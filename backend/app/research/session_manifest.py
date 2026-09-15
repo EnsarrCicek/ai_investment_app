@@ -48,6 +48,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
+from types import MappingProxyType
 
 from app.research.canonical_hash import content_sha256
 from app.research.evidence_identity import compute_evaluation_id, compute_session_id
@@ -379,6 +380,31 @@ class TechnicalV1SessionManifest:
         _validate_count_map(self.capture_status_counts, _CAPTURE_STATUS_KEYS, "capture_status_counts")
         _validate_count_map(
             self.evaluation_integrity_status_counts, _EVALUATION_INTEGRITY_STATUS_KEYS, "evaluation_integrity_status_counts"
+        )
+        # HATA 12N3B-F: `frozen=True` yalnızca ALANLARIN KENDİSİNİN yeniden
+        # atanmasını engeller -- bir sayım eşlemesinin (dict) KENDİ
+        # İÇERİĞİNİN (nested mutation, ör. `manifest.capture_status_
+        # counts["X"] += 1`) veya çağırandan gelen ORİJİNAL dict nesnesinin
+        # (aliasing -- constructor'a geçirilen dict, construction SONRASI
+        # dışarıdan mutate edilirse) DEĞİŞTİRİLMESİNİ ENGELLEMEZ. İkisi de
+        # `record_content_sha256`'nın (bu alanlardan TÜRETİLİR) doğrulamadan
+        # SONRA SESSİZCE değişebileceği anlamına gelirdi -- güvenilir bir
+        # bilimsel kanıt nesnesi için kabul edilemez. Doğrulama ZATEN
+        # yukarıda (orijinal, henüz-dondurulmamış değer üzerinde) geçti;
+        # ŞİMDİ savunmacı bir kopya alınıp (`dict(...)` -- çağıranın
+        # orijinal nesnesinden BAĞIMSIZ yeni bir dict) salt-okunur bir
+        # `MappingProxyType` içine sarılır (bu nesnenin KENDİ sayım
+        # eşlemesi üzerinde doğrudan bir mutasyon denemesi artık
+        # `TypeError` fırlatır). `to_content_fields()` zaten HER ÇAĞRIDA
+        # `dict(self.capture_status_counts)` ile TAZE, ayrık bir kopya
+        # ürettiğinden (aşağıda değişmedi), bu değişiklik dışa aktarılan
+        # JSON şemasını/hash payload'unu ETKİLEMEZ -- yalnızca bu nesnenin
+        # KENDİ dahili Python temsilini derinlemesine değişmez kılar.
+        object.__setattr__(self, "capture_status_counts", MappingProxyType(dict(self.capture_status_counts)))
+        object.__setattr__(
+            self,
+            "evaluation_integrity_status_counts",
+            MappingProxyType(dict(self.evaluation_integrity_status_counts)),
         )
         capture_sum = sum(self.capture_status_counts.values())
         if capture_sum != self.expected_symbol_count:

@@ -477,6 +477,23 @@ def test_get_verified_never_exposes_create_time_inside_document_fields(repo):
     assert "created_at" not in doc_fields
 
 
+def test_get_verified_trusted_manifest_count_maps_are_deeply_immutable(repo):
+    """HATA 12N3B-F section 13: gercek `get_verified()` yolundan donen
+    GUVENILIR manifest'in sayim eslemeleri uzerinde dogrudan mutasyon
+    denemesi sessizce basarili OLMAMALI -- deterministik bir `TypeError`
+    firlatmalidir."""
+    manifest = _make_manifest()
+    repo.create(manifest)
+    persisted = repo.get_verified(manifest.session_id)
+
+    hash_before = persisted.manifest.record_content_sha256
+    with pytest.raises(TypeError):
+        persisted.manifest.capture_status_counts["VALID_CAPTURE_AVAILABLE"] += 1
+    with pytest.raises(TypeError):
+        persisted.manifest.evaluation_integrity_status_counts["CLEAN"] += 1
+    assert persisted.manifest.record_content_sha256 == hash_before
+
+
 # ---------------------------------------------------------------------------
 # Regresyon: candidate'in kendi hash'i her zaman gecerlidir
 # ---------------------------------------------------------------------------
