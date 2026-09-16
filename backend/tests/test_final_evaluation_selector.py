@@ -40,6 +40,9 @@ PROTOCOL = "TECHNICAL_V1_PROTOCOL_V1"
 T_DATE = "2026-09-09"
 SYMBOL = "AKBNK"
 
+LOCK_A = "a" * 64
+LOCK_B = "b" * 64
+
 # E1 = 2026-09-10. 08:00/09:00/09:45 Europe/Istanbul (+03:00, DST yok) -> UTC.
 ATTEMPT1_SCHEDULED_UTC = datetime(2026, 9, 10, 5, 0, 0, tzinfo=timezone.utc)  # 08:00 +03:00
 DECISION_UTC = datetime(2026, 9, 10, 6, 0, 0, tzinfo=timezone.utc)  # 09:00 +03:00
@@ -93,6 +96,7 @@ def _make_valid_result(
     output_hash: str,
     gates_all_pass: bool = True,
     omit_technical_output_ref: bool = False,
+    activation_lock_id: str = LOCK_A,
 ) -> AttemptResult:
     input_snapshot_hash = input_snapshot_sha256_from_hashes(asset_hash, benchmark_hash)
     gate = GateCheckResult.PASS if gates_all_pass else GateCheckResult.FAIL
@@ -105,6 +109,7 @@ def _make_valid_result(
         symbol=SYMBOL,
         scheduled_for="2026-09-10T09:00:00+03:00",
         runtime_fingerprint="rev-x",
+        activation_lock_id=activation_lock_id,
         config_gate_result=gate,
         methodology_gate_result=GateCheckResult.PASS,
         runtime_gate_result=GateCheckResult.PASS,
@@ -138,7 +143,12 @@ _BLOCKED_CLASSIFICATION_FAILING_GATE_FIELD = {
 }
 
 
-def _make_nonvalid_result(attempt_number: int, classification: AttemptResultClassification, native_reason_code: str | None = None) -> AttemptResult:
+def _make_nonvalid_result(
+    attempt_number: int,
+    classification: AttemptResultClassification,
+    native_reason_code: str | None = None,
+    activation_lock_id: str = LOCK_A,
+) -> AttemptResult:
     # HATA 12N2B1-F: bir BLOCKED_* siniflandirmasi, KENDI karsilik gelen
     # gate'inin FAIL olmasini GEREKTIRIR (taksonomiden kaynaklanan
     # kacinilmaz iliski) -- diger uc gate PASS'ta birakilir (section 4:
@@ -162,6 +172,7 @@ def _make_nonvalid_result(attempt_number: int, classification: AttemptResultClas
         symbol=SYMBOL,
         scheduled_for="2026-09-10T09:00:00+03:00",
         runtime_fingerprint="rev-x",
+        activation_lock_id=activation_lock_id,
         result_classification=classification,
         native_reason_code=native_reason_code,
         started_at="2026-09-10T09:00:00+03:00",
@@ -170,7 +181,7 @@ def _make_nonvalid_result(attempt_number: int, classification: AttemptResultClas
     )
 
 
-def _make_claim(attempt_number: int, symbol: str = SYMBOL) -> AttemptClaim:
+def _make_claim(attempt_number: int, symbol: str = SYMBOL, activation_lock_id: str = LOCK_A) -> AttemptClaim:
     eval_id = compute_evaluation_id(PROTOCOL, T_DATE, symbol) if symbol != SYMBOL else _eval_id()
     return AttemptClaim(
         attempt_id=compute_attempt_id(eval_id, attempt_number),
@@ -180,6 +191,7 @@ def _make_claim(attempt_number: int, symbol: str = SYMBOL) -> AttemptClaim:
         T_session_date=T_DATE,
         symbol=symbol,
         claimed_by_runtime="rev-x",
+        activation_lock_id=activation_lock_id,
     )
 
 
@@ -296,6 +308,7 @@ def test_valid_plus_sibling_evidence_missing_is_evidence_integrity_failure():
         attempt_id=_attempt_id(1), evaluation_id=_eval_id(), attempt_number=1,
         protocol_version=PROTOCOL, T_session_date=T_DATE, symbol=SYMBOL,
         scheduled_for="2026-09-10T08:00:00+03:00", runtime_fingerprint="rev-x",
+        activation_lock_id=LOCK_A,
         config_gate_result=GateCheckResult.PASS, methodology_gate_result=GateCheckResult.PASS,
         runtime_gate_result=GateCheckResult.PASS, universe_gate_result=GateCheckResult.PASS,
         result_classification=AttemptResultClassification.VALID_CANDIDATE, native_reason_code=None,
@@ -543,6 +556,7 @@ def test_later_gcs_loss_on_trusted_pre_0900_valid_attempt1_does_not_change_requi
         attempt_id=_attempt_id(1), evaluation_id=_eval_id(), attempt_number=1,
         protocol_version=PROTOCOL, T_session_date=T_DATE, symbol=SYMBOL,
         scheduled_for="2026-09-10T08:00:00+03:00", runtime_fingerprint="rev-x",
+        activation_lock_id=LOCK_A,
         config_gate_result=GateCheckResult.PASS, methodology_gate_result=GateCheckResult.PASS,
         runtime_gate_result=GateCheckResult.PASS, universe_gate_result=GateCheckResult.PASS,
         result_classification=AttemptResultClassification.VALID_CANDIDATE, native_reason_code=None,
@@ -723,6 +737,60 @@ def test_claim_identity_mismatch_is_claim_relation_invalid():
     assert fe.attempt_1_summary.verification_state == VerificationState.CLAIM_RELATION_INVALID
 
 
+# ---------------------------------------------------------------------------
+# Activation-lock claim/result iliskisi (HATA 12N3C2-B2-C section 16/29/30)
+# ---------------------------------------------------------------------------
+
+
+def test_claim_result_activation_lock_mismatch_is_claim_relation_invalid():
+    """Section 29 (ZORUNLU): claim VE result'in TUM diger kimlik alanlari
+    (attempt_id/evaluation_id/protocol_version/T_session_date/symbol)
+    TUTARLI -- yalnizca activation_lock_id farkli. Bu, depolama bozulmasi/
+    tamperlenmis dokuman/gelecekteki bir repository-bypass senaryosunu
+    temsil eder; selector'un KENDI defense-in-depth kontrolu (adim 6)
+    bunu YAKALAMALI, VALID_CANDIDATE olarak KABUL ETMEMELI."""
+    claim1 = _make_claim(1, activation_lock_id=LOCK_A)
+    result1 = _make_nonvalid_result(1, AttemptResultClassification.FAILED, "PROVIDER_EXHAUSTED", activation_lock_id=LOCK_B)
+
+    fe = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC))
+    assert fe.attempt_1_summary.result_state == ResultState.INTEGRITY_INVALID
+    assert fe.attempt_1_summary.verification_state == VerificationState.CLAIM_RELATION_INVALID
+    assert fe.attempt_1_summary.result_classification is None
+
+
+def test_claim_result_activation_lock_match_is_verified():
+    """Karsit-olumlu (positive) kontrol: activation_lock_id TUTARLIYSA
+    (diger her sey de tutarliysa) mismatch YANLIS-POZITIF uretmemeli."""
+    claim1 = _make_claim(1, activation_lock_id=LOCK_A)
+    result1 = _make_nonvalid_result(1, AttemptResultClassification.FAILED, "PROVIDER_EXHAUSTED", activation_lock_id=LOCK_A)
+
+    fe = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC))
+    assert fe.attempt_1_summary.result_state == ResultState.TERMINAL_RESULT
+    assert fe.attempt_1_summary.verification_state == VerificationState.VERIFIED
+
+
+def test_attempt1_and_attempt2_may_use_different_activation_locks():
+    """Section 17/30 (ZORUNLU): AYNI evaluation icindeki attempt1/attempt2
+    FARKLI activation_lock_id kullanabilir (mesru redeploy) -- bu SADECE
+    farkli olduklari icin ASLA reddedilmemeli/CLAIM_RELATION_INVALID
+    olmamali, cunku her attempt kendi claim/result ciftiyle BAGIMSIZ
+    dogrulanir (cross-attempt bir lock karsilastirmasi HIC YOKTUR)."""
+    claim1 = _make_claim(1, activation_lock_id=LOCK_A)
+    result1 = _make_nonvalid_result(1, AttemptResultClassification.FAILED, "PROVIDER_EXHAUSTED", activation_lock_id=LOCK_A)
+
+    claim2 = _make_claim(2, activation_lock_id=LOCK_B)
+    result2 = _make_nonvalid_result(2, AttemptResultClassification.FAILED, "PROVIDER_EXHAUSTED", activation_lock_id=LOCK_B)
+
+    fe = _select(
+        attempt1_claim=_wrap_claim(claim1),
+        attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC),
+        attempt2_claim=_wrap_claim(claim2),
+        attempt2_result=_wrap_result(result2, DECISION_UTC + timedelta(minutes=10)),
+    )
+    assert fe.attempt_1_summary.verification_state == VerificationState.VERIFIED
+    assert fe.attempt_2_summary.verification_state == VerificationState.VERIFIED
+
+
 def test_gate_not_all_pass_on_valid_candidate_is_semantically_invalid():
     """HATA 12N2B1-F duzeltmesi (ONCEKI HATA 12N2B1 raporunun tersine):
     `VALID_CANDIDATE` iddiasi + herhangi bir gate'in `FAIL` olmasi kendi
@@ -844,6 +912,7 @@ def test_blocked_config_drift_with_config_gate_passing_is_semantic_invalid():
         attempt_id=_attempt_id(1), evaluation_id=_eval_id(), attempt_number=1,
         protocol_version=PROTOCOL, T_session_date=T_DATE, symbol=SYMBOL,
         scheduled_for="2026-09-10T09:00:00+03:00", runtime_fingerprint="rev-x",
+        activation_lock_id=LOCK_A,
         config_gate_result=GateCheckResult.PASS,  # celiski: BLOCKED_CONFIG_DRIFT ama gate PASS
         methodology_gate_result=GateCheckResult.PASS,
         runtime_gate_result=GateCheckResult.PASS,
@@ -882,6 +951,7 @@ def test_other_blocked_classifications_require_matching_gate_to_fail(classificat
         attempt_id=_attempt_id(1), evaluation_id=_eval_id(), attempt_number=1,
         protocol_version=PROTOCOL, T_session_date=T_DATE, symbol=SYMBOL,
         scheduled_for="2026-09-10T09:00:00+03:00", runtime_fingerprint="rev-x",
+        activation_lock_id=LOCK_A,
         result_classification=classification, native_reason_code="SOME_REASON",
         started_at="2026-09-10T09:00:00+03:00", finished_at="2026-09-10T09:00:05+03:00",
         **gates,

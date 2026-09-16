@@ -158,6 +158,7 @@ def _classify_result(
     expected_identity: dict,
     claim_presence: ClaimPresence,
     claim_identity_consistent: bool,
+    claim_activation_lock_id: str | None,
 ) -> tuple[ResultState, VerificationState, str | None, str | None, AttemptResult | None]:
     """`(result_state, verification_state, result_classification_value,
     native_reason_code, trusted_result_or_None)` döner.
@@ -168,7 +169,15 @@ def _classify_result(
     INVALID / CLAIM_RELATION_INVALID) HİÇBİRİNDE `result_classification`/
     `native_reason_code` GÜVENİLMEZ/KOPYALANMAZ (section 13/14/15) --
     kayıt kendi içinde ya da ilişkisel olarak güvenilmez bulunduysa,
-    İÇERİĞİNİN HİÇBİR PARÇASI dışarı sızdırılmaz."""
+    İÇERİĞİNİN HİÇBİR PARÇASI dışarı sızdırılmaz.
+
+    HATA 12N3C2-B2-C section 16: adım 6'nın claim/result kimlik ilişkisi
+    kontrolüne, DEFENSE-IN-DEPTH olarak, `claim.activation_lock_id ==
+    result.activation_lock_id` eşitliği de eklenir -- depolama bozulması/
+    tamperlenmiş doküman/gelecekteki bir repository bypass'ına karşı,
+    `publish_result()`'ın KENDİ (repository-katmanı) kontrolüne TEK BAŞINA
+    güvenilmez. Uyuşmazlık AYNI `CLAIM_RELATION_INVALID` durumuna girer --
+    YENİ bir `VerificationState` İCAT EDİLMEZ."""
     if result_doc is None:
         return ResultState.NO_RESULT, VerificationState.NOT_APPLICABLE, None, None, None
 
@@ -226,6 +235,7 @@ def _classify_result(
         claim_presence != ClaimPresence.CLAIMED
         or not claim_identity_consistent
         or trusted_result.identity_fields() != expected_identity
+        or trusted_result.activation_lock_id != claim_activation_lock_id
     ):
         return ResultState.INTEGRITY_INVALID, VerificationState.CLAIM_RELATION_INVALID, None, None, None
 
@@ -246,8 +256,9 @@ def _evaluate_attempt(
 ) -> _AttemptEvaluation:
     expected_identity = _expected_identity(context, attempt_number)
     claim_presence, claim_identity_consistent = _classify_claim(claim, expected_identity)
+    claim_activation_lock_id = claim.document_fields.get("activation_lock_id") if claim is not None else None
     result_state, verification_state, classification_value, native_reason_code, trusted_result = _classify_result(
-        result_doc, expected_identity, claim_presence, claim_identity_consistent
+        result_doc, expected_identity, claim_presence, claim_identity_consistent, claim_activation_lock_id
     )
     summary = AttemptSummary(
         attempt_number=attempt_number,

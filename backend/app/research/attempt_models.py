@@ -173,6 +173,7 @@ class AttemptClaim:
     T_session_date: str
     symbol: str
     claimed_by_runtime: str
+    activation_lock_id: str
 
     def __post_init__(self) -> None:
         validate_sha256_hex(self.attempt_id)
@@ -182,13 +183,23 @@ class AttemptClaim:
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value:
                 raise EvidenceIntegrityError(f"{field_name} boş olmayan bir string olmalı: {value!r}")
+        # HATA 12N3C2-B2-C: hangi immutable aktivasyon yetkilendirmesi
+        # altında bu mantıksal denemenin sahipliği İLK KEZ kurulduğunu
+        # KALICI OLARAK kaydeder -- zorunlu, varsayılansız, asla None/
+        # "UNKNOWN"/geriye-dönük-uyumlu bir yol YOKTUR (üretim koleksiyonu
+        # HATA 12N3C2-B2-C0'da doğrulanmış şekilde BOŞTUR).
+        validate_sha256_hex(self.activation_lock_id)
 
     def identity_fields(self) -> dict:
         """HATA 12N2A section 9: `claimed_by_runtime` KASITLI OLARAK bu
         kimlik setinin DIŞINDADIR -- iki farklı runtime'ın AYNI attempt_id
         için claim denemesi, `claimed_by_runtime` farklı olsa BİLE normal
         (ilk-claimant-kazanır) bir redelivery'dir, PROVENANCE_CONFLICT
-        DEĞİLDİR."""
+        DEĞİLDİR. HATA 12N3C2-B2-C: `activation_lock_id` de AYNI gerekçeyle
+        KASITLI OLARAK bu kimlik setinin DIŞINDADIR -- meşru bir redeploy
+        sonrası AYNI attempt slotu için farklı bir activation_lock_id
+        taşıyan bir redelivery de normal (ilk-claimant-kazanır) bir
+        durumdur, YENİ bir mantıksal claim kimliği YARATMAZ."""
         return {
             "attempt_id": self.attempt_id,
             "evaluation_id": self.evaluation_id,
@@ -199,7 +210,11 @@ class AttemptClaim:
         }
 
     def to_document_fields(self) -> dict:
-        return {**self.identity_fields(), "claimed_by_runtime": self.claimed_by_runtime}
+        return {
+            **self.identity_fields(),
+            "claimed_by_runtime": self.claimed_by_runtime,
+            "activation_lock_id": self.activation_lock_id,
+        }
 
     @classmethod
     def from_document_fields(cls, data: dict) -> AttemptClaim:
@@ -211,6 +226,7 @@ class AttemptClaim:
             T_session_date=data["T_session_date"],
             symbol=data["symbol"],
             claimed_by_runtime=data["claimed_by_runtime"],
+            activation_lock_id=data["activation_lock_id"],
         )
 
 
@@ -240,6 +256,7 @@ class AttemptResult:
 
     scheduled_for: str
     runtime_fingerprint: str
+    activation_lock_id: str
 
     config_gate_result: GateCheckResult
     methodology_gate_result: GateCheckResult
@@ -271,6 +288,11 @@ class AttemptResult:
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value:
                 raise EvidenceIntegrityError(f"{field_name} boş olmayan bir string olmalı: {value!r}")
+        # HATA 12N3C2-B2-C: hangi immutable aktivasyon yetkilendirmesi
+        # altında bu terminal sonucun ÜRETİLDİĞİNİ kalıcı olarak kaydeder --
+        # zorunlu, varsayılansız (üretim koleksiyonu B2-C0'da boş
+        # doğrulandı, geriye-dönük-uyumluluk yolu YOKTUR).
+        validate_sha256_hex(self.activation_lock_id)
 
         _validate_object_ref_consistency(EvidenceObjectKind.ASSET_SNAPSHOT, self.asset_input_sha256, self.asset_object_ref)
         _validate_object_ref_consistency(
@@ -319,6 +341,7 @@ class AttemptResult:
             **self.identity_fields(),
             "scheduled_for": self.scheduled_for,
             "runtime_fingerprint": self.runtime_fingerprint,
+            "activation_lock_id": self.activation_lock_id,
             "config_gate_result": self.config_gate_result.value,
             "methodology_gate_result": self.methodology_gate_result.value,
             "runtime_gate_result": self.runtime_gate_result.value,
@@ -392,6 +415,7 @@ class AttemptResult:
             symbol=data["symbol"],
             scheduled_for=data["scheduled_for"],
             runtime_fingerprint=data["runtime_fingerprint"],
+            activation_lock_id=data["activation_lock_id"],
             config_gate_result=GateCheckResult(data["config_gate_result"]),
             methodology_gate_result=GateCheckResult(data["methodology_gate_result"]),
             runtime_gate_result=GateCheckResult(data["runtime_gate_result"]),

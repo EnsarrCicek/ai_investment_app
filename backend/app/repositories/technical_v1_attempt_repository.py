@@ -98,6 +98,26 @@ class TechnicalV1AttemptRepository:
                     f"result'ın kimliğiyle uyuşmuyor -- bozuk/yanlış-wiring bir durum."
                 )
 
+            # HATA 12N3C2-B2-C section 13/14: claim/result kimlik
+            # ilişkisinden AYRI, EK bir kontrol -- result'ın hangi
+            # aktivasyon yetkilendirmesi altında üretildiği, claim'in
+            # SAHİPLİĞİ İLK KEZ kurduğu yetkilendirmeyle TAM eşleşmelidir.
+            # `activation_lock_id` KASITLI OLARAK `identity_fields()`'ın
+            # DIŞINDADIR (bkz. `AttemptClaim.identity_fields()` docstring'i)
+            # -- bu yüzden ayrı, açık bir karşılaştırma gerekir. Uyuşmazlık
+            # FAILED/EXCLUSION/BLOCKED_RUNTIME_IDENTITY'YE ASLA dönüştürülmez,
+            # zaten var olan claim/result provenance ihlali hatasıyla
+            # (`ProvenanceConflictError`) reddedilir -- hiçbir result
+            # dokümanı YAZILMADAN.
+            claim_activation_lock_id = claim_data.get("activation_lock_id")
+            if claim_activation_lock_id != result.activation_lock_id:
+                raise ProvenanceConflictError(
+                    f"attempt_id={result.attempt_id} için claim activation_lock_id "
+                    f"({claim_activation_lock_id!r}) publish edilmek istenen result'ın "
+                    f"activation_lock_id'siyle ({result.activation_lock_id!r}) eşleşmiyor -- "
+                    f"claim/result provenance ihlali."
+                )
+
             result_snapshot = result_ref.get(transaction=transaction)
             candidate_fields = result.to_document_fields()
 

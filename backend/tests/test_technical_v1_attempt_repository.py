@@ -122,12 +122,17 @@ _PROTOCOL_VERSION = "TECHNICAL_V1_PROTOCOL_V1"
 _T_SESSION_DATE = "2026-09-09"
 _SYMBOL = "AKBNK"
 
+LOCK_A = "a" * 64
+LOCK_B = "b" * 64
+
 
 def _evaluation_id() -> str:
     return compute_evaluation_id(_PROTOCOL_VERSION, _T_SESSION_DATE, _SYMBOL)
 
 
-def _make_claim(attempt_number: int = 1, claimed_by_runtime: str = "cloud-run-rev-x") -> AttemptClaim:
+def _make_claim(
+    attempt_number: int = 1, claimed_by_runtime: str = "cloud-run-rev-x", activation_lock_id: str = LOCK_A
+) -> AttemptClaim:
     eval_id = _evaluation_id()
     attempt_id = compute_attempt_id(eval_id, attempt_number)
     return AttemptClaim(
@@ -138,6 +143,7 @@ def _make_claim(attempt_number: int = 1, claimed_by_runtime: str = "cloud-run-re
         T_session_date=_T_SESSION_DATE,
         symbol=_SYMBOL,
         claimed_by_runtime=claimed_by_runtime,
+        activation_lock_id=activation_lock_id,
     )
 
 
@@ -145,6 +151,7 @@ def _make_result(
     attempt_number: int = 1,
     result_classification: AttemptResultClassification = AttemptResultClassification.FAILED,
     native_reason_code: str | None = "PROVIDER_EXHAUSTED",
+    activation_lock_id: str = LOCK_A,
 ) -> AttemptResult:
     eval_id = _evaluation_id()
     attempt_id = compute_attempt_id(eval_id, attempt_number)
@@ -157,6 +164,7 @@ def _make_result(
         symbol=_SYMBOL,
         scheduled_for="2026-09-09T08:00:00+03:00",
         runtime_fingerprint="ai-investment-backend-00030-xyz",
+        activation_lock_id=activation_lock_id,
         config_gate_result=GateCheckResult.PASS,
         methodology_gate_result=GateCheckResult.PASS,
         runtime_gate_result=GateCheckResult.PASS,
@@ -304,7 +312,57 @@ def test_F_claim_document_has_no_lease_heartbeat_or_generation_fields(repo, fake
         "T_session_date",
         "symbol",
         "claimed_by_runtime",
+        "activation_lock_id",
     }
+
+
+# ---------------------------------------------------------------------------
+# Activation-lock binding testleri (HATA 12N3C2-B2-C section 11/12/26)
+# ---------------------------------------------------------------------------
+
+
+def test_G_duplicate_claim_after_redeploy_under_different_lock_is_already_claimed(repo, fake_db):
+    """Section 26 (ZORUNLU): attempt_id=X, lock=A ile claim edilir. Sonra
+    AYNI attempt slotu icin, MESRU bir redeploy sonrasi FARKLI bir
+    activation_lock_id (B) tasiyan bir claim_attempt() cagrisi yapilir --
+    bu YENI bir claim degil, normal (ilk-claimant-kazanir) bir
+    redelivery'dir: ALREADY_CLAIMED doner, saklanan claim HALA lock A'yi
+    tasir (overwrite/conflict YOK, salt B tasidigi icin)."""
+    claim_lock_a = _make_claim(activation_lock_id=LOCK_A)
+    assert repo.claim_attempt(claim_lock_a) == ClaimOutcome.CLAIMED
+
+    claim_lock_b = replace(claim_lock_a, activation_lock_id=LOCK_B)
+    assert repo.claim_attempt(claim_lock_b) == ClaimOutcome.ALREADY_CLAIMED
+
+    stored = fake_db.raw_store(repo_module.ATTEMPT_CLAIMS_COLLECTION)[claim_lock_a.attempt_id]
+    assert stored["activation_lock_id"] == LOCK_A  # HICBIR ZAMAN B'ye yeniden yazilmadi
+
+
+def test_H_duplicate_claim_after_redeploy_does_not_mutate_stored_document(repo, fake_db):
+    claim_lock_a = _make_claim(activation_lock_id=LOCK_A)
+    repo.claim_attempt(claim_lock_a)
+    stored_before = dict(fake_db.raw_store(repo_module.ATTEMPT_CLAIMS_COLLECTION)[claim_lock_a.attempt_id])
+
+    claim_lock_b = replace(claim_lock_a, activation_lock_id=LOCK_B)
+    repo.claim_attempt(claim_lock_b)
+    stored_after = fake_db.raw_store(repo_module.ATTEMPT_CLAIMS_COLLECTION)[claim_lock_a.attempt_id]
+
+    assert stored_after == stored_before
+
+
+def test_I_claimed_plus_no_result_retains_activation_lock_provenance(repo):
+    """Section 31 (ZORUNLU): yalnizca claim persist edilir (result YOK) --
+    bu, kalici, gecerli CLAIMED+NO_RESULT durumudur. Reconstruction, hangi
+    immutable aktivasyon yetkilendirmesinin bu sahiplini kurdugunu
+    (activation_lock_id) KORUR -- crash/OOM sonrasi bile provenance
+    kaybolmaz."""
+    claim = _make_claim(activation_lock_id=LOCK_A)
+    repo.claim_attempt(claim)
+
+    reloaded = repo.get_claim(claim.attempt_id)
+    assert reloaded is not None
+    assert reloaded.activation_lock_id == LOCK_A
+    assert repo.get_result(claim.attempt_id) is None
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +469,83 @@ def test_I_server_metadata_not_included_in_content_hash(repo, fake_db):
     # icermez -- yapisal olarak (hash'e girme sansi bile YOK).
     assert "create_time" not in result.to_content_fields()
     assert "update_time" not in result.to_content_fields()
+
+
+# ---------------------------------------------------------------------------
+# Claim/result activation-lock iliskisi (HATA 12N3C2-B2-C section 13/14/27/28)
+# ---------------------------------------------------------------------------
+
+
+def test_J_claim_and_result_same_lock_publishes_normally(repo):
+    claim = _make_claim(activation_lock_id=LOCK_A)
+    repo.claim_attempt(claim)
+    result = _make_result(activation_lock_id=LOCK_A)
+
+    assert repo.publish_result(result) == PublishOutcome.CREATED
+    assert repo.get_result(claim.attempt_id).activation_lock_id == LOCK_A
+
+
+def test_K_claim_and_result_different_lock_is_rejected_before_persistence(repo, fake_db):
+    claim = _make_claim(activation_lock_id=LOCK_A)
+    repo.claim_attempt(claim)
+    mismatched_result = _make_result(activation_lock_id=LOCK_B)
+
+    with pytest.raises(ProvenanceConflictError):
+        repo.publish_result(mismatched_result)
+
+    # Hicbir result dokumani yazilmadi.
+    assert mismatched_result.attempt_id not in fake_db.raw_store(repo_module.ATTEMPT_RESULTS_COLLECTION)
+
+
+def test_L_attempt1_and_attempt2_may_use_different_locks(repo):
+    """Section 17/30: AYNI evaluation icindeki attempt1/attempt2 FARKLI
+    activation_lock_id'ler kullanabilir (mesru redeploy) -- bu asla
+    reddedilmemeli, cunku her attempt kendi claim/result ciftiyle BAGIMSIZ
+    dogrulanir."""
+    claim1 = _make_claim(attempt_number=1, activation_lock_id=LOCK_A)
+    repo.claim_attempt(claim1)
+    result1 = _make_result(attempt_number=1, activation_lock_id=LOCK_A)
+    assert repo.publish_result(result1) == PublishOutcome.CREATED
+
+    claim2 = _make_claim(attempt_number=2, activation_lock_id=LOCK_B)
+    repo.claim_attempt(claim2)
+    result2 = _make_result(attempt_number=2, activation_lock_id=LOCK_B)
+    assert repo.publish_result(result2) == PublishOutcome.CREATED
+
+    assert repo.get_result(claim1.attempt_id).activation_lock_id == LOCK_A
+    assert repo.get_result(claim2.attempt_id).activation_lock_id == LOCK_B
+
+
+# ---------------------------------------------------------------------------
+# Katı ham şema (HATA 12N3C2-B2-C section 32)
+# ---------------------------------------------------------------------------
+
+
+def test_M_stored_claim_document_missing_activation_lock_id_fails_reconstruction(repo, fake_db):
+    claim = _make_claim()
+    repo.claim_attempt(claim)
+    store = fake_db.raw_store(repo_module.ATTEMPT_CLAIMS_COLLECTION)
+    corrupted = dict(store[claim.attempt_id])
+    del corrupted["activation_lock_id"]
+    store[claim.attempt_id] = corrupted
+
+    with pytest.raises(KeyError):
+        repo.get_claim(claim.attempt_id)
+
+
+def test_N_stored_result_document_missing_activation_lock_id_fails_reconstruction(repo, fake_db):
+    claim = _make_claim()
+    repo.claim_attempt(claim)
+    result = _make_result()
+    repo.publish_result(result)
+
+    store = fake_db.raw_store(repo_module.ATTEMPT_RESULTS_COLLECTION)
+    corrupted = dict(store[result.attempt_id])
+    del corrupted["activation_lock_id"]
+    store[result.attempt_id] = corrupted
+
+    with pytest.raises(KeyError):
+        repo.get_result(result.attempt_id)
 
 
 # ---------------------------------------------------------------------------
