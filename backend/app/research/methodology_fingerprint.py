@@ -1,6 +1,6 @@
 """Technical V1 metodoloji dosya-parmak-izi — HATA 12L/12M.
 
-`research/technical_v1_freeze_manifest.json`'daki `methodology_git_commit`
+`app/research/resources/technical_v1_freeze_manifest.json`'daki `methodology_git_commit`
 metodolojiyi bir GIT COMMIT'e sabitler; bu modül AYNI metodolojiyi, o
 commit'ten SONRAKİ herhangi bir noktada (ör. evidence-capture çalışırken)
 kaynak dosyaların GERÇEKTEN o an hangi bayt içeriğine sahip olduğunu
