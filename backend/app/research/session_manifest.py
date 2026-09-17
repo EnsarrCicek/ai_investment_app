@@ -2,8 +2,8 @@
 alan modeli.
 
 Bu modül HİÇBİR I/O yapmaz -- dosya sistemi erişimi (protokol JSON'unu
-okumak dahil), Firestore/GCS erişimi, ağ isteği YOKTUR. `research/
-technical_v1_protocol_v1.json`'daki frozen 100 sembollük evreni OKUMAK
+okumak dahil), Firestore/GCS erişimi, ağ isteği YOKTUR. `app/research/
+resources/technical_v1_protocol_v1.json`'daki frozen 100 sembollük evreni OKUMAK
 daha sonraki bir adapter/wiring katmanının (N3C/N3D) sorumluluğudur --
 bu modül yalnızca ZATEN YÜKLENMİŞ, güvenilen `frozen_symbols`/
 `protocol_version`/hash'ler gibi düz veriyi girdi olarak kabul eder.

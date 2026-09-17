@@ -20,11 +20,14 @@ from app.research.technical_v1_scoring_config_values import (
 )
 
 # HATA 12N3C2-B2-D2'de kilitlenen, protokol dosyasında kayıtlı GERÇEK
-# değer -- bkz. research/technical_v1_protocol_v1.json ->
+# değer -- bkz. app/research/resources/technical_v1_protocol_v1.json ->
 # methodology_references.freeze_manifest_sha256.
 LOCKED_FREEZE_MANIFEST_SHA256 = "6556f7a9c9b9eedcc4b789c861cc2e1b5b2d4a13be1be75605162f0e578bdc97"
 
-_PROTOCOL_JSON_PATH = Path(__file__).resolve().parents[2] / "research" / "technical_v1_protocol_v1.json"
+# HATA 12N3C2-E1-R2: protokol artık backend/app/ AĞACININ İÇİNDE (freeze
+# manifest ile AYNI dizin, `technical_v1_protocol.py`'nin KENDİ
+# `_DEFAULT_PROTOCOL_PATH`'i İLE AYNI konum).
+_PROTOCOL_JSON_PATH = Path(__file__).resolve().parents[1] / "app" / "research" / "resources" / "technical_v1_protocol_v1.json"
 
 _VALID_INDICATOR_WEIGHTS = {
     "trend": 1.0,

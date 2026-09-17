@@ -1,7 +1,7 @@
 """Deterministik evidence serileştirme/hashleme çekirdeği — HATA 12K/12L/12M.
 
 Bu modül, Technical V1 prospective validation protokolünün (bkz.
-`research/technical_v1_protocol_v1.json`) kanıt-doğruluğu sözleşmesini
+`app/research/resources/technical_v1_protocol_v1.json`) kanıt-doğruluğu sözleşmesini
 uygular: bir değerlendirmenin (evaluation) kullandığı GİRDİ (asset OHLCV +
 benchmark kapanış serisi) ve ürettiği ÇIKTI (`TechnicalAnalysis`), ileride
 BAĞIMSIZ olarak yeniden hesaplanıp bire bir doğrulanabilsin diye
