@@ -220,6 +220,43 @@ def test_simulate_stays_flat_without_buy_signal():
     assert result["open_position"] is None
 
 
+def test_simulate_nan_score_day_produces_no_trade_decision():
+    """HATA 12N3C2-E2-A/E2-A1 section 14: `technical_score` unavailable
+    (`NaN` -- 7/7 component unavailable olduğunda `scoring.py`'nin ürettiği
+    GERÇEK değer, bkz. `aggregate_available_components`) olduğu bir gün
+    için `simulate()` HİÇBİR BUY/SELL kararı ÜRETMEMELİ -- mevcut, bu
+    ticket'ta DEĞİŞTİRİLMEYEN `if pd.notna(score):` guard'ı bu günü
+    sessizce atlar (fabrikasyon/hata YOK, sadece o gün için karar yok)."""
+    idx = pd.date_range("2024-01-01", periods=3, freq="D")
+    df = pd.DataFrame({"Open": [100.0, 101.0, 102.0], "Close": [100.0, 101.0, 102.0]}, index=idx)
+    # Gün 0: NORMALDE bir BUY sinyali ÜRETECEK skor (50.0, bkz.
+    # test_simulate_open_position_at_end_is_mark_to_market_not_a_closed_trade
+    # ile aynı büyüklük) -- ama o gün technical_score unavailable (NaN).
+    scores = pd.Series([float("nan"), 10.0, 10.0], index=idx)
+
+    result = simulate(df, scores, DEFAULT_THRESHOLDS, initial_capital=1000.0)
+
+    assert result["trade_count"] == 0
+    assert result["open_position"] is None
+    assert result["unexecuted_signal"] is None
+    assert result["final_equity"] == 1000.0
+
+
+def test_simulate_nan_score_day_does_not_prevent_later_valid_signal():
+    """NaN'lı gün diğer günlerin skorlarını "zehirlemez" -- yalnızca O
+    GÜN için karar üretilmez, sonraki geçerli bir skor normal şekilde
+    işlenmeye devam eder."""
+    idx = pd.date_range("2024-01-01", periods=3, freq="D")
+    df = pd.DataFrame({"Open": [99.0, 110.0, 111.0], "Close": [100.0, 110.0, 120.0]}, index=idx)
+    scores = pd.Series([float("nan"), 50.0, 10.0], index=idx)
+
+    result = simulate(df, scores, DEFAULT_THRESHOLDS, initial_capital=1000.0)
+
+    # Gun 0'da NaN oldugu icin BUY YOK; gun 1'de gecerli BUY sinyali VAR --
+    # gun 2'nin Open'inda execute edilir (mevcut "T+1 execution" kurali).
+    assert result["open_position"] is not None
+
+
 def test_simulate_open_position_at_end_is_mark_to_market_not_a_closed_trade():
     # HATA 3A: backtest sonunda acik kalan pozisyon GERCEK bir SELL execution
     # DEGILDIR -- trades[]'e sahte bir kapanis kaydi EKLENMEMELI, yalnizca

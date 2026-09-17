@@ -17,6 +17,7 @@ from app.research.attempt_models import (
     AttemptResultClassification,
     GateCheckResult,
 )
+from app.research.attempt_reason_codes import TECHNICAL_SCORE_NONE
 from app.research.evidence_identity import compute_attempt_id, compute_evaluation_id
 from app.research.evidence_models import EvidenceObjectKind, EvidenceObjectRef, ObjectStoreError
 from app.research.evidence_object_store import FakeEvidenceObjectStore
@@ -495,6 +496,27 @@ def test_attempt2_required_when_attempt1_exclusion_before_0900():
     result1 = _make_nonvalid_result(1, AttemptResultClassification.EXCLUSION, "EXCLUDED_CONTINUITY")
     fe = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC))
     assert fe.attempt_2_summary.requirement_state == AttemptRequirementState.REQUIRED
+
+
+def test_technical_score_none_exclusion_is_terminal_and_requires_attempt2():
+    """HATA 12N3C2-E2-A/E2-A1: `TECHNICAL_SCORE_NONE` altında (henüz
+    implemente edilmemiş) bir gelecekteki attempt-execution servisinin
+    üreteceği KİLİTLİ sözleşmeyi, üretim selector kodu DEĞİŞTİRİLMEDEN,
+    mevcut test harness'i ile doğrudan doğrular: `EXCLUSION` terminal bir
+    sonuçtur (VERIFIED), ve `VALID_CANDIDATE` OLMADIĞI için attempt2 HALA
+    REQUIRED kalır -- bu ZATEN var olan, değiştirilmeyen selector
+    davranışıdır."""
+    claim1, claim2 = _make_claim(1), _make_claim(2)
+    result1 = _make_nonvalid_result(1, AttemptResultClassification.EXCLUSION, TECHNICAL_SCORE_NONE)
+
+    fe = _select(attempt1_claim=_wrap_claim(claim1), attempt1_result=_wrap_result(result1, ATTEMPT1_SCHEDULED_UTC))
+
+    assert fe.attempt_1_summary.result_state == ResultState.TERMINAL_RESULT
+    assert fe.attempt_1_summary.verification_state == VerificationState.VERIFIED
+    assert fe.attempt_1_summary.result_classification == AttemptResultClassification.EXCLUSION.value
+    assert fe.attempt_1_summary.native_reason_code == TECHNICAL_SCORE_NONE
+    assert fe.attempt_2_summary.requirement_state == AttemptRequirementState.REQUIRED
+    assert fe.technical_observation_eligible is False
 
 
 def test_attempt2_required_when_attempt1_failed_before_0900():
