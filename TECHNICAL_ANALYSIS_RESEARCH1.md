@@ -1622,3 +1622,88 @@ gerçek zamanlı immutable karar kayıtları
 ```
 
 olmalıdır.
+
+# 49. HATA 12 — Technical V1 Prospective Validation Provenance Kapanışı (17.09.2026)
+
+Bu bölüm, HATA 12 numaralı çok-haftalık denetim/implementasyon zincirinin (HATA
+12N2A...12N3C2-E2-B-R1) CAPTURE-ÖNCESİ araştırma/provenance/taksonomi
+sözleşmelerini kapatan özet referanstır. **Hiçbir üretim aktivasyonu, deploy,
+scheduler ya da controller bu zincirde inşa EDİLMEDİ** — kapsam, henüz
+inşa edilmemiş bir attempt-execution servisinin uyacağı sözleşmelerdir.
+
+**Dondurulmuş protokol kimliği:** `TECHNICAL_V1_PROTOCOL_V1`,
+`protocol_sha256 = ee13afdde2a251bd86fc684e0786f01a9d0b12f7a52ebb2b7771693cb1d38f79`
+(`backend/app/research/resources/technical_v1_protocol_v1.json`, `content_sha256`
+ile hesaplanır, ham dosya byte'ları ile DEĞİL).
+
+**Dondurulmuş freeze-manifest kimliği:**
+`freeze_manifest_sha256 = 6556f7a9c9b9eedcc4b789c861cc2e1b5b2d4a13be1be75605162f0e578bdc97`
+(`backend/app/research/resources/technical_v1_freeze_manifest.json`, AYNI
+`content_sha256` algoritmasıyla, protokolün `methodology_references` alanında
+da kayıtlıdır).
+
+**Kapsam:** yalnızca `TechnicalAnalysisEngine` çıktıları (`technical_score`/
+`signal_class`/family-component'ler) — DecisionEngine'in tam AL/SAT sistemi ya
+da haber/makro kanalları DEĞİL (protokolün kendi `scope_note`'u).
+
+**İmmutable evidence mimarisi:** content-addressed hash'ler
+(`canonical_hash.content_sha256`), physical-ID-from-logical-identity deseni,
+`AttemptClaim`/`AttemptResult` arasında zorunlu `activation_lock_id` eşleşmesi
+(`ProvenanceConflictError` ile korunur), `input_snapshot_sha256`'ın
+asset+benchmark hash'lerinden zorunlu türetilmesi.
+
+**Activation-lock mimarisi:** `TechnicalV1ActivationLock` — CONFIG/
+METHODOLOGY/RUNTIME/UNIVERSE kimliklerinin tek, tutarlı bir "aktivasyon anı"na
+bağlanması; `runtime_fingerprint`'in `K_SERVICE`/`K_REVISION`/
+`FIREBASE_PROJECT_ID`'den GERÇEKTEN gözlemlenmesi (asla `"local"`/`"unknown"`
+gibi uydurma fallback YOK).
+
+**Session/final-evaluation sözleşmeleri:** `final_evaluation_selector.py`'nin
+claim/result identity + activation-lock tutarlılığı, `_qualifying_at_attempt2_
+decision()`'ın YALNIZCA `VALID_CANDIDATE`'i "attempt2 gerekmez" sayması,
+`ResultState.NO_RESULT` — beklenmeyen bir internal defect/crash'in HİÇBİR
+ZAMAN uydurma bir terminal `AttemptResultClassification`'a dönüştürülmemesi.
+
+**Dört kimlik-kapısı** (`app/research/identity_gates.py`, saf, I/O'suz
+karşılaştırma fonksiyonları — `IdentityGateEvaluation`, PASS⟺reason_code=None
+değişmezi):
+
+| Kapı | FAIL reason-code | Beklenen `AttemptResultClassification` |
+|---|---|---|
+| CONFIG | `SCORING_CONFIG_HASH_MISMATCH` | `BLOCKED_CONFIG_DRIFT` |
+| METHODOLOGY | `METHODOLOGY_SOURCE_FINGERPRINT_MISMATCH` | `BLOCKED_METHODOLOGY_DRIFT` |
+| RUNTIME | `RUNTIME_IDENTITY_UNAUTHORIZED` | `BLOCKED_RUNTIME_IDENTITY` |
+| UNIVERSE | `SYMBOL_NOT_IN_FROZEN_UNIVERSE` | `BLOCKED_UNIVERSE_OR_ASSET_CONFIG` |
+
+**Exclusion taksonomisi** (protokolün `missing_data_policy.excluded_
+categories`'i, `app/research/exclusion_policy.py`'deki saf evaluator'larla):
+
+| Kategori (protokol metni) | Faz | Koşul / reason-code | Sınıflandırma |
+|---|---|---|---|
+| technical_score is None | ANALYSIS-TIME (post-analysis) | `TechnicalAnalysis.technical_score is None` → `TECHNICAL_SCORE_NONE` | EXCLUSION |
+| leading-edge unverified handling | ANALYSIS-TIME (post-analysis, tek başına hard-veto DEĞİL) | başarılı analiz VE `history_validation_status == "LEADING_EDGE_UNVERIFIED"` → `LEADING_EDGE_UNVERIFIED` | EXCLUSION |
+| trading-day continuity hard-veto | CAPTURE-TIME (hard veto, `TechnicalAnalysis` hiç oluşmaz) | `MISSING_TRADING_SESSION` / `UNEXPECTED_TRADING_SESSION` (reuse, `data_quality.py`) | EXCLUSION |
+| raw OHLCV integrity failure | CAPTURE-TIME (hard veto) | `INVALID_OHLCV` (reuse) | EXCLUSION |
+| insufficient MIN_HISTORY_DAYS | CAPTURE-TIME (hard veto) | `INSUFFICIENT_HISTORY` (reuse) | EXCLUSION |
+| incomplete input snapshot | DEFERRED TO ATTEMPT SERVICE | henüz hiçbir kod bunu üretmiyor (`freeze_manifest.input_snapshot_evidence_design = "TO_BE_DEFINED_BEFORE_HOLDOUT"`) | tanım netleştiğinde belirlenecek — HATA 12 correctness blocker DEĞİL |
+| forward horizon lacking sufficient completed future sessions | OUTCOME-EVALUATION ONLY | E10 olgunlaşmamış — capture-time `AttemptResult` reddi DEĞİL | capture-time reason-code YOK, olgunlaşma bekler |
+
+**Tek-neden (single-reason) öncelik kuralı:** `AttemptResult.native_reason_code`
+TEK bir skaler `str | None` olarak kalır (multi-reason şema GENİŞLEMESİ YOK).
+Sıralı pipeline'da spesifik bir downstream hard-veto (continuity/raw-OHLCV/
+insufficient-history) her zaman `LEADING_EDGE_UNVERIFIED`'dan ÖNCELİKLİDİR —
+çünkü böyle bir veto zaten `TechnicalAnalysis` nesnesinin OLUŞMASINI
+engeller. Analiz başarıyla tamamlanırsa VE aynı anda hem `technical_score is
+None` hem `history_validation_status == LEADING_EDGE_UNVERIFIED` ise (yapısal
+olarak bağımsız iki koşul, nadiren birlikte oluşabilir —
+`resolve_post_analysis_exclusion()` testleriyle kanıtlanmıştır),
+`TECHNICAL_SCORE_NONE` tek persisted neden olarak SEÇİLİR (analiz çıktısının
+kendisinin yokluğu, bir provenance bayrağından daha doğrudan sonuç-geçersiz-
+kılıcıdır).
+
+**Kalan iş — HATA 12 correctness blocker DEĞİL, implementasyon/operasyon
+kilometre taşları:** attempt-execution servisi, claim/controller/scheduler,
+production deploy/aktivasyon, evidence-upload orkestrasyonu, outcome-
+maturation worker, uzun-vadeli parametre kalibrasyonu, ikincil provider işi.
+Bunların hiçbiri HATA 12'yi açık TUTMAZ — bilimsel/provenance sözleşmeleri
+zaten TAM ve test edilmiş.

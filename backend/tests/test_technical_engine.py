@@ -1400,6 +1400,37 @@ def test_pre_roll_region_with_real_evidence_plus_phantom_bar_still_verifies(fake
 
 
 # ---------------------------------------------------------------------------
+# HATA 12 final closure — post-analysis exclusion koşullarının (technical_
+# score=None / LEADING_EDGE_UNVERIFIED) yapısal BAĞIMSIZLIĞI: aynı GERÇEK
+# analyze_with_id() akışında BİRLİKTE oluşabildikleri kanıtlanır (bkz.
+# app/research/exclusion_policy.py::resolve_post_analysis_exclusion()).
+# ---------------------------------------------------------------------------
+
+
+def test_technical_score_none_and_leading_edge_unverified_can_coexist_in_real_engine_run(fake_provider, monkeypatch):
+    # Girdi penceresi: hiç pre-roll kanıtı YOK (LEADING_EDGE_UNVERIFIED),
+    # ama MIN_HISTORY_DAYS(60) üstü, kesintisiz -- data-quality/continuity
+    # hard-veto'ları TETİKLENMEZ (bkz. test_new_listing_no_pre_roll_evidence_
+    # passes_as_unverified, AYNI df şekli). Component aggregation'ı
+    # deterministik olarak None yapan AYNI monkeypatch (bkz. test_technical_
+    # score_zero_vs_none_trend_signal_and_persistence_contract) `technical_
+    # score is None`'ı zorlar -- bu ikisi YAPISAL OLARAK BAĞIMSIZDIR
+    # (biri resolve_expected_start()'a, diğeri component aggregation'a bakar)
+    # ve GERÇEKTEN aynı analiz çıktısında birlikte gözlemlenebilir.
+    monkeypatch.setattr(
+        "app.engines.technical.engine.aggregate_available_scores",
+        lambda *args, **kwargs: None,
+    )
+    df = _bday_df("2026-05-01", "2026-08-24")  # ~82 iş günü, MIN_HISTORY_DAYS(60) üstü
+
+    (analysis, _doc_id), analysis_repo = _run_2c_scenario(fake_provider, df)
+
+    assert analysis.history_validation_status == "LEADING_EDGE_UNVERIFIED"
+    assert analysis.technical_score is None
+    assert len(analysis_repo.added) == 1
+
+
+# ---------------------------------------------------------------------------
 # HATA 5C3A (28.08.2026) — "Sinyal Mutabakatı" (confidence) + "Veri Kapsamı"
 # (evidence_coverage) implementasyonu: gerçek analyze_with_id() akışında
 # permanent regresyon kilitleri.

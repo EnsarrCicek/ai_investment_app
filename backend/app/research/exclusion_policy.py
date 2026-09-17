@@ -1,5 +1,5 @@
 """Technical V1 bağımsız bilimsel exclusion politikası -- SAF karşılaştırma
-katmanı. HATA 12N3C2-E2-A / E2-A1.
+katmanı. HATA 12N3C2-E2-A / E2-A1 / E2-B-R1 / HATA 12 final closure.
 
 Bu modül HİÇBİR I/O yapmaz (Firestore/dosya sistemi/ortam değişkeni/ağ
 erişimi YOK) -- yalnızca ZATEN üretilmiş bir bilimsel değeri (örn. bir
@@ -34,6 +34,38 @@ KİLİTLİ kontrat (HATA 12N3C2-E2-A audit'inde doğrulanan):
     durumu KABUL ETMEZ (section 9) -- yalnızca ZATEN başarıyla üretilmiş
     skor DEĞERİNİ alır, hiçbir üst-bağlam/precedence motoru GEREKMEZ
     (section 10).
+
+KİLİTLİ kontrat (HATA 12N3C2-E2-B-R1 audit'inde doğrulanan --
+`evaluate_history_validation_exclusion` için):
+  - `history_validation_status == "LEADING_EDGE_UNVERIFIED"` ⟺ pre-roll
+    gözlem bölgesi (`resolve_expected_start()`, bkz.
+    `app.engines.technical.history_window`) sembolün `analysis_start`'tan
+    ÖNCE zaten işlem gördüğüne dair kanıt BULAMADI -- bu ASLA otomatik
+    "yeni halka arz" (PRE_LISTING) sayılmaz, yalnızca "kanıtlanamadı"
+    anlamına gelir (bkz. `history_window.py` modül docstring'i).
+  - `TECHNICAL_SCORE_NONE`'ın AKSİNE bu, TEK BAŞINA bir hard veto
+    DEĞİLDİR -- `analyze_with_id()`, bu durumla BİRLİKTE geçerli, non-None
+    bir `technical_score` üretebilir (HATA 12N3C2-E2-B-R1, "Design B"
+    kararı). Bu yüzden bu exclusion, YALNIZCA zaten başarıyla üretilmiş
+    bir `TechnicalAnalysis.history_validation_status` alanı üzerinde
+    değerlendirilir -- ayrı bir "downstream veto oldu mu" kontrolüne
+    GEREK YOKTUR, çünkü downstream bir hard veto (continuity/raw-OHLCV/
+    insufficient-history) zaten `TechnicalAnalysis` nesnesinin hiç
+    OLUŞMASINI ENGELLER (bkz. E2-B-R1 raporu, "Exact producer condition").
+  - İKİ post-analysis exclusion (`TECHNICAL_SCORE_NONE` ve
+    `LEADING_EDGE_UNVERIFIED`) yapısal olarak BAĞIMSIZDIR (biri skorun
+    KENDİSİNE, diğeri girdi penceresinin KANIT durumuna bakar) -- nadiren
+    ama GERÇEKTEN birlikte oluşabilirler (bkz.
+    `resolve_post_analysis_exclusion()` ve onun testleri). Protokolün
+    `missing_data_policy`'si bu ikisi arasında açık bir sıralama
+    BELİRTMEZ (yalnızca ikisinin de `excluded_categories` altında ayrı
+    satırlar olduğunu söyler) -- bu modül, KİLİTLİ, DOKÜMANTE EDİLMİŞ tek
+    bir V1 kuralı seçer: `TECHNICAL_SCORE_NONE` önceliklidir, çünkü analiz
+    çıktısının (skorun) kendisinin YOKLUĞU, girdi penceresinin kanıt
+    durumuna dair bir provenance bayrağından DAHA DOĞRUDAN sonuç-
+    geçersiz-kılıcıdır. Bu, YENİ bir multi-reason şema GENİŞLEMESİ
+    GEREKTİRMEZ -- `AttemptResult.native_reason_code` TEK bir skaler
+    `str | None` olarak KALIR.
 """
 
 from __future__ import annotations
@@ -41,7 +73,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from app.research.attempt_reason_codes import TECHNICAL_SCORE_NONE
+from app.engines.technical.history_window import HistoryValidationStatus
+from app.research.attempt_reason_codes import LEADING_EDGE_UNVERIFIED, TECHNICAL_SCORE_NONE
 from app.research.evidence_models import EvidenceIntegrityError
 
 
@@ -108,3 +141,70 @@ def evaluate_technical_score_exclusion(technical_score: float | None) -> Exclusi
         )
 
     return ExclusionEvaluation(excluded=False, reason_code=None)
+
+
+def evaluate_history_validation_exclusion(history_validation_status: str | None) -> ExclusionEvaluation:
+    """YALNIZCA `history_validation_status == "LEADING_EDGE_UNVERIFIED"` bağımsız
+    bilimsel exclusion kategorisini değerlendirir (protokolün `missing_data_
+    policy.excluded_categories`'indeki "leading-edge unverified handling"
+    satırı) -- HATA 12N3C2-E2-B/E2-B-R1/HATA 12 final closure.
+
+    Kesin sözleşme:
+      - `"LEADING_EDGE_UNVERIFIED"` (bkz. `HistoryValidationStatus`, AYNI
+        string spelling yeniden kullanılır) -> `excluded=True`,
+        `reason_code=LEADING_EDGE_UNVERIFIED`.
+      - `"VERIFIED_PRE_WINDOW"` -> `excluded=False`, `reason_code=None`.
+      - Başka HERHANGİ bir değer (`None` DAHİL, bilinmeyen/yanlış yazılmış
+        bir string DAHİL): bu iki tanınan domain değerinden biri DEĞİLDİR --
+        kaba bir programlama/domain girdi hatasıdır (`resolve_expected_
+        start()`'ın KENDİ contract'ı yalnızca bu iki değeri üretir), `Evidence
+        IntegrityError` yerel olarak fırlatılır. `PRE_LISTING` gibi ÜÇÜNCÜ bir
+        durum ASLA ÇIKARIMLANMAZ/İCAT EDİLMEZ (bkz. `history_window.py` modül
+        docstring'i, kabul edilmiş sınırlama).
+
+    Bu fonksiyon, YALNIZCA zaten başarıyla üretilmiş bir `TechnicalAnalysis.
+    history_validation_status` alanı üzerinde çağrılmak üzere TASARLANMIŞTIR
+    -- ayrı bir "sonradan bir downstream hard veto oldu mu" kontrolüne GEREK
+    YOKTUR, çünkü öyle bir veto zaten `TechnicalAnalysis` nesnesinin hiç
+    OLUŞMASINI engeller (bkz. HATA 12N3C2-E2-B-R1 raporu, Design B / "Exact
+    producer condition"). HİÇBİR provider/continuity/OHLCV/insufficient-
+    history durumu burada KABUL EDİLMEZ/YORUMLANMAZ."""
+    if history_validation_status == HistoryValidationStatus.LEADING_EDGE_UNVERIFIED.value:
+        return ExclusionEvaluation(excluded=True, reason_code=LEADING_EDGE_UNVERIFIED)
+    if history_validation_status == HistoryValidationStatus.VERIFIED_PRE_WINDOW.value:
+        return ExclusionEvaluation(excluded=False, reason_code=None)
+    raise EvidenceIntegrityError(
+        "history_validation_status tanınan iki değerden biri olmalı "
+        f"({HistoryValidationStatus.VERIFIED_PRE_WINDOW.value!r} / "
+        f"{HistoryValidationStatus.LEADING_EDGE_UNVERIFIED.value!r}), "
+        f"{history_validation_status!r} bulundu -- bu bir programlama/domain girdi hatasıdır, ASLA "
+        "PRE_LISTING ya da başka bir domain durumu olarak YORUMLANMAZ."
+    )
+
+
+def resolve_post_analysis_exclusion(
+    technical_score_exclusion: ExclusionEvaluation,
+    history_validation_exclusion: ExclusionEvaluation,
+) -> ExclusionEvaluation:
+    """İKİ, yapısal olarak BAĞIMSIZ post-analysis exclusion kararını
+    (`evaluate_technical_score_exclusion()` ve
+    `evaluate_history_validation_exclusion()`) TEK bir persisted
+    `native_reason_code`'a indirger -- HATA 12 final closure, section
+    "Single-reason precedence".
+
+    Bu iki koşul nadiren ama GERÇEKTEN birlikte oluşabilir (bkz.
+    `test_technical_score_none_and_leading_edge_unverified_can_coexist_in_real_engine_run`,
+    `tests/test_technical_engine.py`) -- protokolün `missing_data_policy`'si
+    aralarında açık bir sıralama BELİRTMEZ. KİLİTLİ, DOKÜMANTE EDİLMİŞ V1
+    kuralı: `technical_score is None` önceliklidir, çünkü analiz çıktısının
+    (skorun) kendisinin YOKLUĞU, girdi penceresinin kanıt durumuna dair bir
+    provenance bayrağından DAHA DOĞRUDAN sonuç-geçersiz-kılıcıdır. Bu
+    fonksiyon YENİ bir multi-reason şema GENİŞLEMESİ yapmaz -- yalnızca TEK
+    bir `ExclusionEvaluation` döner (`AttemptResult.native_reason_code`
+    tek skaler `str | None` olarak KALIR).
+
+    Her iki girdi de `excluded=False` ise, sonuç da `excluded=False`
+    (`reason_code=None`) olur -- gerçek bir `VALID_CANDIDATE` adayı."""
+    if technical_score_exclusion.excluded:
+        return technical_score_exclusion
+    return history_validation_exclusion
