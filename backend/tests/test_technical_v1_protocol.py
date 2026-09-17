@@ -379,46 +379,112 @@ def test_missing_file_fails_loudly(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Section 21 -- opsiyonel saklanan sayım çapraz-kontrolü
+# HATA 12N3C2-E1-R2-FIX -- ZORUNLU saklanan sayım tutarlılığı
+# (constituent_count/unique_ticker_count artık OPSİYONEL DEĞİL)
 # ---------------------------------------------------------------------------
 
 
-def test_constituent_count_mismatch_is_rejected(tmp_path):
+def test_canonical_artifact_stored_counts_match_actual_counts():
+    """Section 10: gerçek paketlenmiş protokol, hem saklanan hem gerçek
+    sayıların 100/100 olduğunu kanıtlamalı."""
+    parsed = _load_real_parsed_protocol()
+    universe = parsed["universe"]
+    frozen_symbol_list = universe["frozen_symbol_list"]
+
+    assert universe["constituent_count"] == 100
+    assert len(frozen_symbol_list) == 100
+    assert universe["unique_ticker_count"] == 100
+    assert len(set(frozen_symbol_list)) == 100
+
+
+def test_constituent_count_mismatch_is_rejected_even_when_hash_consistent(tmp_path):
+    """Section 7: sayaç YANLIŞ ama protokol hash'i bu YANLIŞ içerikten
+    DOĞRU şekilde yeniden hesaplanmış (artefakt kendi içinde hash-tutarlı)
+    -- yapısal çapraz-kontrol YİNE DE reddetmeli. Bu, bu kontrolün protokol
+    hash'inin ÖTESİNDE gerçek bir ek invariant kattığını kanıtlar."""
     parsed = json.loads(json.dumps(_load_real_parsed_protocol()))
-    parsed["universe"]["constituent_count"] = 99
+    parsed["universe"]["constituent_count"] = 99  # gerçek liste hala 100 eleman
+    expected = content_sha256(parsed)  # DEĞİŞTİRİLMİŞ içerikten DOĞRU yeniden hesaplandı
     fixture = tmp_path / "wrong_constituent_count.json"
     fixture.write_text(json.dumps(parsed), encoding="utf-8")
-    expected = content_sha256(parsed)
 
     with pytest.raises(ProvenanceConflictError):
         load_verified_technical_v1_protocol(expected, fixture)
 
 
-def test_unique_ticker_count_mismatch_is_rejected(tmp_path):
+def test_unique_ticker_count_mismatch_is_rejected_even_when_hash_consistent(tmp_path):
+    """Section 8 -- section 7 ile aynı desen, `unique_ticker_count` için."""
     parsed = json.loads(json.dumps(_load_real_parsed_protocol()))
-    parsed["universe"]["unique_ticker_count"] = 42
+    parsed["universe"]["unique_ticker_count"] = 99  # gerçek liste hala 100 benzersiz eleman
+    expected = content_sha256(parsed)
     fixture = tmp_path / "wrong_unique_count.json"
     fixture.write_text(json.dumps(parsed), encoding="utf-8")
-    expected = content_sha256(parsed)
 
     with pytest.raises(ProvenanceConflictError):
         load_verified_technical_v1_protocol(expected, fixture)
 
 
-def test_no_stored_count_fields_does_not_block_loading(tmp_path):
-    """Section 21: alanlar YOKSA İCAT EDİLMEZ -- yalnızca VARSA
-    doğrulanır. Bunlar olmadan da geçerli bir 100-sembol listesi kabul
-    edilmelidir."""
-    payload = {
-        "protocol_version": "X",
-        "universe": {"frozen_symbol_list": [f"SYM{i:03d}" for i in range(100)]},
-    }
-    expected = content_sha256(payload)
-    fixture = tmp_path / "no_count_fields.json"
-    fixture.write_text(json.dumps(payload), encoding="utf-8")
+def test_missing_constituent_count_is_rejected(tmp_path):
+    parsed = json.loads(json.dumps(_load_real_parsed_protocol()))
+    del parsed["universe"]["constituent_count"]
+    expected = content_sha256(parsed)
+    fixture = tmp_path / "missing_constituent_count.json"
+    fixture.write_text(json.dumps(parsed), encoding="utf-8")
 
-    result = load_verified_technical_v1_protocol(expected, fixture)
-    assert len(result.frozen_symbols) == 100
+    with pytest.raises(ProvenanceConflictError):
+        load_verified_technical_v1_protocol(expected, fixture)
+
+
+def test_missing_unique_ticker_count_is_rejected(tmp_path):
+    parsed = json.loads(json.dumps(_load_real_parsed_protocol()))
+    del parsed["universe"]["unique_ticker_count"]
+    expected = content_sha256(parsed)
+    fixture = tmp_path / "missing_unique_ticker_count.json"
+    fixture.write_text(json.dumps(parsed), encoding="utf-8")
+
+    with pytest.raises(ProvenanceConflictError):
+        load_verified_technical_v1_protocol(expected, fixture)
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    ["100", 100.0, True, None],
+    ids=["string", "float", "bool_true", "none"],
+)
+@pytest.mark.parametrize("field_name", ["constituent_count", "unique_ticker_count"])
+def test_malformed_stored_count_type_is_rejected(tmp_path, field_name, bad_value):
+    """Section 4/9: `bool` `int`'in bir alt sınıfı olduğundan AÇIKÇA
+    reddedilir -- `True == 1`/`False == 0` sayısal çakışması hiçbir
+    zaman bir sayım alanını sessizce "doğru" kılmaz."""
+    parsed = json.loads(json.dumps(_load_real_parsed_protocol()))
+    parsed["universe"][field_name] = bad_value
+    expected = content_sha256(parsed)
+    fixture = tmp_path / f"malformed_{field_name}_{bad_value}.json"
+    fixture.write_text(json.dumps(parsed), encoding="utf-8")
+
+    with pytest.raises(ProvenanceConflictError):
+        load_verified_technical_v1_protocol(expected, fixture)
+
+
+@pytest.mark.parametrize("field_name", ["constituent_count", "unique_ticker_count"])
+def test_negative_stored_count_is_rejected(tmp_path, field_name):
+    parsed = json.loads(json.dumps(_load_real_parsed_protocol()))
+    parsed["universe"][field_name] = -1
+    expected = content_sha256(parsed)
+    fixture = tmp_path / f"negative_{field_name}.json"
+    fixture.write_text(json.dumps(parsed), encoding="utf-8")
+
+    with pytest.raises(ProvenanceConflictError):
+        load_verified_technical_v1_protocol(expected, fixture)
+
+
+def test_trusted_protocol_domain_does_not_expose_count_fields():
+    """Section 11: `TrustedTechnicalV1Protocol`, sayım alanlarını
+    genişletme olarak EKLEMEZ -- bunlar yalnızca yapısal doğrulama
+    metadata'sıdır, bilimsel alan DEĞİLDİR."""
+    result = load_verified_technical_v1_protocol(LOCKED_PROTOCOL_SHA256)
+    field_names = {f.name for f in result.__dataclass_fields__.values()}
+    assert field_names == {"protocol_sha256", "protocol_version", "frozen_symbol_list", "frozen_symbols"}
 
 
 # ---------------------------------------------------------------------------

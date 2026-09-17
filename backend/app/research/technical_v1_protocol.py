@@ -112,6 +112,31 @@ def _validate_non_empty_no_whitespace_str(value: object, field_name: str, path: 
     return value
 
 
+def _validate_stored_count_field(universe: dict, field_name: str, path: Path) -> int:
+    """HATA 12N3C2-E1-R2-FIX section 4: saklanan bir sayım alanı ZORUNLU
+    bir tam sayı OLMALI. `bool`, Python'da `int`'in bir alt sınıfıdır
+    (`isinstance(True, int) is True`) -- bu yüzden `bool` KASITLI OLARAK
+    `int` kontrolünden ÖNCE, AYRICA reddedilir (aksi halde ör.
+    `constituent_count: true` sessizce `1` gibi davranıp yanlışlıkla
+    kabul EDİLEBİLİRDİ). Eksik/string/float/None/negatif değer de
+    reddedilir -- coerce/normalize YOK."""
+    if field_name not in universe:
+        raise ProvenanceConflictError(
+            f"Paketlenmiş protokol ({path}): 'universe.{field_name}' eksik -- zorunlu bir tam sayı olmalı."
+        )
+    value = universe[field_name]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ProvenanceConflictError(
+            f"Paketlenmiş protokol ({path}): 'universe.{field_name}' tam sayı (int) olmalı, "
+            f"{type(value).__name__} bulundu: {value!r}"
+        )
+    if value < 0:
+        raise ProvenanceConflictError(
+            f"Paketlenmiş protokol ({path}): 'universe.{field_name}' negatif olamaz: {value!r}"
+        )
+    return value
+
+
 def _validate_frozen_symbol_list(parsed: dict, path: Path) -> tuple[str, ...]:
     """Section 17/18/19/20 -- katı, ONARIMSIZ doğrulama. Geçersiz bir
     kanonik protokol yapısı YÜKSEK SESLE başarısız olur; hiçbir girdi
@@ -164,19 +189,29 @@ def _validate_frozen_symbol_list(parsed: dict, path: Path) -> tuple[str, ...]:
             f"{len(set(frozen_symbol_list))} benzersiz."
         )
 
-    # Section 21: mevcutsa saklanan yapısal-kontrol alanlarıyla ek çapraz
-    # kontrol -- ALANLAR YOKSA İCAT EDİLMEZ, yalnızca VARSA doğrulanır.
-    constituent_count = universe.get("constituent_count")
-    if isinstance(constituent_count, int) and constituent_count != len(frozen_symbol_list):
+    # HATA 12N3C2-E1-R2-FIX: `universe.constituent_count`/`universe.
+    # unique_ticker_count` ARTIK ZORUNLUDUR (section 3/9) -- eksikse,
+    # yanlış tipteyse (string/float/bool/None dahil), ya da gerçek
+    # bağımsız olarak hesaplanan sayılarla eşleşmiyorsa YÜKSEK SESLE
+    # reddedilir. Liste HER ZAMAN birincil kaynak kalır -- bu saklanan
+    # sayılar YALNIZCA çapraz-kontrol amaçlıdır, HİÇBİR ZAMAN kaç eleman
+    # okunacağına KARAR VERMEZ (section 5, sıra zaten yukarıda: önce liste
+    # tam olarak doğrulandı, ANCAK ONDAN SONRA bu çapraz kontrol yapılır).
+    actual_count = len(frozen_symbol_list)
+    actual_unique_count = len(set(frozen_symbol_list))
+
+    constituent_count = _validate_stored_count_field(universe, "constituent_count", path)
+    if constituent_count != actual_count:
         raise ProvenanceConflictError(
             f"Paketlenmiş protokol ({path}): 'universe.constituent_count' ({constituent_count}) "
-            f"gerçek frozen_symbol_list uzunluğuyla ({len(frozen_symbol_list)}) eşleşmiyor."
+            f"gerçek frozen_symbol_list uzunluğuyla ({actual_count}) eşleşmiyor."
         )
-    unique_ticker_count = universe.get("unique_ticker_count")
-    if isinstance(unique_ticker_count, int) and unique_ticker_count != len(set(frozen_symbol_list)):
+
+    unique_ticker_count = _validate_stored_count_field(universe, "unique_ticker_count", path)
+    if unique_ticker_count != actual_unique_count:
         raise ProvenanceConflictError(
             f"Paketlenmiş protokol ({path}): 'universe.unique_ticker_count' ({unique_ticker_count}) "
-            f"gerçek benzersiz sembol sayısıyla ({len(set(frozen_symbol_list))}) eşleşmiyor."
+            f"gerçek benzersiz sembol sayısıyla ({actual_unique_count}) eşleşmiyor."
         )
 
     return tuple(frozen_symbol_list)
