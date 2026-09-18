@@ -1,5 +1,5 @@
 """Technical V1 attempt sabit/kararlı reason-code sözlüğü -- HATA
-12N3C2-B2-D / E1-R3 / E2-A1 / E2-B-R1 / HATA 12 final closure.
+12N3C2-B2-D / E1-R3 / E2-A1 / E2-B-R1 / HATA 12 final closure / HATA 13C.
 
 Bu sabitler `AttemptResult.native_reason_code` (mevcut, kapalı olmayan
 `str | None` şema -- bkz. `attempt_models.py`) alanına YAZILACAK adaylardır,
@@ -68,6 +68,25 @@ HATA 12N3C2-B2-D section 4/23, E1-R3 section 14, E2-A section 14).
   `input_snapshot_evidence_design: "TO_BE_DEFINED_BEFORE_HOLDOUT"`). Tümü
   için detaylı taksonomi tablosu: HATA 12 final closure raporu.
 
+  3. OPERASYONEL FAILED nedeni (HATA 13C -- `AttemptResultClassification.
+     FAILED`'e eşlenir, EXCLUSION/BLOCKED_*'A DEĞİL, bir bilimsel gözlem/
+     kimlik-yetkilendirme kararı DEĞİLDİR):
+       - PROVIDER_DATA_UNAVAILABLE: sağlayıcı (yfinance/BistProvider) veri
+         çekme sınırının (asset ya da benchmark, retry'lar tükendikten
+         SONRA) BAŞARISIZ olduğu durum -- bkz. `technical_v1_attempt_
+         execution.py`, "provider fetch boundary". Ham exception mesajı/
+         traceback/URL BURAYA ASLA taşınmaz (bu kural HİÇBİR sabit için
+         istisnasız geçerlidir, bkz. dosya sonu notu) -- sağlayıcının
+         GERÇEKTE fırlattığı istisna türü kapalı bir taksonomi OLUŞTURMADIĞI
+         için (bkz. `bist_provider.py`'nin kendi retry-tükenme deseni)
+         BURADA tek, kararlı bir sabit yeterlidir, alt-kategori İCAT
+         EDİLMEZ. `MISSING_COLUMNS`/`MISSING_OHLCV`/`STALE_DATA`/
+         `TRADING_CALENDAR_UNSUPPORTED_YEAR` (bkz. `data_quality.py`)
+         KASITLI OLARAK buraya eşlenmez -- HATA 12'nin onayladığı
+         taksonomide bunlar için AÇIK bir karar YOK, bu yüzden (tahmin
+         yerine) internal-defect sınırına (section 21/HATA 13C raporu)
+         bırakılır, ASLA FAILED'e "guess" edilmez.
+
 `SYMBOL_NOT_IN_FROZEN_UNIVERSE` (HATA 12N3C2-E1-R3): bu, YALNIZCA POST-
 CLAIM `evaluate_universe_gate()` FAIL durumu için bir persisted `native_
 reason_code` ADAYIDIR -- gelecekteki bir controller'ın PRE-CLAIM
@@ -91,3 +110,4 @@ RUNTIME_IDENTITY_UNAUTHORIZED = "RUNTIME_IDENTITY_UNAUTHORIZED"
 SYMBOL_NOT_IN_FROZEN_UNIVERSE = "SYMBOL_NOT_IN_FROZEN_UNIVERSE"
 TECHNICAL_SCORE_NONE = "TECHNICAL_SCORE_NONE"
 LEADING_EDGE_UNVERIFIED = "LEADING_EDGE_UNVERIFIED"
+PROVIDER_DATA_UNAVAILABLE = "PROVIDER_DATA_UNAVAILABLE"
