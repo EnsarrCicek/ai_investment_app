@@ -1707,3 +1707,64 @@ production deploy/aktivasyon, evidence-upload orkestrasyonu, outcome-
 maturation worker, uzun-vadeli parametre kalibrasyonu, ikincil provider işi.
 Bunların hiçbiri HATA 12'yi açık TUTMAZ — bilimsel/provenance sözleşmeleri
 zaten TAM ve test edilmiş.
+
+# 50. HATA 13 — ORCHESTRATION IMPLEMENTATION COMPLETE (20.09.2026)
+
+HATA 12'nin kapattığı bilimsel/provenance sözleşmelerini GERÇEK, çalışan bir
+boru hattına bağlayan dört implementasyon bileti (13B-13E) TAMAMLANDI. Bu,
+KOD SEVİYESİNDE bir tamamlanmadır — production aktivasyonu/deploy/scheduler
+AYRI, henüz YAPILMAMIŞ bir sonraki adımdır (aşağıya bkz.).
+
+**13B — activation event + pre-claim authorization:** `TechnicalV1
+ActivationEvent` (`INITIAL`/`LOCK_AUTHORIZED`, aktivasyon KİLİDİNDEN AYRI bir
+yetkilendirme kaydı) + create-only repository'si + saf `authorize_pre_claim()`
+(aktivasyon yetkisi × protokol kimliği × dondurulmuş evren üyeliğini,
+`claim_attempt()`'ten HEMEN ÖNCE, GCS'siz olarak doğrular).
+
+**13C — tek-deneme (single-attempt) yürütme:** `TechnicalV1AttemptExecution
+Service.execute_attempt()` — pre-claim yetkilendirme → claim → post-claim
+dört kimlik-kapısı (provider işinden ÖNCE) → provider fetch/normalizasyon →
+GENİŞ (pre-roll dahil) asset evidence → continuity/OHLCV/insufficient-history
+hard-veto exclusion'ları → benchmark bir KEZ çekilip enjekte edilir →
+`compute_technical_analysis()` (paylaşılan, değiştirilmemiş) → benchmark/
+output evidence → `TECHNICAL_SCORE_NONE`/`LEADING_EDGE_UNVERIFIED`
+post-analysis exclusion → `AttemptResult` yayınlama.
+
+**13D — attempt2 + finalizasyon:** `TechnicalV1Attempt2Orchestrator`,
+seçicinin KENDİ, GCS'siz 09:00 tarihsel önyargısını (`_qualifying_at_
+attempt2_decision`) yeniden kullanır, 09:00-09:45 penceresinde 13C'ye delege
+eder. `TechnicalV1Finalizer.finalize()`, formal cutoff'tan (09:45) SONRA
+`select_final_evaluation()`'ı çağırıp `TechnicalV1EvaluationRepository.
+create()` ile persist eder — ve (final fix) bu evaluation_id için ZATEN
+doğrulanmış bir `FinalEvaluation` varsa, attempt'leri HİÇ yeniden okumadan
+koşulsuz `IDEMPOTENT_REUSE` döner: **ilk başarıyla oluşturulmuş, doğrulanmış
+FinalEvaluation kanoniktir**, geç (audit-only) bir attempt yazımı onu ASLA
+yeniden hesaplatamaz.
+
+**13E — session controller:** `TechnicalV1SessionController`, dondurulmuş
+TAM 100 sembolü (`TrustedTechnicalV1Protocol.frozen_symbol_list`, canlı
+BIST100 DEĞİL) üzerinde dört faz sunar: `run_attempt1_phase`/
+`run_attempt2_phase`/`run_finalization_phase`/`build_session_manifest_if_
+complete`. Her faz 100 sembolün TAMAMINI dener; bir sembolün operasyonel
+hatası (per-symbol yalıtım, KASITLI OLARAK GENİŞ) diğer 99'u durdurmaz.
+Manifest'in KENDİSİ (`build_session_manifest()`, değiştirilmemiş), 100
+`FinalEvaluation`'ın TAMAMI doğrulanmadan (`SessionAccountingStatus.
+COMPLETE`) ÇAĞRILMAZ — eksik/çakışan kayıt varsa manifest HİÇ persist
+edilmez (`MISSING_FINAL_RECORDS`/`REPOSITORY_PROVENANCE_CONFLICT`).
+`TechnicalV1SessionRunSnapshot` (mutable, bilimsel kanıt DEĞİL) her
+finalizasyon geçişinde SIFIRDAN yeniden inşa edilir.
+
+**HENÜZ YAPILMAYANLAR (bilinçli, bu HATA'nın kapsamı dışında):**
+  - Cloud Scheduler/cron/Cloud Run zamanlanmış tetikleyici OLUŞTURULMADI.
+    Gelecekte planlanan çağrı noktaları (Europe/Istanbul, T_session_date'ten
+    SONRAKİ ilk BIST işlem gününe ankorlu): 08:00 attempt1 fazı, 09:00
+    attempt2 fazı, 10:15 operasyonel finalizasyon/manifest fazı.
+  - Production activation event/lock OLUŞTURULMADI.
+  - `evidence_capture_ready`/`prospective_holdout_started`/`effective_
+    holdout_start` HÂLÂ `false`/`false`/`null`.
+  - Gerçek Firestore/GCS'e HİÇBİR yazma yapılmadı — tüm testler sahte
+    (fake) Firestore + `FakeEvidenceObjectStore` + sahte provider ile
+    çalışır.
+
+Bu bölüm, KOD'un mevcut olduğunu belgeler — prospective holdout'un
+BAŞLADIĞINI İDDİA ETMEZ.
