@@ -26,3 +26,22 @@ EVENT_INTELLIGENCE_BUDGET_USD = float(os.environ.get("EVENT_INTELLIGENCE_BUDGET_
 # oluşturabilirdi. Ayarlanmamışsa (örn. yerel geliştirme) uç nokta devre dışı
 # kalır (403 döner) — hiçbir zaman "kontrol yok" durumuna sessizce düşmez.
 DAILY_JOB_SECRET = os.environ.get("DAILY_JOB_SECRET")
+
+# PROD-2: Technical V1 immutable evidence nesnelerinin (asset/benchmark/
+# technical-output anlık-görüntüleri) yazılacağı GCS bucket'ı — KASITLI
+# OLARAK hiçbir varsayılan/hardcoded production bucket adı YOKTUR (bkz.
+# `app/research/technical_v1_production.py`, section 3/5). Boş/eksikse
+# ordinary app startup'ı BAŞARISIZ OLMAZ -- yalnızca GERÇEK bir Technical
+# V1 production servisi inşa edilmeye çalışıldığında (bir internal
+# endpoint çağrıldığında) açık bir yapılandırma hatasına dönüşür.
+TECHNICAL_V1_EVIDENCE_BUCKET = os.environ.get("TECHNICAL_V1_EVIDENCE_BUCKET")
+
+# PROD-2: Technical V1 internal job endpoint'lerini (attempt1/attempt2/
+# finalize/manifest) tetikleyecek olan gelecekteki Cloud Scheduler'ın
+# kimliğini kanıtlaması için paylaşılan gizli anahtar -- `DAILY_JOB_
+# SECRET` İLE AYNI, ZATEN kilitlenmiş desen (bkz. app/api/jobs.py).
+# Ayarlanmamışsa uç noktalar devre dışı kalır (403), hiçbir zaman
+# "kontrol yok" durumuna sessizce düşmez. Bu ticket HİÇBİR scheduler
+# OLUŞTURMAZ -- bu sadece uç noktaları GELECEKTEKİ bir scheduler için
+# HAZIR (ama şimdilik dormant) hale getirir.
+TECHNICAL_V1_JOB_SECRET = os.environ.get("TECHNICAL_V1_JOB_SECRET")

@@ -1708,7 +1708,7 @@ maturation worker, uzun-vadeli parametre kalibrasyonu, ikincil provider işi.
 Bunların hiçbiri HATA 12'yi açık TUTMAZ — bilimsel/provenance sözleşmeleri
 zaten TAM ve test edilmiş.
 
-# 50. HATA 13 — ORCHESTRATION IMPLEMENTATION COMPLETE (20.09.2026)
+# 50. HATA 13 — ORCHESTRATION IMPLEMENTATION COMPLETE (18.09.2026)
 
 HATA 12'nin kapattığı bilimsel/provenance sözleşmelerini GERÇEK, çalışan bir
 boru hattına bağlayan dört implementasyon bileti (13B-13E) TAMAMLANDI. Bu,
@@ -1768,3 +1768,34 @@ finalizasyon geçişinde SIFIRDAN yeniden inşa edilir.
 
 Bu bölüm, KOD'un mevcut olduğunu belgeler — prospective holdout'un
 BAŞLADIĞINI İDDİA ETMEZ.
+
+# 51. PROD-2 — TECHNICAL V1 PRODUCTION WIRING (18.09.2026)
+
+HATA 13'te tamamlanan `TechnicalV1SessionController`'ın dört fazı, GERÇEK
+HTTP üzerinden çağrılabilir hale getirildi — hiçbir aktivasyon/scheduler/
+prospective-holdout ADIMI ATILMADAN. Yeni internal endpoint'ler (`app/api/
+technical_v1_internal.py`, prefix `/internal/technical-v1`):
+`POST /attempt1`, `POST /attempt2`, `POST /finalize`, `POST /manifest`.
+Auth, `app/api/jobs.py`'deki `DAILY_JOB_SECRET` deseninin BİREBİR AYNISı
+— ayrı bir sabit (`TECHNICAL_V1_JOB_SECRET`) ile, `X-Job-Secret` header'ı
+üzerinden. Evidence yazımları `TECHNICAL_V1_EVIDENCE_BUCKET` env var'ından
+okunan bucket'a gider — kod içinde hiçbir varsayılan/hardcoded bucket adı
+YOKTUR; ayarlı değilse endpoint'ler 503 döner, ordinary `import app.main`
+ETKİLENMEZ. Tüm bilimsel/orkestrasyon mantığı (09:00/09:45 kararları,
+evidence doğrulama/seçim, dondurulmuş 100-sembol evreni) DEĞİŞTİRİLMEDEN
+HATA 12/13'e delege edilir — bu router SADECE ince bir HTTP/loglama
+katmanıdır.
+
+**Gelecekte planlanan (bu ticket'ta OLUŞTURULMAYAN) Cloud Scheduler
+hedefleri** (Europe/Istanbul, T_session_date'ten SONRAKİ ilk BIST işlem
+gününe ankorlu, HATA 13'ün zaten belgelediği saatlerle TUTARLI):
+  - 08:00 → `POST /internal/technical-v1/attempt1`
+  - 09:00 → `POST /internal/technical-v1/attempt2`
+  - 10:15 → `POST /internal/technical-v1/finalize`, ardından
+    `POST /internal/technical-v1/manifest`
+
+**Bu ticket'ta KASITLI OLARAK YAPILMAYANLAR:** activation lock/event
+oluşturma endpoint'i yok; gerçek bir Cloud Scheduler job'ı oluşturulmadı;
+`evidence_capture_ready`/`prospective_holdout_started`/`effective_holdout_
+start` HÂLÂ `false`/`false`/`null`; gerçek Firestore/GCS'e hiçbir production
+yazma denenmedi (yalnızca sahte/stub bağımlılıklarla test edildi).

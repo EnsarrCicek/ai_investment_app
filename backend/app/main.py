@@ -15,6 +15,7 @@ from app.api import (
     notifications,
     portfolio,
     risk,
+    technical_v1_internal,
     usage,
 )
 
@@ -35,6 +36,7 @@ app.include_router(funds.router)
 app.include_router(analysts.router)
 app.include_router(ipo.router)
 app.include_router(jobs.router)
+app.include_router(technical_v1_internal.router)
 
 
 @app.get("/health")
