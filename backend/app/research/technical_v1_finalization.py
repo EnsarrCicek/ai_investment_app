@@ -16,7 +16,23 @@ olursa, attempt2'ye ASLA "sessizce" geçilmez -- bkz. o modülün KENDİ
 istisnayı KASITLI OLARAK YAKALAMAZ -- doğrudan çağırana YAYILIR, "kardeş
 adaya sessiz geçiş YOK" kuralını BİR KEZ DAHA (bu sarmalama katmanında)
 YENİDEN UYGULAMAZ/BOZMAZ.
-"""
+
+HATA 13D FINAL FIX -- KİLİTLİ KURAL: "İLK BAŞARIYLA OLUŞTURULMUŞ,
+DOĞRULANMIŞ FinalEvaluation KANONİKTİR." `finalize()`, formal cutoff
+kontrolünden SONRA ama attempt1/attempt2 durumunu OKUMADAN/`select_final_
+evaluation()`'ı ÇAĞIRMADAN ÖNCE, bu `evaluation_id` için ZATEN doğrulanmış
+bir `FinalEvaluation` var mı diye bakar (`TechnicalV1EvaluationRepository.
+get_verified()`, ZATEN var olan güvenilen okuma API'si -- ham bir Firestore
+dict OKUNMAZ). VARSA: o kayıt KOŞULSUZ `IDEMPOTENT_REUSE` olarak döner --
+attempt claim/result'ları HİÇ okunmaz, `select_final_evaluation()` HİÇ
+çağrılmaz, YENİ bir kanonik hash HİÇ hesaplanmaz/karşılaştırılmaz. Cutoff'tan
+SONRA (audit-only) eklenen bir attempt2 sonucu bu yüzden ASLA zaten
+persist edilmiş bilimsel anlık-görüntüyü YENİDEN HESAPLATAMAZ/BOZAMAZ --
+yalnızca attempt audit deposunda (technical_v1_attempt_results) görünür
+kalır, `FinalEvaluation`'a HİÇ giremez. Var olan kayıt bulunamazsa (henüz
+YOKSA) pipeline AYNEN (okuma -> `select_final_evaluation()` -> `create()`)
+devam eder -- bu durumda selector'ın KENDİ formal-cutoff/create_time
+semantiği (section 9) HİÇ DEĞİŞMEDEN kalır."""
 
 from __future__ import annotations
 
@@ -74,6 +90,15 @@ class TechnicalV1Finalizer:
         DEĞİŞMEZ."""
         if now < context.formal_cutoff_utc:
             return FinalizationReport(outcome=FinalizationOutcome.NOT_YET_FINALIZABLE)
+
+        # HATA 13D FINAL FIX -- bkz. modül docstring'i: kanonik bir final
+        # ZATEN varsa, hiçbir attempt okunmaz/yeniden hesaplanmaz. Var
+        # olan doküman bozuksa `get_verified()`'ın KENDİSİ zaten
+        # `ProvenanceConflictError` fırlatır -- burada YAKALANMAZ/
+        # "yok say ve yenisini oluştur" YAPILMAZ (section 5).
+        existing = self._evaluation_repo.get_verified(context.evaluation_id)
+        if existing is not None:
+            return FinalizationReport(outcome=FinalizationOutcome.IDEMPOTENT_REUSE, evaluation=existing.evaluation)
 
         attempt1_id = compute_attempt_id(context.evaluation_id, 1)
         attempt2_id = compute_attempt_id(context.evaluation_id, 2)

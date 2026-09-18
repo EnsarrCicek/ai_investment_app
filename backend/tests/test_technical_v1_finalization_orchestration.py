@@ -776,7 +776,7 @@ def test_concurrent_create_race_benign_reuse_when_existing_matches(fake_db, auth
     assert report_b.evaluation.record_content_sha256 == report_a.evaluation.record_content_sha256
 
 
-def test_concurrent_create_race_conflict_when_existing_differs(fake_db, authorized_setup):
+def test_concurrent_create_race_conflict_when_existing_differs(fake_db, authorized_setup, monkeypatch):
     lock = authorized_setup
     df = _bday_df("2025-09-01", "2026-08-24")
     provider = _FakeProvider(df)
@@ -831,6 +831,27 @@ def test_concurrent_create_race_conflict_when_existing_differs(fake_db, authoriz
         attempt_2_summary=conflicting_summary,
     )
     evaluation_repo.create(conflicting_evaluation)
+
+    # HATA 13D FINAL FIX section 6: "A ve B başlangıçta İKİSİ DE final
+    # görmüyor" yarışını simüle eder -- gerçek bir eşzamanlılık yarışında
+    # B'nin early-lookup'ı A'nın YAZMASINI henüz GÖRMEYEBİLİR (`None`
+    # döner); bu, finalizer'ın YENİ erken-bakış kısa-devresini BİR KEZLİK
+    # atlatır ki B kendi (attempt1'in GERÇEK verisinden türeyen) adayını
+    # hesaplayıp `.create()`'e ulaşsın -- orada VAR OLAN, FARKLI kayıtla
+    # karşılaşıp repository'nin KENDİ, DEĞİŞTİRİLMEMİŞ mantığıyla
+    # reddedilir (section 6: "Existing repository create() behavior may
+    # verify/reuse the existing canonical record... Do NOT introduce a
+    # lease").
+    real_get_verified = TechnicalV1EvaluationRepository.get_verified
+    call_count = {"n": 0}
+
+    def racy_get_verified(self, evaluation_id):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return None
+        return real_get_verified(self, evaluation_id)
+
+    monkeypatch.setattr(TechnicalV1EvaluationRepository, "get_verified", racy_get_verified)
 
     finalizer_b = _make_finalizer(fake_db, evidence_store)
     with pytest.raises(ProvenanceConflictError):
@@ -895,24 +916,30 @@ def test_late_attempt_result_does_not_rewrite_existing_final_evaluation(fake_db,
     # (yalnızca finalize()'ın İKİNCİ kez çağrılması DEĞİL).
     fake_db.set_create_time("technical_v1_attempt_results", late_report.result.attempt_id, AFTER_CUTOFF + timedelta(hours=1))
 
-    # ÖNEMLİ BULGU (section 35/56): "late write rewrite etmez" TAM OLARAK
-    # "zaten var olan immutable kayıt Firestore'da hiçbir zaman MUTATE
-    # EDİLMEZ" anlamına gelir -- "finalize()'ı ikinci kez çağırmak sessizce
-    # IDEMPOTENT_REUSE döner" ANLAMINA GELMEZ. Geç attempt2 sonucu
-    # `attempt_2_summary`'yi (seçim SONUCUNU değil, ama dürüst KAYDI)
-    # değiştirdiğinden, YENİDEN hesaplanan aday KENDİ İÇİNDE tutarlı ama
-    # ZATEN persist edilmiş kayıttan FARKLI bir içerik-hash taşır --
-    # create-only repository bunu (KASITLI OLARAK) sessizce üzerine
-    # yazmaz, sert bir `ProvenanceConflictError` fırlatır. Bu, "no
-    # overwrite/no update" kuralının EN GÜVENLİ olası uygulamasıdır.
-    with pytest.raises(ProvenanceConflictError):
-        finalizer.finalize(context, now=AFTER_CUTOFF)
+    # HATA 13D FINAL FIX -- KİLİTLİ KURAL: "İLK BAŞARIYLA OLUŞTURULMUŞ,
+    # DOĞRULANMIŞ FinalEvaluation KANONİKTİR." finalize()'ın ikinci
+    # çağrısı, ZATEN var olan doğrulanmış final'i BULUR ve KOŞULSUZ
+    # IDEMPOTENT_REUSE döner -- attempt1/attempt2'yi YENİDEN OKUMAZ,
+    # select_final_evaluation()'ı YENİDEN ÇAĞIRMAZ, YENİ bir hash HİÇ
+    # hesaplamaz/karşılaştırmaz. Geç attempt2 sonucu SADECE attempt audit
+    # deposunda (technical_v1_attempt_results) görünür kalır -- bilimsel
+    # anlık-görüntüye HİÇ giremez.
+    second = finalizer.finalize(context, now=AFTER_CUTOFF)
 
+    assert second.outcome == FinalizationOutcome.IDEMPOTENT_REUSE
+    assert second.evaluation.evaluation_id == first.evaluation.evaluation_id
+    assert second.evaluation.record_content_sha256 == first.evaluation.record_content_sha256
+    assert second.evaluation.selected_attempt_id == first.evaluation.selected_attempt_id
+    assert second.evaluation.to_document_fields() == first.evaluation.to_document_fields()
     # Var olan, İLK persist edilmiş kayıt HİÇ DEĞİŞMEDEN kalır.
     stored = fake_db.raw_store(EVALUATIONS_COLLECTION)[context.evaluation_id]
     assert stored["record_content_sha256"] == first.evaluation.record_content_sha256
     assert stored["selected_attempt_id"] == first.evaluation.selected_attempt_id
     assert len(fake_db.raw_store(EVALUATIONS_COLLECTION)) == 1
+    # Geç attempt2, attempt audit deposunda hâlâ görünür (silinmedi/
+    # gizlenmedi) -- yalnızca zaten-finalize-edilmiş anlık-görüntüye
+    # GİREMEDİ.
+    assert late_report.result.attempt_id in fake_db.raw_store("technical_v1_attempt_results")
 
 
 # ---------------------------------------------------------------------------
