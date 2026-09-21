@@ -25,8 +25,8 @@ class YahooNewsProvider(NewsProvider):
         items: list[NewsRawItem] = []
         for raw in raw_items[:limit]:
             content = raw.get("content", {})
-            publisher = content.get("provider", {}).get("displayName", "Unknown")
-            category = classify_publisher(publisher)
+            raw_publisher = content.get("provider", {}).get("displayName")
+            category = classify_publisher(raw_publisher)
             url = (content.get("canonicalUrl") or content.get("clickThroughUrl") or {}).get("url", "")
             pub_date = content.get("pubDate") or content.get("displayTime")
 
@@ -36,9 +36,9 @@ class YahooNewsProvider(NewsProvider):
                     title=content.get("title", ""),
                     summary=content.get("summary", ""),
                     url=url,
-                    publisher=publisher,
+                    publisher=raw_publisher or "Unknown",
                     source=self.SOURCE,
-                    source_reliability=weights.get(category, weights["OTHER_MEDIA"]),
+                    source_reliability=weights.get(category) if category is not None else None,
                     related_assets=[symbol],
                     published_at=datetime.fromisoformat(pub_date.replace("Z", "+00:00")),
                     received_at=received_at,

@@ -44,11 +44,25 @@ _PUBLISHER_CATEGORY = {
 }
 
 
-def classify_publisher(publisher: str) -> str:
+def classify_publisher(publisher: str | None) -> str | None:
+    """Yayıncıyı bilinen bir kategoriye eşler; eşleşme yoksa `None` döner.
+
+    HATA 15C SON DÜZELTME: `OTHER_MEDIA`, eşleşmeyen/bilinmeyen bir yayıncı
+    için icat edilmiş bir varsayılan DEĞİL -- şu anda kod tabanında hiçbir
+    yayıncıyı BİLEREK OTHER_MEDIA'ya eşleyen açık bir kural yok
+    (`_PUBLISHER_CATEGORY` yalnızca KAP/NEWS_AGENCY/FINANCIAL_MEDIA
+    kategorilerini tanır). Eşleşmeyen/boş/`None` bir yayıncı, sayısal bir
+    güvenilirlik değeri TAŞIMAYAN `None` döner -- çağıran taraf bunu
+    "bilinmiyor" olarak ele almalı, asla `OTHER_MEDIA=0.60` gibi icat
+    edilmiş bir değere düşürmemeli (bkz. `decision/engine.py::_effective_news_weight`,
+    "available-dimension weighting").
+    """
+    if not publisher or not publisher.strip():
+        return None
     name = publisher.strip().lower()
     if name == "kap" or name.startswith("kap "):
         return "KAP"
     for key, category in _PUBLISHER_CATEGORY.items():
         if key in name:
             return category
-    return "OTHER_MEDIA"
+    return None

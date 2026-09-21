@@ -55,7 +55,8 @@ class GoogleNewsRssProvider(NewsProvider):
             guid = (entry.findtext("guid") or "").strip()
             pub_date_text = entry.findtext("pubDate")
             source_el = entry.find("source")
-            publisher = (source_el.text or "Unknown").strip() if source_el is not None else "Unknown"
+            raw_publisher = source_el.text.strip() if source_el is not None and source_el.text else None
+            publisher = raw_publisher or "Unknown"
 
             if not title or not guid or not pub_date_text:
                 continue
@@ -66,7 +67,7 @@ class GoogleNewsRssProvider(NewsProvider):
             if published_at.tzinfo is None:
                 published_at = published_at.replace(tzinfo=timezone.utc)
 
-            category = classify_publisher(publisher)
+            category = classify_publisher(raw_publisher)
             items.append(
                 NewsRawItem(
                     external_id=f"google_news:{guid}",
@@ -75,7 +76,7 @@ class GoogleNewsRssProvider(NewsProvider):
                     url=link,
                     publisher=publisher,
                     source=self.SOURCE,
-                    source_reliability=weights.get(category, weights["OTHER_MEDIA"]),
+                    source_reliability=weights.get(category) if category is not None else None,
                     related_assets=[symbol],
                     published_at=published_at,
                     received_at=received_at,

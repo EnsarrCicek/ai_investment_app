@@ -78,6 +78,25 @@ def test_detects_related_bist_asset_from_ticker_mention(monkeypatch):
     assert "analistler hedef fiyati yukseltti" in item.summary
 
 
+def test_fixed_publisher_is_a_known_category_not_a_fake_fallback(monkeypatch):
+    """HATA 15C SON DÜZELTME: Foreks'in sabit PUBLISHER'ı ("Foreks") gerçekten
+    bilinen bir kategoriye (FINANCIAL_MEDIA) eşleşir -- bu, eşleşmeyen bir
+    yayıncı için icat edilmiş bir OTHER_MEDIA fallback DEĞİL, gerçek
+    sınıflandırma bilgisidir. Foreks sağlayıcısı kendi başına eski
+    OTHER_MEDIA=0.60 fallback'ını yeniden üretemez."""
+    from app.services.news.source_reliability import classify_publisher
+
+    assert classify_publisher(provider_module.PUBLISHER) == "FINANCIAL_MEDIA"
+
+    rss = _RSS_TEMPLATE.format(title1="THYAO'da hedef fiyat yukseltildi", title2="Baska bir THYAO haberi")
+    _patch_requests(monkeypatch, _FakeResponse(rss.encode("utf-8")))
+
+    items = _provider().get_market_news(limit=10)
+
+    assert all(i.source_reliability == 0.80 for i in items)
+    assert all(i.source_reliability is not None for i in items)
+
+
 def test_skips_items_with_no_known_bist_asset_mentioned(monkeypatch):
     rss = _RSS_TEMPLATE.format(title1="THYAO'da hedef fiyat yukseltildi", title2="Baska bir THYAO haberi")
     _patch_requests(monkeypatch, _FakeResponse(rss.encode("utf-8")))

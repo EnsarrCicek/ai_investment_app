@@ -1981,3 +1981,47 @@ OTHER_MEDIA'ya düşürüldü / kümenin tüm üyelerinin reliability'si topland
 üçü de ilgili testleri gerçekten kırdı, restore sonrası tekrar yeşil. Tam
 backend paketi: 2072 passed, 0 failed, 0 skipped, 0 xfail (2057 mevcut +
 15 yeni). No deployment performed.
+
+## HATA 15C SON DÜZELTME — UNKNOWN PUBLISHER ≠ FAKE OTHER_MEDIA
+
+`classify_publisher()` eşleşmeyen/eksik/boş bir yayıncı için artık icat
+edilmiş bir `OTHER_MEDIA=0.60` DEĞİL, sayısal değer taşımayan `None` döner.
+
+Kesinleşen kural:
+
+> Eşleşmeyen/eksik yayıncı provenance'ı OTHER_MEDIA reliability ağırlığını
+> ALMAZ. Reliability `None`'dır ve olay confidence-only "available-dimension
+> weighting"i kullanır.
+
+Denetim bulgusu (bölüm 1/12): kod tabanında şu anda hiçbir yayıncıyı
+BİLEREK/açıkça OTHER_MEDIA'ya eşleyen bir kural YOK — `_PUBLISHER_CATEGORY`
+yalnızca KAP/NEWS_AGENCY/FINANCIAL_MEDIA tanır; OTHER_MEDIA daima
+"eşleşmedi" fallback'ıydı. Bu nedenle "bilinen OTHER_MEDIA" ile "tarihsel
+fallback" şu an production kodunda ayırt edilemez; sahte bir production
+eşlemesi İCAT EDİLMEDİ, bu ayrım gelecekte gerçek bir OTHER_MEDIA kuralı
+eklenirse mümkün olacak.
+
+Provider zinciri (Yahoo/Google/Foreks) güncellendi: eşleşmeyen/eksik
+yayıncı → `NewsRawItem.source_reliability = None` (alan artık `float | None`).
+Foreks'in sabit `PUBLISHER="Foreks"` değeri gerçekten bilinen bir kategoriye
+(FINANCIAL_MEDIA) eşleşiyor — bu icat edilmiş bir fallback değil, gerçek
+sınıflandırma bilgisi, dolayısıyla Foreks'te davranış değişmedi.
+
+Legacy kayıt belirsizliği (bölüm 8, göç YAPILMADI): bu düzeltmeden ÖNCE
+yazılmış eski `news_raw` kayıtları hâlâ `source_reliability=0.60`
+içerebilir ve bu değerin gerçekten bilinen bir OTHER_MEDIA sınıflandırması
+mı yoksa eski fallback mi olduğu, mevcut provenance'tan artık geriye dönük
+AYIRT EDİLEMEZ. Bu belirsizlik bilinçli olarak kabul edildi, sahte bir
+kesinlik iddia edilmedi.
+
+DecisionEngine'in HATA 15C confidence-only fallback mekanizması
+DEĞİŞMEDİ — bu düzeltme yalnızca `classify_publisher()`'ın hangi
+durumlarda `None` üreteceğini düzeltti.
+
+Test: `test_source_reliability.py` (+3), `test_yahoo_news_provider.py`
+(yeni dosya, 3 test), `test_google_news_rss_provider.py` (+1),
+`test_foreks_news_provider.py` (+1), `test_news_reliability_scoring.py`
+(+1 end-to-end). Rigor check: eski `unknown → OTHER_MEDIA` fallback'ı
+geçici olarak geri getirildi, 4 test kırıldı, restore sonrası tekrar
+yeşil. Tam backend paketi: 2080 passed, 0 failed, 0 skipped, 0 xfail
+(2072 mevcut + 8 yeni). No deployment performed.

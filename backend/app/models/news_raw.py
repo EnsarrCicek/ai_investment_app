@@ -10,7 +10,7 @@ class NewsRawItem(BaseModel):
     url: str
     publisher: str
     source: str
-    source_reliability: float
+    source_reliability: float | None
     related_assets: list[str]
     published_at: datetime
     received_at: datetime

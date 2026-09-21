@@ -70,6 +70,31 @@ def test_kap_publisher_gets_highest_reliability_weight(monkeypatch):
     assert kap_item.source_reliability == 1.00
 
 
+_UNMAPPED_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<item>
+  <title>THYAO ile ilgili bir haber</title>
+  <link>https://news.google.com/rss/articles/xyz999</link>
+  <guid isPermaLink="false">xyz999</guid>
+  <pubDate>Wed, 19 Aug 2026 15:52:00 GMT</pubDate>
+  <description>...</description>
+  <source url="https://completely-unmapped-outlet.example">Completely Unmapped Outlet</source>
+</item>
+</channel></rss>"""
+
+
+def test_unmapped_publisher_does_not_become_fake_other_media(monkeypatch):
+    """HATA 15C SON DÜZELTME: eşleşmeyen bir yayıncı artık icat edilmiş bir
+    OTHER_MEDIA=0.60 değeri DEĞİL, `None` üretmeli."""
+    _patch_requests(monkeypatch, _FakeResponse(_UNMAPPED_RSS.encode("utf-8")))
+
+    items = GoogleNewsRssProvider(config_repo=_FakeConfigRepo()).get_latest_news("THYAO", limit=10)
+
+    assert len(items) == 1
+    assert items[0].source_reliability is None
+    assert items[0].source_reliability != 0.60
+
+
 def test_respects_limit(monkeypatch):
     _patch_requests(monkeypatch, _FakeResponse(_SAMPLE_RSS.encode("utf-8")))
 

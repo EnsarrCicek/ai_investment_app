@@ -107,7 +107,8 @@ class ForeksNewsProvider:
             return []
 
         weights = self._config_repo.get("source_reliability", DEFAULT_SOURCE_RELIABILITY)
-        reliability = weights.get(classify_publisher(PUBLISHER), weights["OTHER_MEDIA"])
+        _foreks_category = classify_publisher(PUBLISHER)
+        reliability = weights.get(_foreks_category) if _foreks_category is not None else None
         received_at = datetime.now(timezone.utc)
 
         # Sembol başına daha önce eklenmiş haberlerin kelime kümeleri — neredeyse

@@ -147,6 +147,39 @@ def test_zero_reliability_contributes_zero_weight():
     assert _aggregate_news_score(weighted) == pytest.approx(-40.0)
 
 
+# ---------------------------------------------------------------------------
+# HATA 15C SON DÜZELTME — classify_publisher()'ın eşleşmeyen bir yayıncı için
+# ürettiği `None`, ham habere (`NewsRawItem.source_reliability`) doğru şekilde
+# yansıyıp DecisionEngine'de confidence-only fallback'a düşüyor mu?
+# ---------------------------------------------------------------------------
+
+
+def test_unmapped_publisher_end_to_end_falls_back_to_confidence_only():
+    from app.services.news.source_reliability import classify_publisher
+
+    category = classify_publisher("Completely Unmapped Publisher")
+    assert category is None  # artık icat edilmiş bir OTHER_MEDIA DEĞİL
+
+    raw_unknown = _news("prov:unknown", "Bağımsız olay A", reliability=category, published_at=T0)
+    raw_known = _news(
+        "prov:known", "Bağımsız olay B", reliability=1.0, published_at=T0 + timedelta(hours=1)
+    )
+    analyses = [
+        _analysis("prov:unknown", sentiment_score=100.0, confidence=1.0, created_at=T0),
+        _analysis("prov:known", sentiment_score=0.0, confidence=1.0, created_at=T0 + timedelta(hours=1)),
+    ]
+    raw_repo = _FakeNewsRawRepoWithData({"prov:unknown": raw_unknown, "prov:known": raw_known})
+
+    deduped = _deduplicate_news_analyses(analyses, raw_repo)
+    unknown_entry = next(w for w in deduped if w.analysis.news_id == "prov:unknown")
+
+    assert unknown_entry.source_reliability is None
+    assert unknown_entry.source_reliability != 0.60
+    # weight_unknown = confidence-only = 1.0; weight_known = 1.0*1.0 = 1.0
+    # score = (100*1.0 + 0*1.0) / (1.0+1.0) = 50.0
+    assert _aggregate_news_score(deduped) == pytest.approx(50.0)
+
+
 def test_all_zero_effective_weight_returns_none_not_fabricated_zero():
     weighted = [_weighted(100.0, 1.0, 0.0, "a"), _weighted(-100.0, 1.0, 0.0, "b")]
     assert _aggregate_news_score(weighted) is None
