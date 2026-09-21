@@ -94,6 +94,18 @@ class _FakeNewsRepo:
         return self._analyses
 
 
+class _FakeNewsRawRepo:
+    """HATA 15E: ExplanationEngine artık DecisionEngine ile AYNI paylaşımlı
+    seçim yardımcısını (`select_recent_unique_news_analyses`) kullanıyor --
+    o da dedup için news_raw'a bakar. Bu testlerde tek bir NewsAnalysis
+    olduğu için (yalnızca 1 haber), ham kaydın bulunup bulunmaması kümeleme
+    SONUCUNU etkilemez (1 üyeli küme her durumda tek başına kalır) -- bkz.
+    test_decision_engine.py'deki aynı isimli fake, aynı gerekçe."""
+
+    def get_by_external_id(self, external_id):
+        return None
+
+
 def _news(sentiment_score, confidence, importance, reasoning, news_id="n"):
     return NewsAnalysis(
         news_id=news_id,
@@ -115,6 +127,7 @@ def _engine(news_analyses):
         technical_engine=_FakeTechnicalEngine(),
         macro_repo=_FakeMacroRepo(),
         news_repo=_FakeNewsRepo(news_analyses),
+        news_raw_repo=_FakeNewsRawRepo(),
     )
 
 
@@ -154,6 +167,7 @@ def test_explain_does_not_crash_when_technical_score_is_unavailable():
         technical_engine=_FakeTechnicalEngineUnavailableScore(),
         macro_repo=_FakeMacroRepo(),
         news_repo=_FakeNewsRepo([_news(60.0, 0.8, 0.7, "Güçlü bilanço açıklandı.")]),
+        news_raw_repo=_FakeNewsRawRepo(),
     )
 
     result = engine.explain("TEST")  # exception atmamalı
@@ -191,6 +205,7 @@ def test_explain_summary_uses_sinyal_mutabakati_and_veri_kapsami_not_generic_guv
         technical_engine=_FakeTechnicalEngineWithScore(80.0),
         macro_repo=_FakeMacroRepo(),
         news_repo=_FakeNewsRepo([_news(-80.0, 0.9, 0.9, "Beklenenden kötü sonuç açıklandı.")]),
+        news_raw_repo=_FakeNewsRawRepo(),
     )
 
     result = engine.explain("TEST")
@@ -220,6 +235,7 @@ def test_explain_summary_only_one_channel_shows_high_agreement_and_low_coverage_
         technical_engine=_FakeTechnicalEngineWithScore(100.0),
         macro_repo=_FakeMacroRepo(),
         news_repo=_FakeNewsRepo([]),
+        news_raw_repo=_FakeNewsRawRepo(),
     )
 
     result = engine.explain("TEST")

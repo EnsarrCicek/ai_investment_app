@@ -2102,3 +2102,69 @@ EDİLMEDİ). Rigor check C (geçersiz JSON çıktısına geçici olarak fake bir
 başarılı kayıt persist ettirildi → invalid-output testi kırıldı, restore
 sonrası yeşil). Tam backend paketi: 2097 passed, 0 failed, 0 skipped,
 0 xfail (2080 mevcut + 17 yeni). No deployment performed.
+
+# HATA 15E — EXPLANATION NEWS CONSISTENCY COMPLETE
+
+Denetim bulgusu (HATA 15A, HATA 15C FINAL raporunda disclosed ayrı açık
+konu olarak bırakılmıştı): `ExplanationEngine.explain()` haber tarafında
+doğrudan ham `news_repo.list_for_asset(asset, limit=NEWS_SCORE_LIMIT)`
+okuyordu — HATA 15B cross-source event dedup'ına ve HATA 15C source-
+reliability ağırlıklandırmasına HİÇ bağlı DEĞİLDİ. Sonuç:
+`DecisionEngine.decide_for_asset()` skorunu "son 10 BENZERSİZ mantıksal
+olay" üzerinden üretirken, `ExplanationEngine` "son 10 HAM kayıt"
+üzerinden açıklama üretebiliyordu — üyelik/temsilci tutarsızlığı.
+
+Uygulanan çözüm: seçim mantığının kendisi (dedup + backfill semantiği +
+temsilci-reliability eşleme, eski `DecisionEngine._deduplicate_news_
+analyses`) `app.services.news.news_selection` modülüne (`_WeightedNews
+Analysis`, `_aggregate_news_score`, `_deduplicate_news_analyses`,
+`NEWS_SCORE_LIMIT`, ve yeni `select_recent_unique_news_analyses`)
+ayıklandı. `DecisionEngine.decide_for_asset()` VE `ExplanationEngine.
+explain()` artık İKİSİ DE bu TEK paylaşımlı fonksiyonu çağırıyor — aynı
+repo verisiyle çağrıldıklarında birebir aynı üyeliği/temsilciyi
+ürettikleri `test_decision_and_explanation_membership_parity` ile
+kilitlendi (`ExplanationEngine.explain()`'in döndürdüğü dict'e yalnızca
+kimlik listesi olan `news_analysis_ids` alanı eklendi — HATA 15D
+provenance hash'leri/ham snapshot'lar BURADA sızdırılmıyor).
+
+Özet:
+
+- Makale kimliği (`external_id`/`news_id`) DEĞİŞMEDİ.
+- Etkin pencere DEĞİŞMEDİ: son `NEWS_SCORE_LIMIT` (=10) BENZERSİZ
+  mantıksal olay — artık her iki motor için de aynı.
+- Aynı deterministik temsilci: `ExplanationEngine` bir kümeden farklı bir
+  üyeyi "beğenip" seçemez, tamamen DecisionEngine ile aynı seçimi kullanır.
+- HATA 15C source-reliability skorlama formülü DEĞİŞMEDİ — yalnızca
+  `ExplanationEngine`'in `_aggregate_news_score()`'a verdiği girdi kümesi
+  artık HATA 15B/15C'nin dedup+reliability katmanından geçiyor (önceden
+  `source_reliability=None` sabit varsayımıyla confidence-only formül
+  kullanılıyordu).
+- `ExplanationEngine` HİÇBİR ZAMAN canlı makale fetch'i
+  (`fetch_article_text`) veya yeniden LLM analizi
+  (`EventIntelligenceEngine.analyze_item`) tetiklemez — yalnızca zaten
+  persist edilmiş `NewsAnalysis`/`NewsRawItem` kayıtlarını okur
+  (`test_explanation_engine_never_fetches_live_article_or_calls_llm`
+  ile kilitlendi).
+- `published_at` vs `created_at` causality sorusu (HATA 15A'dan beri
+  bilinen, ayrı açık konu) bu ticket'ta ÇÖZÜLMEDİ — sıralama semantiği
+  aynen korundu.
+- Legacy kayıtlar (HATA 15D provenance alanları olmayan) ve eksik ham
+  provenance (savunma amaçlı tekil-küme fallback) iki motorda da AYNI
+  güvenli davranışı üretir — crash yok, bağımsız gruplama icat edilmedi.
+- Sabit over-fetch limiti YOK: dedup TAM geçmiş üzerinde çalışır, `limit`
+  yalnızca SONUÇTA uygulanır (HATA 15B FINAL semantiği korunuyor).
+
+Test: `test_explanation_news_consistency.py` (yeni dosya, 11 test) +
+`test_explanation_engine.py`'ye `news_raw_repo` fake'i eklendi (4 test
+güncellendi, davranış DEĞİŞMEDİ). Rigor check A (ExplanationEngine geçici
+olarak paylaşımlı seçiciyi bypass edip eski ham `list_for_asset(limit=10)`
+davranışına döndürüldü → parity testi dahil 9 test kırıldı, restore
+sonrası yeşil). Rigor check B (ExplanationEngine'in temsilci seçimi
+geçici olarak TERS ÇEVRİLDİ — gerçek kural "gövde var + en eski" yerine
+"gövde yok + en yeni" → yalnızca >1 üyeli kümeleri içeren 3 test kırıldı,
+tekil-olay testleri etkilenmedi, restore sonrası yeşil). Rigor check C
+(paylaşımlı seçici geçici olarak limit'i dedup'tan ÖNCE uygulayacak
+şekilde değiştirildi → hem mevcut HATA 15B backfill testleri hem yeni
+HATA 15E parity/backfill testleri kırıldı, restore sonrası yeşil). Tam
+backend paketi: 2108 passed, 0 failed, 0 skipped, 0 xfail (2097 mevcut +
+11 yeni). No deployment performed.

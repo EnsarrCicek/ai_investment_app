@@ -7,18 +7,35 @@ ilkesiyle uyumlu: news_score ve makro veri eksikliği açıkça belirtilir.
 Burada üretilen kararlar AI Decision History'e YAZILMAZ (persist=False) —
 bu uç nokta yalnızca mevcut kararın gerekçesini gösterir, yeni bir karar kaydı
 oluşturmaz.
+
+HATA 15E: haber tarafı artık `DecisionEngine.decide_for_asset()` ile AYNI
+paylaşımlı seçim yardımcısını (`select_recent_unique_news_analyses`, bkz.
+`app.services.news.news_selection`) kullanır -- önceden burada HAM
+`news_repo.list_for_asset(limit=NEWS_SCORE_LIMIT)` okunuyordu, HATA 15B/15C
+dedup+reliability katmanına HİÇ bağlanmıyordu (bilinen, disclosed açık konu
+-- bkz. HATA 15A / HATA 15C FINAL raporları). Artık DecisionEngine ile
+BİREBİR aynı son-`NEWS_SCORE_LIMIT`-BENZERSİZ-olay üyeliğini/temsilcisini
+görür. Bilinçli olarak `app.engines.decision.engine`'den DEĞİL doğrudan
+paylaşımlı modülden import edilir -- ExplanationEngine, DecisionEngine'in
+private internal'larına bağımlı OLMAMALI (bkz. news_selection.py docstring'i).
+
+Bu motor, halihazırda Firestore'a kalıcı olarak yazılmış `NewsAnalysis`
+kayıtlarını okur -- canlı makale fetch'i (`fetch_article_text`) veya yeniden
+LLM analizi (`EventIntelligenceEngine.analyze_item`) ASLA tetiklemez (bkz.
+test_explanation_news_consistency.py provenance-regresyon testi).
 """
 
-from app.engines.decision.engine import (
-    NEWS_SCORE_LIMIT,
-    DecisionEngine,
-    _aggregate_news_score,
-    _WeightedNewsAnalysis,
-)
+from app.engines.decision.engine import DecisionEngine
 from app.engines.technical.engine import TechnicalAnalysisEngine
 from app.models.news_analysis import NewsAnalysis
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
+from app.repositories.news_raw_repository import NewsRawRepository
+from app.services.news.news_selection import (
+    NEWS_SCORE_LIMIT,
+    _aggregate_news_score,
+    select_recent_unique_news_analyses,
+)
 from app.utils.percent_format import format_percent_fraction, format_percent_value
 
 _DECISION_LABELS = {
@@ -90,30 +107,30 @@ class ExplanationEngine:
         technical_engine: TechnicalAnalysisEngine | None = None,
         macro_repo: MacroSnapshotRepository | None = None,
         news_repo: NewsAnalysisRepository | None = None,
+        news_raw_repo: NewsRawRepository | None = None,
     ):
         self._decision_engine = decision_engine or DecisionEngine()
         self._technical_engine = technical_engine or TechnicalAnalysisEngine()
         self._macro_repo = macro_repo or MacroSnapshotRepository()
         self._news_repo = news_repo or NewsAnalysisRepository()
+        self._news_raw_repo = news_raw_repo or NewsRawRepository()
 
     def explain(self, asset: str) -> dict:
         analysis, analysis_id = self._technical_engine.analyze_with_id(asset, persist=False)
         macro, macro_id = self._macro_repo.get_latest_with_id()
-        news_analyses = self._news_repo.list_for_asset(asset, limit=NEWS_SCORE_LIMIT)
 
-        # HATA 15C: `_aggregate_news_score()` artık paylaşımlı bir zarf tipi
-        # (`_WeightedNewsAnalysis`) bekliyor. ExplanationEngine burada HATA
-        # 15B/15C dedup/reliability katmanına BAĞLANMIYOR (bilinen, ayrı açık
-        # konu -- bkz. HATA 15B FINAL raporu) -- `source_reliability=None`
-        # ile eski confidence-only formül DEĞİŞMEDEN korunuyor, bu yalnızca
-        # yeni fonksiyon imzasına uyum sağlayan veri aktarımı.
-        weighted_news_analyses = [
-            _WeightedNewsAnalysis(analysis=a, source_reliability=None) for a in news_analyses
-        ]
+        # HATA 15E: DecisionEngine.decide_for_asset() ile PAYLAŞILAN seçim
+        # yardımcısı -- aynı repo verisiyle çağrıldığında birebir aynı son-
+        # NEWS_SCORE_LIMIT-BENZERSİZ-olay üyeliğini/temsilcisini üretir.
+        weighted_news = select_recent_unique_news_analyses(
+            asset, self._news_repo, self._news_raw_repo, NEWS_SCORE_LIMIT
+        )
+        news_analyses = [w.analysis for w in weighted_news]
+
         decision = self._decision_engine.decide(
             asset=asset,
             technical_score=analysis.technical_score,
-            news_score=_aggregate_news_score(weighted_news_analyses),
+            news_score=_aggregate_news_score(weighted_news),
             macro_score=macro.macro_score if macro else None,
             technical_analysis_id=analysis_id,
             news_analysis_ids=[a.news_id for a in news_analyses],
@@ -159,5 +176,10 @@ class ExplanationEngine:
             "technical_reasons": _top_reasons(analysis.components, _TECHNICAL_LABELS),
             "macro_reasons": _top_reasons(macro.components, _MACRO_LABELS) if macro else [],
             "news_reasons": _news_reasons(news_analyses),
+            # HATA 15E: DecisionEngine.decide_for_asset()'in ürettiği
+            # `news_analysis_ids` ile AYNI kimlik listesi (yalnızca ID'ler --
+            # HATA 15D provenance alanları/hash'leri BURADA sızdırılmıyor).
+            # Parity testinin kilitlediği load-bearing invariant budur.
+            "news_analysis_ids": [a.news_id for a in news_analyses],
             "missing": missing,
         }
