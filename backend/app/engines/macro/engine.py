@@ -48,9 +48,47 @@ DEFAULT_WEIGHTS = {
     "usdtry": 0.15,
 }
 
+# HATA 16C: tüm 6 gösterge günlük granülaritede piyasa fiyatlarıdır (borsa takvimi
+# gerektiren periyodik ekonomik veri açıklamaları değil, bkz. HATA 16A). Freshness
+# kontrolü TEK bir muhafazakâr, PAYLAŞILAN eşik kullanır (gösterge başına ayrı değil):
+# tam bir çoklu-borsa takvim altyapısı kurmak yerine (ticket madde 8, kasıtlı olarak
+# kapsam dışı), en son gözlemin analiz anına göre kaç TAKVİM günü eski olduğuna
+# bakılır. 5 gün seçildi çünkü: sıradan 2 günlük hafta sonu (Cuma->Pazartesi = 3
+# takvim günü) ve borsa tatiliyle birleşen bir hafta sonu (ör. Perşembe kapanışı ->
+# Salı analizi = 5 takvim günü, Pazartesi tatilse) rahatça KAPSANIR, +1 günlük ekstra
+# pay bırakılır; buna karşın haftalarca eski/cache'lenmiş GERÇEKTEN stale bir feed
+# (6+ gün) yine de YAKALANIR. Bu, HATA 16A bulgu #3'ü (SILENT ACCEPT) kapatır.
+MAX_OBSERVATION_AGE_DAYS = 5
+
 
 def _clamp(value: float, low: float = -100.0, high: float = 100.0) -> float:
     return max(low, min(high, value))
+
+
+def _is_fresh_observation(
+    observed_at, now: datetime, max_age_days: int = MAX_OBSERVATION_AGE_DAYS
+) -> bool:
+    """HATA 16C: bir göstergenin `observed_at`'ının bu run için KULLANILABİLİR
+    (fresh) olup olmadığını belirler. Karşılaştırma KASITLI OLARAK takvim
+    tarihi (UTC) bazındadır, tam datetime farkı değil -- günlük bar'lar bir
+    SEANS tarihini temsil eder, kesin bir kapanış saatini değil, ve farklı
+    ticker'lar farklı borsa saat dilimlerinden gelebilir (HATA 16A madde 2).
+    Tarih bazlı karşılaştırma, gün sınırına yakın saatlerde yanlış
+    taze/stale sınıflandırmasını önler ve timezone-safe'dir (her iki taraf da
+    önce UTC'ye normalize edilir).
+
+    - `observed_at` bir `datetime` değilse veya tz-naive ise: FRESH DEĞİL
+      (eksik/geçersiz zaman damgası asla "güncel" varsayılmaz).
+    - `observed_at` gelecekte ise (age_days < 0): FRESH DEĞİL (bozuk/şüpheli
+      veri sessizce "en taze" olarak kabul edilmez).
+    - `0 <= age_days <= max_age_days`: FRESH (sınır DAHİL).
+    """
+    if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
+        return False
+    observed_utc = observed_at.astimezone(timezone.utc)
+    now_utc = now.astimezone(timezone.utc)
+    age_days = (now_utc.date() - observed_utc.date()).days
+    return 0 <= age_days <= max_age_days
 
 
 def resolve_macro_weights(raw_doc: dict | None) -> dict[str, float]:
@@ -176,6 +214,27 @@ class MacroAnalysisEngine:
         changes = self._provider.get_indicator_changes()
         if not changes:
             raise ValueError("Hiçbir makro gösterge verisi alınamadı")
+
+        # HATA 16C: provider'dan dönen HER gösterge önce freshness kontrolünden
+        # geçer -- stale/eksik/gelecek tarihli `observed_at` taşıyan göstergeler
+        # bu run için TAMAMEN ELENİR (skorlanmaz, sıfıra/nötre çevrilmez).
+        # Component hesaplaması ve HATA 16B'nin available-weight renormalizasyonu
+        # yalnızca FRESH göstergeler üzerinden çalışır -- stale bir göstergenin
+        # ağırlığı hiçbir zaman "kayıp" gibi cezalandırılmaz, sadece mevcut
+        # değildir (aynı `available_weight` mekanizması, HATA 16B).
+        now = datetime.now(timezone.utc)
+        fresh_changes = {
+            key: data
+            for key, data in changes.items()
+            if _is_fresh_observation(data.get("observed_at"), now)
+        }
+        if not fresh_changes:
+            raise ValueError(
+                "Makro skor üretilemedi: alınan göstergelerin tamamı stale/geçersiz "
+                f"gözlem zamanlı ({MAX_OBSERVATION_AGE_DAYS} takvim gününden eski, eksik "
+                "veya gelecek tarihli) -- macro_score uydurulmaz, MacroSnapshot kaydedilmez."
+            )
+        changes = fresh_changes
 
         components = {}
         for key, data in changes.items():

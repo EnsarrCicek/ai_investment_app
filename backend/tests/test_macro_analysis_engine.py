@@ -1,9 +1,13 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.engines.macro.engine import (
     DEFAULT_SCALES,
     DEFAULT_WEIGHTS,
+    MAX_OBSERVATION_AGE_DAYS,
     MacroAnalysisEngine,
+    _is_fresh_observation,
     resolve_macro_scales,
     resolve_macro_weights,
 )
@@ -11,6 +15,10 @@ from app.engines.macro.engine import (
 NAN = float("nan")
 INF = float("inf")
 NEG_INF = float("-inf")
+
+_NOW = datetime.now(timezone.utc)
+_FRESH = _NOW  # bu run'daki tüm sabit fixture'lar için "şu an" -- freshness penceresi
+# (5 gün) test çalışma süresine göre son derece geniş, flaky olma riski yok.
 
 
 # ---------------------------------------------------------------------------
@@ -209,12 +217,12 @@ class _FakeSnapshotRepo:
 
 
 _FULL_CHANGES = {
-    "dxy": {"value": 100.0, "pct_change": 1.0},
-    "us_10y_yield": {"value": 4.0, "pct_change": 2.0},
-    "vix": {"value": 15.0, "pct_change": 10.0},
-    "oil": {"value": 70.0, "pct_change": -3.0},
-    "gold": {"value": 2000.0, "pct_change": 4.0},
-    "usdtry": {"value": 32.0, "pct_change": 1.5},
+    "dxy": {"value": 100.0, "pct_change": 1.0, "observed_at": _FRESH},
+    "us_10y_yield": {"value": 4.0, "pct_change": 2.0, "observed_at": _FRESH},
+    "vix": {"value": 15.0, "pct_change": 10.0, "observed_at": _FRESH},
+    "oil": {"value": 70.0, "pct_change": -3.0, "observed_at": _FRESH},
+    "gold": {"value": 2000.0, "pct_change": 4.0, "observed_at": _FRESH},
+    "usdtry": {"value": 32.0, "pct_change": 1.5, "observed_at": _FRESH},
 }
 
 
@@ -285,7 +293,7 @@ def test_analyze_available_weight_zero_for_run_raises_no_snapshot_persisted():
     snapshot_repo = _FakeSnapshotRepo()
     engine = _engine(
         weights=weights,
-        changes={"dxy": {"value": 100.0, "pct_change": 1.0}},
+        changes={"dxy": {"value": 100.0, "pct_change": 1.0, "observed_at": _FRESH}},
         snapshot_repo=snapshot_repo,
     )
 
@@ -319,8 +327,8 @@ def test_analyze_genuine_zero_score_persists_successfully():
         "usdtry": 0.0,
     }
     changes = {
-        "dxy": {"value": 100.0, "pct_change": -1.0},
-        "vix": {"value": 15.0, "pct_change": 7.5},
+        "dxy": {"value": 100.0, "pct_change": -1.0, "observed_at": _FRESH},
+        "vix": {"value": 15.0, "pct_change": 7.5, "observed_at": _FRESH},
     }
     snapshot_repo = _FakeSnapshotRepo()
     engine = _engine(weights=weights, changes=changes, snapshot_repo=snapshot_repo)
@@ -339,9 +347,9 @@ def test_analyze_genuine_zero_score_persists_successfully():
 
 def test_analyze_partial_indicator_renormalization_exact_score():
     changes = {
-        "dxy": {"value": 100.0, "pct_change": 1.0},
-        "vix": {"value": 15.0, "pct_change": 10.0},
-        "oil": {"value": 70.0, "pct_change": -3.0},
+        "dxy": {"value": 100.0, "pct_change": 1.0, "observed_at": _FRESH},
+        "vix": {"value": 15.0, "pct_change": 10.0, "observed_at": _FRESH},
+        "oil": {"value": 70.0, "pct_change": -3.0, "observed_at": _FRESH},
     }
     snapshot, _doc_id = _engine(changes=changes).analyze()
 
@@ -402,3 +410,139 @@ def test_analyze_config_scale_source_sensitivity():
     assert snapshot.components["dxy"] == -30.0
     assert snapshot.macro_score == -16.75
     assert snapshot.macro_score != -13.75
+
+
+# ---------------------------------------------------------------------------
+# HATA 16C — _is_fresh_observation() unit-level freshness rule
+# ---------------------------------------------------------------------------
+
+
+def test_is_fresh_observation_exact_boundary_inclusive():
+    observed_at = _NOW - timedelta(days=MAX_OBSERVATION_AGE_DAYS)
+    assert _is_fresh_observation(observed_at, _NOW) is True
+
+
+def test_is_fresh_observation_one_day_past_boundary_is_stale():
+    observed_at = _NOW - timedelta(days=MAX_OBSERVATION_AGE_DAYS + 1)
+    assert _is_fresh_observation(observed_at, _NOW) is False
+
+
+def test_is_fresh_observation_two_day_weekend_style_gap_not_stale():
+    # Örnek: Cuma kapanışı + 2 takvim günü sonra (Cumartesi/Pazar tarzı borsa
+    # kapalı aralığı) analiz -- eşiğin (5 gün) çok altında, stale OLMAMALI.
+    # Kural takvim-günü SAYISINA dayanır, gerçek haftanın günü kurala etki
+    # etmez -- bu yüzden burada gerçek bir Cuma tarihi gerekmez.
+    observed_at = datetime(2000, 1, 1, 21, 0, tzinfo=timezone.utc)
+    now = observed_at + timedelta(days=2)
+    assert _is_fresh_observation(observed_at, now) is True
+
+
+def test_is_fresh_observation_three_day_monday_style_gap_not_stale():
+    # Cuma kapanışı hâlâ en son bar, Pazartesi (yeni günlük bar henüz
+    # oluşmadan önce) analiz -- 3 takvim günü fark, stale OLMAMALI; yeni bir
+    # Pazartesi kapanışı BEKLENMEZ.
+    observed_at = datetime(2000, 1, 1, 21, 0, tzinfo=timezone.utc)
+    now = observed_at + timedelta(days=3)
+    assert _is_fresh_observation(observed_at, now) is True
+
+
+def test_is_fresh_observation_timezone_offset_equivalent_classification():
+    observed_utc = _NOW - timedelta(days=2)
+    observed_plus5 = observed_utc.astimezone(timezone(timedelta(hours=5)))
+    observed_minus8 = observed_utc.astimezone(timezone(timedelta(hours=-8)))
+    assert _is_fresh_observation(observed_utc, _NOW) is True
+    assert _is_fresh_observation(observed_plus5, _NOW) is True
+    assert _is_fresh_observation(observed_minus8, _NOW) is True
+
+
+def test_is_fresh_observation_missing_timestamp_not_fresh():
+    assert _is_fresh_observation(None, _NOW) is False
+
+
+def test_is_fresh_observation_naive_datetime_not_fresh():
+    naive = datetime(2026, 1, 1, 12, 0)  # tzinfo yok
+    assert _is_fresh_observation(naive, _NOW) is False
+
+
+def test_is_fresh_observation_wrong_type_not_fresh():
+    assert _is_fresh_observation("2026-09-18", _NOW) is False
+
+
+def test_is_fresh_observation_future_timestamp_not_accepted():
+    observed_at = _NOW + timedelta(days=2)
+    assert _is_fresh_observation(observed_at, _NOW) is False
+
+
+# ---------------------------------------------------------------------------
+# HATA 16C — MacroAnalysisEngine.analyze() freshness integration
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_one_stale_indicator_excluded_and_renormalized():
+    stale_at = _NOW - timedelta(days=MAX_OBSERVATION_AGE_DAYS + 5)
+    changes = {k: dict(v) for k, v in _FULL_CHANGES.items()}
+    changes["oil"]["observed_at"] = stale_at
+
+    snapshot, doc_id = _engine(changes=changes).analyze()
+
+    assert "oil" not in snapshot.components
+    assert "oil" not in snapshot.indicators
+    # available_weight = 1.00 - .15(oil) = 0.85
+    # weighted sum without oil = -15*.20 + -20*.20 + -20*.20 + -32*.10 + -12*.15
+    #                          = -3.0 -4.0 -4.0 -3.2 -1.8 = -16.0
+    # macro_score = round(-16.0/0.85, 2) = -18.82
+    assert snapshot.macro_score == -18.82
+    assert doc_id is not None
+
+
+def test_analyze_all_indicators_stale_raises_no_snapshot_persisted():
+    stale_at = _NOW - timedelta(days=MAX_OBSERVATION_AGE_DAYS + 5)
+    changes = {k: {**v, "observed_at": stale_at} for k, v in _FULL_CHANGES.items()}
+    snapshot_repo = _FakeSnapshotRepo()
+    engine = _engine(changes=changes, snapshot_repo=snapshot_repo)
+
+    with pytest.raises(ValueError):
+        engine.analyze()
+
+    assert snapshot_repo.added == []
+
+
+def test_analyze_missing_observed_at_excludes_indicator():
+    changes = {k: dict(v) for k, v in _FULL_CHANGES.items()}
+    del changes["gold"]["observed_at"]
+
+    snapshot, _doc_id = _engine(changes=changes).analyze()
+
+    assert "gold" not in snapshot.components
+    assert "gold" not in snapshot.indicators
+
+
+def test_analyze_future_observed_at_excludes_indicator():
+    changes = {k: dict(v) for k, v in _FULL_CHANGES.items()}
+    changes["usdtry"]["observed_at"] = _NOW + timedelta(days=2)
+
+    snapshot, _doc_id = _engine(changes=changes).analyze()
+
+    assert "usdtry" not in snapshot.components
+    assert "usdtry" not in snapshot.indicators
+
+
+def test_analyze_zero_weight_fresh_with_positive_weight_stale_raises_no_fake_neutral():
+    # dxy ağırlığı 0 (config'te GEÇERLİ -- toplam > 0), ama bu run'da SADECE
+    # dxy fresh; diğer TÜM pozitif ağırlıklı göstergeler stale. HATA 16A'nın
+    # "available_weight == 0" senaryosunun (HATA 16B) HATA 16C ile birleşmiş
+    # hâli: sonuç yine fake macro_score=0.0 OLMAMALI.
+    weights = dict(DEFAULT_WEIGHTS)
+    weights["dxy"] = 0.0
+    stale_at = _NOW - timedelta(days=MAX_OBSERVATION_AGE_DAYS + 5)
+    changes = {k: dict(v) for k, v in _FULL_CHANGES.items()}
+    for key in changes:
+        if key != "dxy":
+            changes[key]["observed_at"] = stale_at
+    snapshot_repo = _FakeSnapshotRepo()
+    engine = _engine(weights=weights, changes=changes, snapshot_repo=snapshot_repo)
+
+    with pytest.raises(ValueError):
+        engine.analyze()
+
+    assert snapshot_repo.added == []

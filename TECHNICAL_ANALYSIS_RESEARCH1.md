@@ -2331,3 +2331,63 @@ persistansı (HATA 16A bulgu #4) BİLEREK bu tickette ele alınmadı — ayrı,
 gelecekteki HATA 16 ticket'ları için açık bırakıldı. `DecisionEngine`'in
 eksik-macro renormalizasyon davranışı DEĞİŞMEDİ (regression testleriyle
 doğrulandı). No deployment performed.
+
+# HATA 16C — MACRO DATA FRESHNESS COMPLETE
+
+HATA 16A bulgu #3'ü (`YahooMacroProvider` yalnızca `len(history) >=
+window+1` kontrol ediyordu, gözlemin GÜNCEL olup olmadığına hiç bakmıyordu
+— SILENT ACCEPT) kapatır. `MacroAnalysisEngine.analyze()` artık her
+göstergeyi component hesaplamasına girmeden ÖNCE, gösterge bazında
+(gösterge başına AYRI, tek bir global snapshot zaman damgası DEĞİL)
+freshness kontrolünden geçirir.
+
+Seçilen kural (`MAX_OBSERVATION_AGE_DAYS = 5`, tek/paylaşılan bir eşik —
+gösterge başına ayrı değil, çünkü 6 gösterge de benzer günlük granülariteli
+piyasa fiyatları): en son gözlemin analiz anına göre kaç TAKVİM günü eski
+olduğuna bakılır (tam datetime farkı değil — günlük bar'lar bir seans
+tarihini temsil eder, kesin bir kapanış saatini değil; her iki taraf da
+önce UTC'ye normalize edilip `.date()` bazında karşılaştırılır, bu da
+timezone-safe'dir ve gün sınırına yakın saatlerde yanlış sınıflandırmayı
+önler). 5 gün: sıradan 2 günlük hafta sonunu (Cuma->Pazartesi = 3 takvim
+günü) VE borsa tatiliyle birleşen bir hafta sonunu (ör. Perşembe kapanışı
+-> Salı analizi = 5 takvim günü) rahatça kapsar, +1 gün pay bırakır; buna
+karşın ~1 hafta veya daha eski gerçekten stale/cache'lenmiş bir feed yine
+de YAKALANIR (excluded). Sınır DAHİLDİR (`age_days == 5` fresh, `== 6`
+stale). Eksik/geçersiz/tz-naive `observed_at` VEYA analiz anına göre
+GELECEK tarihli bir gözlem asla "fresh" olarak KABUL EDİLMEZ — sessizce
+güncelmiş gibi kullanılmaz.
+
+Stale bir gösterge bu run için TAMAMEN ELENİR: sıfıra/nötre çevrilmez,
+skorlanmaz, `MacroSnapshot.components`/`indicators`'a hiç girmez. Kalan
+FRESH göstergeler üzerinden HATA 16B'nin available-weight renormalizasyonu
+DEĞİŞMEDEN çalışır (stale bir göstergenin ağırlığı "kayıp" gibi
+cezalandırılmaz). Kısmi fresh/stale karışık durumda (ör. 3 fresh + 3
+stale) skor yalnızca fresh 3 üzerinden hesaplanır. TÜM göstergeler stale
+ise (veya sadece fresh kalanların TAMAMI sıfır ağırlıklı kanallara denk
+geliyorsa — HATA 16B'nin `NO_POSITIVE_WEIGHT_AVAILABLE` deseniyle
+simetrik) `macro_score`/`confidence` UYDURULMAZ, hiçbir `MacroSnapshot`
+kaydedilmez — HATA 16B'nin "0 = gerçek nötr, missing asla fake-neutral
+olmaz" ilkesi korunur.
+
+`YahooMacroProvider.get_indicator_changes()` artık her gösterge için
+`observed_at` (UTC-aware `datetime`, `history.index`'in son elemanından
+çıkarılır; tz-naive index UTC kabul edilir, tanınmayan tip için `None`)
+döner. Bu, `MacroSnapshot.indicators` içinde (yeni bir paralel şema
+icat edilmeden, mevcut generic `dict` alanı üzerinden) fresh olarak
+KULLANILAN göstergeler için saklanır — bir operatör daha sonra hangi
+gözlemlerin kullanıldığını görebilir. Tam provenance/config-hash
+(HATA 16A bulgu #4) hâlâ AYRI, gelecekteki bir tickete ERTELENMİŞTİR — bu
+ticket yalnızca gözlem zamanı görünürlüğünü ekler.
+
+Confidence formülü DEĞİŞMEDİ; `completeness = len(components)/len(weights)`
+zaten fresh gösterge sayısını doğal olarak yansıtıyor (doğrulandı, yeniden
+tasarlanmadı). `DecisionEngine`, HATA 15, Technical/Event engine'leri,
+HATA 16B'nin config/weight/scale semantiği DEĞİŞMEDİ. 17 yeni dedicated
+test eklendi (9 `_is_fresh_observation()` unit testi + 5
+`MacroAnalysisEngine.analyze()` freshness entegrasyon testi + 3
+`YahooMacroProvider` observed_at/timezone testi) — üç rigor-check (freshness
+kontrolünü tamamen bypass etmek, eşiği hafta sonu/Pazartesi senaryosunu
+yanlış sınıflandıracak kadar sıkılaştırmak, eksik/gelecek zaman damgasını
+sessizce fresh kabul etmek) geçici mutasyonlarla production kodu üzerinde
+gerçekten yapılıp ilgili testlerin FAIL ettiği kanıtlanıp geri alındı. No
+deployment performed.
