@@ -46,6 +46,7 @@ from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.news_raw_repository import NewsRawRepository
 from app.repositories.token_usage_repository import TokenUsageRepository
 from app.services.news.article_fetcher import fetch_article_text
+from app.services.news.event_dedup import DedupEntry, cluster_by_event
 
 ENGINE_VERSION = "1.0.0"
 
@@ -220,10 +221,47 @@ class EventIntelligenceEngine:
         olanları Luna ile analiz eder (aynı haberi tekrar tekrar analiz edip
         gereksiz LLM maliyeti oluşturmamak için zaten analiz edilmiş olanlar
         atlanır), tüm sonuç kümesini (eski + yeni) döner.
+
+        HATA 15B: aynı gerçek-dünya olayını anlatan birden çok ham haber
+        (Yahoo/Google/Foreks) varsa (bkz. app/services/news/event_dedup.py),
+        LLM'e SADECE kümenin deterministik temsilcisi gönderilir — kümenin
+        diğer üyeleri için YENİ bir NewsAnalysis dokümanı YAZILMAZ (maliyeti
+        önlemek için), döndürülen listede temsilcinin analizini paylaşırlar.
+        Ham `news_raw` kayıtları HİÇBİR ŞEKİLDE silinmez/değiştirilmez —
+        yalnızca hangi maddelerin LLM'e gönderileceği kısıtlanır.
         """
         news_items = self._news_repo.get_recent(asset, limit=limit)
-        results: list[NewsAnalysis] = []
-        for news in news_items:
-            existing = self._analysis_repo.get_by_news_id(news.external_id, asset)
-            results.append(existing if existing else self.analyze_item(news, asset))
-        return results
+        if not news_items:
+            return []
+
+        entries = [
+            DedupEntry(
+                asset=asset,
+                event_id=news.external_id,
+                title=news.title,
+                published_at=news.published_at,
+                has_body=bool(news.summary.strip()),
+                payload=news,
+            )
+            for news in news_items
+        ]
+        clusters = cluster_by_event(entries)
+
+        result_by_news_id: dict[str, NewsAnalysis] = {}
+        for cluster in clusters:
+            rep_news = cluster.representative.payload
+            existing = self._analysis_repo.get_by_news_id(rep_news.external_id, asset)
+            rep_result = existing if existing else self.analyze_item(rep_news, asset)
+            for entry in cluster.entries:
+                member_news = entry.payload
+                if member_news.external_id == rep_news.external_id:
+                    result_by_news_id[member_news.external_id] = rep_result
+                    continue
+                # Kümenin diğer üyesi zaten (bu düzeltmeden ÖNCE) ayrıca
+                # analiz edilmişse (legacy veri), o kaydı OLDUĞU GİBİ döndür
+                # — provenance korunur, LLM tekrar çağrılmaz. Yoksa yeni bir
+                # LLM çağrısı/doküman YAPMADAN temsilcinin analizini paylaşır.
+                member_existing = self._analysis_repo.get_by_news_id(member_news.external_id, asset)
+                result_by_news_id[member_news.external_id] = member_existing or rep_result
+
+        return [result_by_news_id[news.external_id] for news in news_items]

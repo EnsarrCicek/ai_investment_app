@@ -1843,3 +1843,51 @@ Not:
 Billing etkinleştirilmesi gelecekte Google Cloud kullanım ücretlerinin
 oluşmasına neden olabilir. Kullanıcının açık kararı olmadan billing
 etkinleştirilmeyecektir.
+
+# HATA 15B — CROSS-SOURCE EVENT DEDUP COMPLETE
+
+HATA 15A denetiminin #2 bulgusu (aynı gerçek-dünya olayının Yahoo/Google/
+Foreks'ten AYRI `external_id`'lerle gelip hiçbir yerde birleştirilmemesi,
+son-10 haber penceresinde orantısız ağırlık yaratması) düzeltildi.
+
+**Makale kimliği (`external_id`) DEĞİŞMEDİ** — hâlâ ham veri
+provenance/idempotency için tek kaynak. Ayrı, YENİ bir mantıksal-olay
+kümeleme katmanı eklendi (`backend/app/services/news/event_dedup.py`):
+asset-sınırlı, 48 saatlik zaman penceresi ile sınırlı, deterministik
+başlık-normalizasyonu (rakamlar KORUNUYOR) + Jaccard≥0.82 near-duplicate
+eşiği (Foreks'in mevcut intra-batch eşiğiyle aynı, cross-provider için
+yeniden test edildi).
+
+Bilinçli tasarım kararı: kalıcı/tekil bir `event_id` ÜRETİLMEDİ — Jaccard
+benzerliği geçişli olmadığından ve yeni bir yakın-tekrar makale geldiğinde
+kümelenme kompozisyonu teorik olarak değişebileceğinden, kümeleme HER
+ÇAĞRIDA (analiz tetikleme anında VE skorlama anında) mevcut girdi kümesi
+üzerinden deterministik olarak yeniden hesaplanıyor — "article fingerprint"
+(external_id, kalıcı) ile "scoring-time cluster identity" (yeniden
+hesaplanan, kalıcı değil) kasıtlı olarak AYRI tutuldu.
+
+Durum:
+- article identity remains external_id: EVET
+- logical event dedup is separate: EVET (event_dedup.py, ayrı katman)
+- raw provider records preserved: EVET (news_raw hiçbir zaman silinmiyor,
+  yalnızca hangi maddenin LLM'e gönderileceği kısıtlanıyor)
+- scoring uses unique logical events: EVET (`DecisionEngine.
+  _deduplicate_news_analyses`, `_aggregate_news_score()`'un formülü
+  DEĞİŞMEDİ — yalnızca girdi kümesi tekilleştirildi)
+- source_reliability still not wired: EVET (HATA 15A bulgu #1, bu ticket'ın
+  kapsamı DIŞINDA, ayrı bir ticket'ta ele alınacak)
+- no time decay/historical similarity added: EVET (bu ticket'ın kapsamı
+  dışında bırakıldı)
+- no deployment performed: EVET
+
+Bilinen sınırlama (gizlenmiyor): bu, yerel/deterministik bir token-Jaccard
+algoritmasıdır — aynı olayın FARKLI DİLLERDE (İngilizce Yahoo başlığı vs
+Türkçe Foreks başlığı) yazılmış başlıkları birbirine eşleşmez (embedding/
+LLM tabanlı çeviri bu ticket kapsamı dışında). Aynı dil içindeki gerçek
+ifade farklılıklarını (cross-provider near-duplicate) güvenilir şekilde
+yakalar.
+
+Test: `backend/tests/test_event_dedup.py` (26 yeni test) + mevcut
+`test_event_intelligence_engine.py`/`test_decision_engine.py`/
+`test_foreks_news_provider.py` regresyonsuz geçti. Tam backend paketi:
+2054 passed, 0 failed, 0 skipped, 0 xfail (2028 mevcut + 26 yeni).

@@ -20,6 +20,15 @@ class NewsRawRepository:
     def upsert(self, item: NewsRawItem) -> None:
         self._db.collection(COLLECTION).document(item.external_id).set(item.model_dump())
 
+    def get_by_external_id(self, external_id: str) -> NewsRawItem | None:
+        """HATA 15B: DecisionEngine'in skorlama-anı cross-source event dedup'ı
+        için (bkz. event_dedup.py) bir NewsAnalysis'in kaynak ham haberine
+        (başlık/yayın zamanı) geri dönebilmesi amacıyla eklendi."""
+        doc = self._db.collection(COLLECTION).document(external_id).get()
+        if not doc.exists:
+            return None
+        return NewsRawItem(**doc.to_dict())
+
     def get_recent(self, symbol: str, limit: int = 20) -> list[NewsRawItem]:
         docs = (
             self._db.collection(COLLECTION)

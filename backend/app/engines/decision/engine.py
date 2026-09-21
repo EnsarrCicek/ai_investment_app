@@ -34,7 +34,9 @@ from app.models.news_analysis import NewsAnalysis
 from app.repositories.ai_decision_repository import AIDecisionRepository
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
+from app.repositories.news_raw_repository import NewsRawRepository
 from app.repositories.system_config_repository import SystemConfigRepository
+from app.services.news.event_dedup import DedupEntry, cluster_by_event
 
 ENGINE_VERSION = "1.1.0"
 
@@ -179,6 +181,61 @@ def _aggregate_news_score(analyses: list[NewsAnalysis]) -> float | None:
     return round(weighted_sum / weight_total, 2)
 
 
+def _deduplicate_news_analyses(
+    analyses: list[NewsAnalysis], news_raw_repo: NewsRawRepository
+) -> list[NewsAnalysis]:
+    """HATA 15B: skorlama girdisini benzersiz MANTIKSAL OLAYLARA indirger.
+
+    Sorun (HATA 15A bulgu #2): aynı gerçek-dünya olayı Yahoo/Google/Foreks'ten
+    ayrı `external_id`'lerle geldiği ve hiçbir yerde birleştirilmediği için,
+    son-N NewsAnalysis penceresinde bir olay birden çok slot işgal edip
+    `_aggregate_news_score()`'u orantısız etkileyebiliyordu. Bu fonksiyon
+    (yeni VEYA bu düzeltmeden ÖNCE üretilmiş legacy) analiz kayıtlarını
+    kaynak ham habere (`news_raw`) geri bağlayıp aynı asset+zaman-penceresi+
+    başlık-benzerliği kümesindeki analizlerden yalnızca kümenin deterministik
+    temsilcisininkini bırakır (bkz. app/services/news/event_dedup.py).
+
+    `_aggregate_news_score()`'un formülü DEĞİŞMEDİ — yalnızca ona giden girdi
+    kümesi artık tekilleştirilmiş.
+
+    Ham haber kaydı bulunamayan (savunma amaçlı; olağan akışta olmamalı) bir
+    analiz kümelenemez -- kendi başına tek üyeli bir küme olarak GÜVENLİ
+    şekilde geçilir, crash YOK ve sessizce yanlış bir kümeye de eklenmez.
+    """
+    if not analyses:
+        return []
+
+    entries: list[DedupEntry[NewsAnalysis]] = []
+    for analysis in analyses:
+        raw = news_raw_repo.get_by_external_id(analysis.news_id)
+        if raw is None:
+            entries.append(
+                DedupEntry(
+                    asset=analysis.asset,
+                    event_id=analysis.news_id,
+                    title=f"__unresolved_raw__:{analysis.news_id}",
+                    published_at=analysis.created_at,
+                    has_body=False,
+                    payload=analysis,
+                )
+            )
+        else:
+            entries.append(
+                DedupEntry(
+                    asset=analysis.asset,
+                    event_id=analysis.news_id,
+                    title=raw.title,
+                    published_at=raw.published_at,
+                    has_body=bool(raw.summary.strip()),
+                    payload=analysis,
+                )
+            )
+
+    clusters = cluster_by_event(entries)
+    kept_ids = {cluster.representative.event_id for cluster in clusters}
+    return [a for a in analyses if a.news_id in kept_ids]
+
+
 def _classify(score: float, t: dict) -> str:
     if score >= t["buy"]:
         return "BUY"
@@ -289,6 +346,7 @@ class DecisionEngine:
         technical_engine: TechnicalAnalysisEngine | None = None,
         macro_repo: MacroSnapshotRepository | None = None,
         news_repo: NewsAnalysisRepository | None = None,
+        news_raw_repo: NewsRawRepository | None = None,
         persist: bool = True,
     ) -> AIDecision:
         """Mevcut tüm engine çıktılarını otomatik toplayıp karar üretir.
@@ -299,6 +357,12 @@ class DecisionEngine:
         şekilde: burada YENİ bir EventIntelligenceEngine/OpenAI çağrısı
         YAPILMAZ, yalnızca daha önce POST /news/{symbol}/analyze ile üretilmiş
         NewsAnalysis kayıtları okunur (bkz. modül docstring'i — maliyet kararı).
+
+        HATA 15B: okunan analizler `_aggregate_news_score()`'a verilmeden
+        ÖNCE cross-source event dedup'ından geçirilir (bkz.
+        `_deduplicate_news_analyses`) — `news_raw_repo` yalnızca bu dedup
+        adımı analiz listesi boşsa hiç çağrılmaz (gereksiz Firestore
+        okuması/inşası yok).
         """
         engine = technical_engine or TechnicalAnalysisEngine()
         analysis, analysis_id = engine.analyze_with_id(asset, persist=persist)
@@ -306,6 +370,8 @@ class DecisionEngine:
         macro, macro_id = (macro_repo or MacroSnapshotRepository()).get_latest_with_id()
 
         news_analyses = (news_repo or NewsAnalysisRepository()).list_for_asset(asset, limit=NEWS_SCORE_LIMIT)
+        if news_analyses:
+            news_analyses = _deduplicate_news_analyses(news_analyses, news_raw_repo or NewsRawRepository())
 
         return self.decide(
             asset=asset,

@@ -354,6 +354,7 @@ def test_decide_for_asset_includes_aggregated_news_score(engine):
         technical_engine=_FakeTechnicalEngine(),
         macro_repo=_FakeMacroRepo(),
         news_repo=news_repo,
+        news_raw_repo=_FakeNewsRawRepo(),
         persist=False,
     )
 
@@ -520,6 +521,20 @@ class _FakeNewsRepo:
         return self._analyses
 
 
+class _FakeNewsRawRepo:
+    """HATA 15B: `decide_for_asset()` artık dedup için news_raw'a bakıyor.
+
+    Bu testlerde tek bir NewsAnalysis olduğu için (yalnızca 1 haber),
+    ham kaydın bulunup bulunmaması kümeleme SONUCUNU etkilemez (1 üyeli
+    küme her durumda tek başına kalır) -- bu yüzden basitçe None dönmek
+    (ham kaydı bulunamadı, savunma amaçlı tekil-küme yolu) yeterli ve
+    _aggregate_news_score()'un formülünü/DEĞERİNİ değiştirmez.
+    """
+
+    def get_by_external_id(self, external_id):
+        return None
+
+
 class _FakeTechnicalEngineUnavailableScore:
     def analyze_with_id(self, symbol, persist=True):
         return SimpleNamespace(technical_score=None, confidence=None), "tech-id-unavailable"
@@ -536,6 +551,7 @@ def test_decide_for_asset_missing_technical_channel_excludes_it(engine):
         technical_engine=_FakeTechnicalEngineUnavailableScore(),
         macro_repo=_FakeMacroRepo(),  # macro yok -- yalnızca news mevcut
         news_repo=news_repo,
+        news_raw_repo=_FakeNewsRawRepo(),
         persist=False,
     )
 
