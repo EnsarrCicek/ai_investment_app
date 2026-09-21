@@ -614,3 +614,166 @@ def test_decide_for_asset_end_to_end_uses_deduplicated_news_score():
     assert decision.news_score == 80.0  # dedup sonrası (öncesi de aynı 80 olurdu bu simetrik örnekte,
     # ama news_analysis_ids TEKİLLEŞMİŞ olmalı -- gerçek kanıt budur:
     assert decision.news_analysis_ids == ["yahoo:e2e"]
+
+
+# ---------------------------------------------------------------------------
+# HATA 15B FINAL — etkin pencere "son 10 BENZERSİZ OLAY" olmalı, "son 10 ham
+# kayıttan tekilleştirilmiş alt küme" DEĞİL. `list_for_asset(limit=NEWS_
+# SCORE_LIMIT)` erken limit uyguladığı için (Firestore sorgusu zaten TÜM
+# eşleşen kayıtları okuyordu, kesme yalnızca Python tarafındaydı) tekrarlar
+# en yeni 10 ham slot'u işgal ettiğinde ondan eskiye giden BAĞIMSIZ olaylar
+# hiç okunmadan pencereden dışarı kalıyordu.
+# ---------------------------------------------------------------------------
+
+
+class _FakeNewsRepoAssertsUnboundedFetch:
+    """Gerçek `NewsAnalysisRepository.list_for_asset` davranışını taklit eder:
+    created_at azalan sıralı TÜM kayıtları döner. `decide_for_asset()`'in
+    dedup'ı TÜM geçmiş üzerinde yapabilmesi için limit'i `None` ile çağırdığını
+    KİLİTLER -- eski (hatalı) erken-limit davranışına regresyon olursa bu fake
+    AssertionError fırlatır, testler net şekilde kırılır."""
+
+    def __init__(self, analyses):
+        self._analyses = sorted(analyses, key=lambda a: a.created_at, reverse=True)
+
+    def list_for_asset(self, asset, limit=20):
+        if limit is not None:
+            raise AssertionError(
+                "decide_for_asset() list_for_asset()'i limit=None ile çağırmalı "
+                f"(dedup TÜM geçmiş üzerinde, limit SONRADAN uygulanmalı) -- "
+                f"erken limit uygulanmış: {limit!r}"
+            )
+        return list(self._analyses)
+
+
+def _independent_raw_and_analysis(label, created_at, score):
+    """Bölüm 8/9/11 testleri için tekrar kullanılan yardımcı: birbirine hiç
+    benzemeyen (Jaccard eşiğinin altında), bağımsız bir olay üretir."""
+    raw = _news(f"prov:{label}", f"Bağımsız olay numara {label}", published_at=created_at)
+    analysis = _analysis(f"prov:{label}", sentiment_score=score, confidence=1.0, created_at=created_at)
+    return raw, analysis
+
+
+def test_limit_backfill_pulls_older_independent_events_past_newest_ten_raw_slots():
+    # Ticket bölüm 8/9: en yeni 3 ham kayıt (A1/A2/A3) AYNI olayı temsil
+    # ediyor. Onların ardından B..J (9 bağımsız olay) geliyor -- toplam 12 ham
+    # kayıt, ama tam olarak 10 BENZERSİZ mantıksal olay (A + B..J) var. I ve J
+    # en yeni 10 ham kayıt arasında DEĞİL (A1,A2,A3,B..H = 10. slot), bu yüzden
+    # eski (hatalı) davranış onları hiç okumazdı.
+    t = T0 + timedelta(hours=20)
+    raw_a1 = _news("yahoo:A1", "THY rekor kâr açıkladı", published_at=t)
+    raw_a2 = _news("google:A2", "THY rekor kâr açıkladı", published_at=t - timedelta(hours=1))
+    raw_a3 = _news("foreks:A3", "THY rekor kâr açıkladı", published_at=t - timedelta(hours=2))
+    analyses = [
+        _analysis("yahoo:A1", sentiment_score=0.0, confidence=1.0, created_at=t),
+        _analysis("google:A2", sentiment_score=0.0, confidence=1.0, created_at=t - timedelta(hours=1)),
+        _analysis("foreks:A3", sentiment_score=0.0, confidence=1.0, created_at=t - timedelta(hours=2)),
+    ]
+    raws = {"yahoo:A1": raw_a1, "google:A2": raw_a2, "foreks:A3": raw_a3}
+
+    # B..J = 9 bağımsız olay, sırasıyla 10.0, 20.0, ..., 90.0 puanlı --
+    # J (en eski, +90.0) tam olarak en yeni 10 ham slot'un DIŞINDA kalıyor
+    # (slot 12), I (+80.0) da öyle (slot 11).
+    for i, label in enumerate("BCDEFGHIJ"):
+        created_at = t - timedelta(hours=3 + i)
+        raw, analysis = _independent_raw_and_analysis(label, created_at, score=10.0 * (i + 1))
+        raws[analysis.news_id] = raw
+        analyses.append(analysis)
+
+    assert len(analyses) == 12  # A1,A2,A3 + B..J
+
+    raw_repo = _FakeNewsRawRepoWithData(raws)
+    news_repo = _FakeNewsRepoAssertsUnboundedFetch(analyses)
+    engine = DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+
+    decision = engine.decide_for_asset(
+        "THYAO",
+        technical_engine=_FakeTechnicalEngine(),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=news_repo,
+        news_raw_repo=raw_repo,
+        persist=False,
+    )
+
+    # 10 BENZERSİZ olay: A (temsilci) + B..J.
+    assert len(decision.news_analysis_ids) == 10
+    assert "yahoo:A1" in decision.news_analysis_ids or "google:A2" in decision.news_analysis_ids or (
+        "foreks:A3" in decision.news_analysis_ids
+    )
+    # I (prov:I, +80.0) ve J (prov:J, +90.0) etkin sete DAHİL -- eski (hatalı)
+    # davranışta bunlar hiç okunmazdı.
+    assert "prov:I" in decision.news_analysis_ids
+    assert "prov:J" in decision.news_analysis_ids
+
+    # Bölüm 9 -- TAM sayısal skor kilidi: A=0, B..J=10..90 -> ortalama 45.0.
+    # Eski (hatalı) davranış I/J'yi hiç okumadan yalnızca 8 benzersiz olay
+    # (A,B,C,D,E,F,G,H) üzerinden 35.0 hesaplardı -- bu test o farkı kilitler.
+    assert decision.news_score == pytest.approx(45.0)
+
+
+def test_large_duplicate_run_does_not_hide_behind_a_fixed_over_fetch_limit():
+    # Ticket bölüm 11: 20 en yeni ham kayıt AYNI olayı (A) temsil ediyor,
+    # ardından 9 bağımsız olay (B..J) geliyor. Sabit bir "over-fetch limiti"
+    # (ör. 20) kullanan bir implementasyon, tam da bu 20 kopyanın ARDINDAN
+    # gelen bağımsız olayları hiç göremezdi.
+    t = T0 + timedelta(hours=40)
+    raws: dict[str, object] = {}
+    analyses = []
+    for i in range(20):
+        news_id = f"dup:{i}"
+        created_at = t - timedelta(minutes=i)
+        raws[news_id] = _news(news_id, "THY rekor kâr açıkladı", published_at=created_at)
+        analyses.append(_analysis(news_id, sentiment_score=0.0, confidence=1.0, created_at=created_at))
+
+    for i, label in enumerate("BCDEFGHIJ"):
+        created_at = t - timedelta(hours=1 + i)
+        raw, analysis = _independent_raw_and_analysis(label, created_at, score=10.0 * (i + 1))
+        raws[analysis.news_id] = raw
+        analyses.append(analysis)
+
+    assert len(analyses) == 29  # 20 kopya + 9 bağımsız
+
+    raw_repo = _FakeNewsRawRepoWithData(raws)
+    news_repo = _FakeNewsRepoAssertsUnboundedFetch(analyses)
+    engine = DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+
+    decision = engine.decide_for_asset(
+        "THYAO",
+        technical_engine=_FakeTechnicalEngine(),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=news_repo,
+        news_raw_repo=raw_repo,
+        persist=False,
+    )
+
+    assert len(decision.news_analysis_ids) == 10  # A (temsilci) + B..J
+    assert "prov:I" in decision.news_analysis_ids
+    assert "prov:J" in decision.news_analysis_ids
+
+
+def test_fewer_than_ten_unique_events_returns_all_available_no_fabrication():
+    # Ticket bölüm 10: tüm geçmişte yalnızca 6 BENZERSİZ mantıksal olay
+    # varsa, eksik 4 slot UYDURULMAZ -- 6 döner.
+    t = T0 + timedelta(hours=5)
+    raws = {}
+    analyses = []
+    for i, label in enumerate("ABCDEF"):
+        created_at = t - timedelta(hours=i)
+        raw, analysis = _independent_raw_and_analysis(label, created_at, score=10.0 * (i + 1))
+        raws[analysis.news_id] = raw
+        analyses.append(analysis)
+
+    raw_repo = _FakeNewsRawRepoWithData(raws)
+    news_repo = _FakeNewsRepoAssertsUnboundedFetch(analyses)
+    engine = DecisionEngine(config_repo=_FakeConfigRepo(), decision_repo=_FakeDecisionRepo())
+
+    decision = engine.decide_for_asset(
+        "THYAO",
+        technical_engine=_FakeTechnicalEngine(),
+        macro_repo=_FakeMacroRepo(),
+        news_repo=news_repo,
+        news_raw_repo=raw_repo,
+        persist=False,
+    )
+
+    assert len(decision.news_analysis_ids) == 6

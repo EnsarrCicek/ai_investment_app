@@ -363,15 +363,32 @@ class DecisionEngine:
         `_deduplicate_news_analyses`) — `news_raw_repo` yalnızca bu dedup
         adımı analiz listesi boşsa hiç çağrılmaz (gereksiz Firestore
         okuması/inşası yok).
+
+        HATA 15B FINAL: skorlama penceresi "son `NEWS_SCORE_LIMIT` BENZERSİZ
+        mantıksal olay" anlamına gelir — "son `NEWS_SCORE_LIMIT` HAM kayıttan
+        tekilleştirilmiş alt küme" DEĞİL. Bu yüzden `list_for_asset(...,
+        limit=None)` ile bu asset için TÜM geçmiş (zaten Firestore sorgusu
+        `where(asset==...)` dışında bir cap içermiyordu — eski kod yalnızca
+        Python tarafında erken kesiyordu) okunur, TAMAMI dedup'lanır, ve
+        `NEWS_SCORE_LIMIT` yalnızca dedup SONRASI uygulanır. Aksi halde (limit
+        dedup'tan önce uygulansaydı) çoklu-sağlayıcı tekrarı en yeni `limit`
+        ham slot'u işgal edip, ondan eskiye giden BAĞIMSIZ olayları hiç
+        okunmadan pencereden dışarı itebilirdi (bkz. HATA 15A bulgu #2 /
+        HATA 15B FINAL bölüm 1-2, test_decision_engine.py'deki backfill
+        testleri). `_deduplicate_news_analyses`'ın döndürdüğü liste, girdi
+        sırasını (created_at azalan) korur -- bu yüzden sondaki `[:limit]`
+        dilimi "en yeni N benzersiz olay" anlamına doğru şekilde gelir.
         """
         engine = technical_engine or TechnicalAnalysisEngine()
         analysis, analysis_id = engine.analyze_with_id(asset, persist=persist)
 
         macro, macro_id = (macro_repo or MacroSnapshotRepository()).get_latest_with_id()
 
-        news_analyses = (news_repo or NewsAnalysisRepository()).list_for_asset(asset, limit=NEWS_SCORE_LIMIT)
+        news_analyses = (news_repo or NewsAnalysisRepository()).list_for_asset(asset, limit=None)
         if news_analyses:
-            news_analyses = _deduplicate_news_analyses(news_analyses, news_raw_repo or NewsRawRepository())
+            news_analyses = _deduplicate_news_analyses(
+                news_analyses, news_raw_repo or NewsRawRepository()
+            )[:NEWS_SCORE_LIMIT]
 
         return self.decide(
             asset=asset,

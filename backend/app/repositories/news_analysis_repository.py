@@ -36,7 +36,16 @@ class NewsAnalysisRepository:
             return None
         return NewsAnalysis(**docs[0].to_dict())
 
-    def list_for_asset(self, asset: str, limit: int = 20) -> list[NewsAnalysis]:
+    def list_for_asset(self, asset: str, limit: int | None = 20) -> list[NewsAnalysis]:
+        """HATA 15B FINAL: `limit=None` -- bu asset için TÜM (Firestore
+        sorgusu zaten baştan `where(asset==...)` dışında bir cap İÇERMİYORDU;
+        eski kod yalnızca Python tarafında `records[:limit]` ile kesiyordu)
+        kayıtları created_at azalan sıralı döner. `DecisionEngine.
+        decide_for_asset()` artık limiti dedup'tan ÖNCE değil SONRA uyguluyor
+        -- aksi halde en yeni `limit` ham slot'u aynı olayın tekrarları
+        işgal ettiğinde, o olaydan eskiye giden BAĞIMSIZ olaylar hiç
+        okunmadan pencereden dışarı kalıyordu (bkz. `decision/engine.py`
+        `decide_for_asset` docstring'i, HATA 15B FINAL bölüm 1-2)."""
         docs = (
             self._db.collection(COLLECTION)
             .where(filter=FieldFilter("asset", "==", asset))
@@ -44,4 +53,6 @@ class NewsAnalysisRepository:
         )
         records = [NewsAnalysis(**doc.to_dict()) for doc in docs]
         records.sort(key=lambda r: r.created_at, reverse=True)
+        if limit is None:
+            return records
         return records[:limit]

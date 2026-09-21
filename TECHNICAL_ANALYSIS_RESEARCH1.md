@@ -1891,3 +1891,26 @@ Test: `backend/tests/test_event_dedup.py` (26 yeni test) + mevcut
 `test_event_intelligence_engine.py`/`test_decision_engine.py`/
 `test_foreks_news_provider.py` regresyonsuz geçti. Tam backend paketi:
 2054 passed, 0 failed, 0 skipped, 0 xfail (2028 mevcut + 26 yeni).
+
+## HATA 15B FINAL — "son 10 BENZERSİZ olay" penceresi kilitlendi
+
+Denetim `DecisionEngine.decide_for_asset()`'in gerçek okuma sırasını
+doğruladı: `NewsAnalysisRepository.list_for_asset(asset, limit=NEWS_SCORE_
+LIMIT)` limiti dedup'tan ÖNCE uyguluyordu (RAW-10-THEN-DEDUP) — bu, çoklu-
+sağlayıcı tekrarı en yeni 10 ham slot'u işgal ettiğinde, ondan eskiye giden
+BAĞIMSIZ olayların hiç okunmadan pencereden dışarı kalmasına yol açan
+GERÇEK bir correctness hatasıydı. Düzeltme: decision scoring window is the
+last 10 unique logical events; the repository continues reading older
+analyses (artık `list_for_asset(asset, limit=None)` ile TÜM geçmiş
+okunuyor, `_deduplicate_news_analyses()` TAMAMI üzerinde çalışıyor, ve
+`NEWS_SCORE_LIMIT` yalnızca dedup SONRASI uygulanıyor) when duplicate raw
+records consume newer slots. Cross-language limitation (İngilizce/Türkçe
+başlık eşleşmemesi) DEĞİŞMEDEN belgeli kalıyor — bu ticket kapsamı dışında.
+
+Test: `backend/tests/test_event_dedup.py`'ye 3 yeni test eklendi (12-kayıt
+backfill + tam sayısal skor kilidi, 20 kopyalı-çalışma sabit-limit-yok
+kanıtı, 10'dan az mevcut olay durumu). Rigor check: eski (hatalı) davranış
+geçici olarak geri getirildi, 3 yeni test kırıldı (regresyon kilidi
+doğrulandı), düzeltme geri yüklendi (dosya byte-identical), tüm testler
+tekrar yeşil. Tam backend paketi: 2057 passed, 0 failed, 0 skipped, 0
+xfail (2054 mevcut + 3 yeni). No deployment performed.
