@@ -26,8 +26,19 @@ katmanı) — hiçbir zaman serbest metin olarak saklanmaz.
 Maliyet takibi (AŞAMA 39): her gerçek çağrının response.usage'ı (prompt/
 completion token sayısı) usage.py'deki fiyat tarifesiyle çarpılıp
 TokenUsageLog olarak kaydedilir — bkz. GET /usage.
+
+Reproducibility/provenance (HATA 15D): her yeni NewsAnalysis, LLM'e
+GERÇEKTEN gönderilen son metnin (`analyzed_text`) ve onun SHA-256
+hash'inin (`analyzed_text_sha256`) yanı sıra `prompt_version`/
+`prompt_sha256`/`output_schema_version` ile birlikte kaydedilir — bkz.
+NewsAnalysis model docstring'i. Analiz kimliği hâlâ `news_id + asset`
+(DEĞİŞMEDİ, bölüm 13): bu ticket kapsamında yeniden analiz/versiyonlama
+akışı YOK — mevcut add-only/immutable + `get_by_news_id` skip sözleşmesi
+zaten aynı kaydın sessizce üzerine yazılmasını engelliyor, bu yeterli
+görülüp gereksiz bir versiyonlama şeması İCAT EDİLMEDİ.
 """
 
+import hashlib
 import json
 from datetime import datetime, timezone
 
@@ -52,6 +63,27 @@ ENGINE_VERSION = "1.0.0"
 
 LOW_CONFIDENCE_THRESHOLD = 0.4
 HIGH_IMPORTANCE_THRESHOLD = 0.8
+
+# HATA 15D: reproducibility/provenance sabitleri. Prompt İÇERİĞİ (_SYSTEM_
+# PROMPT) veya şema (_RESPONSE_SCHEMA) bu ticket kapsamında DEĞİŞMİYOR —
+# yalnızca bunları tanımlayan sürüm etiketleri ekleniyor. Sürüm dosya
+# mtime'ından TÜRETİLMİYOR (bölüm 7) — elle bump edilen sabit bir string;
+# prompt/şema içeriği gelecekte değişirse bu sabitlerin BUMP EDİLMESİ
+# gerekir (kod bunu otomatik ZORLAMAZ, insan disiplinine dayanır — mevcut
+# ENGINE_VERSION ile aynı sözleşme).
+EVENT_INTELLIGENCE_PROMPT_VERSION = "event_intelligence_v1"
+EVENT_INTELLIGENCE_OUTPUT_SCHEMA_VERSION = "event_intelligence_output_v1"
+
+# Chat Completions API'sinin (gerçek OpenAI istemcisi) desteklediği, "en
+# deterministik" iki parametre: `temperature=0.0` (örnekleme rastgeleliğini
+# minimize eder) ve `seed` (OpenAI'nin KENDİ dokümantasyonu bunu "best-effort"
+# olarak tanımlar — `system_fingerprint` değişirse veya backend güncellenirse
+# aynı seed'in aynı çıktıyı GARANTİ ETMEDİĞİNİ açıkça belirtir). Bu ticket
+# bitwise-deterministik bir İDDİA yapmıyor — yalnızca API'nin gerçekten
+# sunduğu en güçlü reproducibility sinyalini kullanıyor ve bunu dürüstçe
+# "best-effort" olarak belgeliyor (bölüm 10).
+_DETERMINISM_TEMPERATURE = 0.0
+_DETERMINISM_SEED = 0
 
 _SYSTEM_PROMPT = """Sen bir BIST (Borsa İstanbul) finansal haber analistisin. \
 Sana bir hisse senediyle ilgili bir haberin başlığı verilecek; çoğu zaman \
@@ -119,6 +151,17 @@ _RESPONSE_SCHEMA = {
 }
 
 
+def _sha256_hex(text: str) -> str:
+    """Deterministik SHA-256 hex digest — canonical UTF-8 bytes üzerinden.
+    Python'ın yerleşik `hash()`'i KULLANILMIYOR (bölüm 6): `hash()` süreçler
+    arası (PYTHONHASHSEED randomization) VE Python sürümleri arası kararlı
+    DEĞİLDİR, provenance için anlamsız olurdu."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+_PROMPT_SHA256 = _sha256_hex(_SYSTEM_PROMPT)
+
+
 def _should_escalate(analysis: NewsAnalysis) -> bool:
     """Terra ile ikinci bir analiz gerekip gerekmediğini hesaplar (mimari
     hazır, ama bu sürümde çağrılmıyor — bkz. modül docstring'i).
@@ -164,13 +207,20 @@ class EventIntelligenceEngine:
             content_lines.append(f"Özet: {news.summary}")
         if article_text:
             content_lines.append(f"Makale Metni: {article_text}")
+        # HATA 15D: bu, LLM'e GERÇEKTEN gönderilen son metin — canlı sayfa
+        # daha sonra değişse bile bu değişken (ve ondan türeyen hash) o ana
+        # ait provenance'ı SABİTLER (bölüm 4/5/14/18). Modelin GÖRDÜĞÜ metin
+        # hash'lenir, ham sayfa DEĞİL (bölüm 5).
+        analyzed_text = "\n".join(content_lines)
 
         response = self._client.chat.completions.create(
             model=self._primary_model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": "\n".join(content_lines)},
+                {"role": "user", "content": analyzed_text},
             ],
+            temperature=_DETERMINISM_TEMPERATURE,
+            seed=_DETERMINISM_SEED,
             response_format={
                 "type": "json_schema",
                 "json_schema": {"name": "news_analysis", "schema": _RESPONSE_SCHEMA, "strict": True},
@@ -180,12 +230,24 @@ class EventIntelligenceEngine:
         data = json.loads(raw)
         created_at = datetime.now(timezone.utc)
 
+        # HATA 15D bölüm 24-25: `NewsAnalysis(...)` construction'ı (Pydantic
+        # doğrulaması dahil) `self._analysis_repo.add(...)`'DAN ÖNCE olur —
+        # `json.loads` (malformed JSON) veya Pydantic (şema-geçersiz `data`)
+        # burada fırlatırsa, hiçbir NewsAnalysis ASLA persist edilmez (ne
+        # tam ne kısmi/fake bir kayıt) — repository'ye hiç ulaşılmaz. Bu,
+        # kod DEĞİŞİKLİĞİ gerektirmeyen, zaten var olan doğru bir sıralama;
+        # test_invalid_llm_output_does_not_persist_analysis bunu kilitliyor.
         analysis = NewsAnalysis(
             news_id=news.external_id,
             asset=asset,
             model_used=self._primary_model,
             created_at=created_at,
             engine_version=ENGINE_VERSION,
+            analyzed_text=analyzed_text,
+            analyzed_text_sha256=_sha256_hex(analyzed_text),
+            prompt_version=EVENT_INTELLIGENCE_PROMPT_VERSION,
+            prompt_sha256=_PROMPT_SHA256,
+            output_schema_version=EVENT_INTELLIGENCE_OUTPUT_SCHEMA_VERSION,
             **data,
         )
         self._analysis_repo.add(analysis)

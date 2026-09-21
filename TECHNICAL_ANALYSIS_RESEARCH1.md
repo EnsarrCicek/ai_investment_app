@@ -2025,3 +2025,80 @@ Test: `test_source_reliability.py` (+3), `test_yahoo_news_provider.py`
 geçici olarak geri getirildi, 4 test kırıldı, restore sonrası tekrar
 yeşil. Tam backend paketi: 2080 passed, 0 failed, 0 skipped, 0 xfail
 (2072 mevcut + 8 yeni). No deployment performed.
+
+# HATA 15D — EVENT ANALYSIS PROVENANCE COMPLETE
+
+Denetim bulgusu (HATA 15A): EventIntelligenceEngine'in LLM çağrısı, hangi
+GERÇEK metnin/prompt'un/şemanın/modelin bir NewsAnalysis'i ürettiğini
+kanıtlayacak explicit bir provenance/reproducibility izi taşımıyordu.
+
+Uygulanan çözüm — her YENİ NewsAnalysis artık şunları taşır:
+
+- `analyzed_text`: LLM'e GERÇEKTEN gönderilen son metin (başlık/özet/
+  makale-gövdesi seçimi + kırpma sonrası, ham web sayfası DEĞİL). Canlı
+  sayfa daha sonra değişse bile bu alan SABİT kalır (immutable, add-only
+  kayıt) — `test_live_article_change_after_persist_does_not_mutate_
+  historical_provenance` bunu kanıtlar.
+- `analyzed_text_sha256`: yukarıdaki metnin SHA-256 hex digest'i
+  (canonical UTF-8 bytes, Python `hash()` DEĞİL — süreçler arası kararlı).
+- `prompt_version` = `"event_intelligence_v1"` (dosya mtime'ından
+  TÜRETİLMEDİ — elle bump edilen sabit bir string, `ENGINE_VERSION` ile
+  aynı sözleşme).
+- `prompt_sha256`: sistem prompt'unun SHA-256'sı (insan-okunur
+  `prompt_version`'ın YERİNE değil, ONUNLA BİRLİKTE).
+- `output_schema_version` = `"event_intelligence_output_v1"` (Pydantic
+  sınıf adından AYRI, açıkça persist edilen bir sürüm etiketi).
+- `model_used`: zaten (bu ticket'tan ÖNCE de) gerçekten invoke edilen
+  modeldi — `analyze_item`'daki `model=self._primary_model` ile
+  `model_used=self._primary_model` AYNI değişkeni kullanıyordu; bu ticket
+  bunu test ile KİLİTLEDİ. `_should_escalate()` hâlâ hiç çağrılmıyor
+  (bkz. HATA 15A/engine.py modül docstring'i) — gerçek bir fallback/
+  invoked-model ayrımı bu sürümde test edilebilir DEĞİL (N/A, bölüm 32).
+
+Determinism: `temperature=0.0` ve `seed=0` artık her çağrıda gönderiliyor
+— Chat Completions API'sinin gerçekten desteklediği en deterministik iki
+parametre. **Bitwise-deterministik bir GARANTİ iddia edilmiyor**: OpenAI
+`seed`'i kendi dokümantasyonunda "best-effort" olarak tanımlıyor
+(`system_fingerprint` değişimi/backend güncellemeleri aynı seed'in aynı
+çıktıyı garanti etmediği anlamına gelir). Bu ticket yalnızca API'nin
+sunduğu en güçlü reproducibility sinyalini kullanıyor ve bunu dürüstçe
+"best-effort" olarak belgeliyor.
+
+Immutability korundu: `NewsAnalysis` hâlâ add-only; yeni alanlar
+`NewsAnalysis(...)` construction'ı (Pydantic doğrulaması dahil) SIRASIYLA
+`repo.add()`'dan ÖNCE set ediliyor — geçersiz/malformed LLM çıktısı
+(bozuk JSON veya şema-dışı `data`) hiçbir zaman (ne tam ne kısmi) bir
+NewsAnalysis persist ETMEZ; bu, kod değişikliği gerektirmeyen zaten var
+olan doğru bir sıralamaydı, bu ticket'ta test ile KİLİTLENDİ
+(`test_invalid_json_llm_output_does_not_persist_any_analysis`,
+`test_schema_invalid_llm_output_does_not_persist_any_analysis`).
+
+Analiz kimliği (bölüm 13): `news_id + asset` DEĞİŞMEDİ — mevcut add-only/
+immutable + `get_by_news_id` skip sözleşmesi zaten aynı kaydın sessizce
+üzerine yazılmasını engelliyor; gereksiz bir versiyonlama şeması İCAT
+EDİLMEDİ.
+
+Legacy uyumluluk: yeni alanların TÜMÜ `str | None = None` — bu alanlar
+eklenmeden ÖNCE yazılmış kayıtlar hiç içermez, destructive migration
+YAPILMADI, eski kayıtlar güvenle okunmaya devam ediyor. Mevcut olduklarında
+strict doğrulanıyorlar (`analyzed_text_sha256`/`prompt_sha256`: 64
+küçük-harf hex; `prompt_version`/`output_schema_version`: boş/whitespace-
+only olamaz).
+
+Kapsam dışı bırakılanlar (kasıtlı, bu ticket'ta DOKUNULMADI): HATA 15B
+cross-source dedup/last-10-unique penceresi, HATA 15C source-reliability
+ağırlıklandırma formülü, sentiment/confidence/importance şeması, time
+decay, historical similarity, embeddings, ExplanationEngine'in ayrı açık
+kalan dedup exposure'ı (bkz. HATA 15C raporu). `DecisionEngine` skorlaması
+BYTE-FOR-BYTE aynı kaldı —
+`test_decision_engine_score_unaffected_by_new_provenance_fields` bunu
+kanıtlıyor.
+
+Test: `test_event_analysis_provenance.py` (yeni dosya, 17 test). Rigor
+check A (snapshot/hash persistence geçici kaldırıldı → 7 provenance testi
+kırıldı, restore sonrası yeşil). Rigor check B: N/A (gerçek bir fallback/
+invoked-model ayrımı bu sürümde YOK, sahte bir fallback yolu İCAT
+EDİLMEDİ). Rigor check C (geçersiz JSON çıktısına geçici olarak fake bir
+başarılı kayıt persist ettirildi → invalid-output testi kırıldı, restore
+sonrası yeşil). Tam backend paketi: 2097 passed, 0 failed, 0 skipped,
+0 xfail (2080 mevcut + 17 yeni). No deployment performed.
