@@ -125,6 +125,18 @@ class EventCluster(Generic[T]):
     entries: list[DedupEntry[T]] = field(default_factory=list)
 
     @property
+    def event_recency(self) -> datetime:
+        """HATA 15F: bu kümenin "son N benzersiz olay" penceresindeki
+        sıralama anahtarı -- temsilcinin `published_at`'i (bölüm 5-9/10).
+        Bilinçli olarak temsilciyle AYNI alan kullanılıyor (ayrı bir "en
+        yeni üye" türevi İCAT EDİLMEDİ): temsilci zaten kümenin en eski
+        gövde-taşıyan/yayın-zamanlı üyesi (bölüm 13, DEĞİŞMEDİ) -- bu,
+        olayın sistem tarafından İLK ne zaman bilindiğini yansıtır ve
+        yalnızca bir kaynak tarafından geç tekrar yayınlanması yüzünden
+        "yapay olarak daha yeni" görünmesini önler."""
+        return self.representative.published_at
+
+    @property
     def representative(self) -> DedupEntry[T]:
         """Deterministik temsilci seçimi (bölüm 13): gövde/özet verisi olan
         önce, sonra en eski yayın zamanı, sonra event_id tie-break — girdi

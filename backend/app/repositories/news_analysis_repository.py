@@ -40,8 +40,11 @@ class NewsAnalysisRepository:
         """HATA 15B FINAL: `limit=None` -- bu asset için TÜM (Firestore
         sorgusu zaten baştan `where(asset==...)` dışında bir cap İÇERMİYORDU;
         eski kod yalnızca Python tarafında `records[:limit]` ile kesiyordu)
-        kayıtları created_at azalan sıralı döner. `DecisionEngine.
-        decide_for_asset()` artık limiti dedup'tan ÖNCE değil SONRA uyguluyor
+        kayıtları created_at azalan sıralı döner (bu yalnızca dedup'a giden
+        HAM girdi sırasıdır -- HATA 15F: nihai "son N benzersiz olay"
+        penceresinin sıralaması `app.services.news.news_selection`'da
+        temsilcinin `published_at`'ine göre YENİDEN hesaplanır, bkz. o modül).
+        `DecisionEngine.decide_for_asset()` artık limiti dedup'tan ÖNCE değil SONRA uyguluyor
         -- aksi halde en yeni `limit` ham slot'u aynı olayın tekrarları
         işgal ettiğinde, o olaydan eskiye giden BAĞIMSIZ olaylar hiç
         okunmadan pencereden dışarı kalıyordu (bkz. `decision/engine.py`

@@ -138,6 +138,13 @@ def _deduplicate_news_analyses(
     analiz kümelenemez -- kendi başına tek üyeli bir küme olarak GÜVENLİ
     şekilde geçilir, crash YOK, sessizce yanlış bir kümeye de eklenmez, ve
     reliability'si `None` (fabrike bir OTHER_MEDIA=0.60 DEĞİL) olarak kalır.
+    Bu durumda kümenin sıralama anahtarı olarak `analysis.created_at`
+    kullanılır (en iyi mevcut sinyal -- gerçek `published_at` yok).
+
+    HATA 15F: dönen liste, kümelerin `EventCluster.event_recency`'sine
+    (temsilcinin `published_at`'i) göre azalan sıradadır -- `analyses`
+    girdi listesinin `created_at` sırası DEĞİL (bkz. bölüm 5-9,
+    `select_recent_unique_news_analyses` docstring'i).
     """
     if not analyses:
         return []
@@ -172,11 +179,25 @@ def _deduplicate_news_analyses(
             )
 
     clusters = cluster_by_event(entries)
-    kept_ids = {cluster.representative.event_id for cluster in clusters}
+    # HATA 15F bölüm 5-9: kümeler, `NewsAnalysis.created_at` (LLM işleme
+    # tamamlanma anı) DEĞİL, temsilcinin `published_at`'ine (yayın
+    # kronolojisi -- `EventCluster.event_recency`) göre azalan sırada
+    # döndürülür. Eskiden bu fonksiyon `analyses` girdi listesinin (zaten
+    # created_at azalan) sırasını KORUYORDU -- bu, gecikmiş LLM işleme
+    # (ör. bir günlük backlog) eski-yayınlanmış bir haberi, aslında ondan
+    # SONRA yayınlanmış başka bir habere göre "daha yeni" gösterebiliyordu
+    # (bölüm 9, "delayed analysis" örneği) ve "son 10 benzersiz olay"
+    # penceresini işleme gecikmesiyle çarpıtıyordu. Toplama FORMÜLÜ
+    # DEĞİŞMEDİ (bölüm 25) -- yalnızca hangi 10 olayın pencereye gireceğini
+    # belirleyen sıralama anahtarı düzeltildi.
+    by_news_id = {a.news_id: a for a in analyses}
+    ordered_clusters = sorted(clusters, key=lambda c: c.event_recency, reverse=True)
     return [
-        _WeightedNewsAnalysis(analysis=a, source_reliability=reliability_by_news_id[a.news_id])
-        for a in analyses
-        if a.news_id in kept_ids
+        _WeightedNewsAnalysis(
+            analysis=by_news_id[cluster.representative.event_id],
+            source_reliability=reliability_by_news_id[cluster.representative.event_id],
+        )
+        for cluster in ordered_clusters
     ]
 
 
@@ -194,9 +215,13 @@ def select_recent_unique_news_analyses(
     çoklu-sağlayıcı tekrarı en yeni ham slot'ları işgal edip ondan eskiye
     giden BAĞIMSIZ olayları pencereden dışarı itebilir), TAMAMI
     `_deduplicate_news_analyses` ile kümelenir, ve `limit` yalnızca SONUÇTA
-    uygulanır. `_deduplicate_news_analyses`'ın döndürdüğü liste girdi
-    sırasını (created_at azalan) korur -- bu yüzden sondaki `[:limit]`
-    dilimi "en yeni N benzersiz olay" anlamına doğru şekilde gelir.
+    uygulanır. `_deduplicate_news_analyses`'ın döndürdüğü liste artık
+    `EventCluster.event_recency` (temsilcinin `published_at`'i -- yayın
+    kronolojisi) azalan sırasındadır (HATA 15F, bölüm 5-9) -- GİRDİ
+    listesinin `created_at` sırası DEĞİL, çünkü işleme (LLM analiz)
+    gecikmesi yayın kronolojisiyle karışırsa "son N benzersiz olay"
+    penceresini çarpıtırdı. Bu yüzden sondaki `[:limit]` dilimi "en yeni N
+    benzersiz olay" anlamına -- yayın zamanına göre -- doğru şekilde gelir.
 
     Analiz listesi boşsa `news_raw_repo` HİÇ çağrılmaz/inşa edilmez
     (gereksiz Firestore okuması/inşası yok -- `news_raw_repo=None` iken

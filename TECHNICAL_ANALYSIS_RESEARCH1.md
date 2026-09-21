@@ -2168,3 +2168,102 @@ tekil-olay testleri etkilenmedi, restore sonrası yeşil). Rigor check C
 HATA 15E parity/backfill testleri kırıldı, restore sonrası yeşil). Tam
 backend paketi: 2108 passed, 0 failed, 0 skipped, 0 xfail (2097 mevcut +
 11 yeni). No deployment performed.
+
+# HATA 15F — NEWS TIMESTAMP CAUSALITY COMPLETE
+
+Bu ticket, HATA 15 EventIntelligence correctness serisinin (15A denetim,
+15B cross-source dedup, 15C source-reliability, 15D LLM provenance, 15E
+explanation-consistency) SON parçası ve KAPANIŞ raporudur.
+
+Denetim (kod okunarak, varsayım YAPILMADAN) iki ayrı sorun buldu ve
+İKİSİNİ de minimal biçimde düzeltti — sınıflandırma: **C) CONFIRMED
+CAUSALITY/ORDERING BUG**:
+
+**1) `received_at` immutable DEĞİLDİ.** `NewsRawItem.received_at`
+("sistem bu makaleyi İLK ne zaman gözlemledi") kavramsal olarak zaten
+mevcuttu, ama `NewsRawRepository.upsert()` her seferinde TÜM dokümanı
+`.set()` ile üzerine yazıyordu ve her provider cron çalışmasında
+`received_at = datetime.now(...)` YENİDEN üretiyordu (bkz. yahoo/google/
+foreks_news_provider.py) — yani aynı `external_id` ikinci kez fetch
+edilince ilk-gözlem zamanı SESSİZCE en son fetch anına ilerliyordu.
+Düzeltme: `upsert()` artık önce mevcut kaydı okuyor, varsa onun
+`received_at`'ini yeni değerin üzerine YAZIYOR (diğer tüm alanlar —
+title/summary/source_reliability/published_at — normal şekilde
+güncellenmeye devam ediyor).
+
+**2) Son-10-benzersiz-olay penceresi `NewsAnalysis.created_at`'e (LLM
+işleme TAMAMLANMA anı) göre sıralanıyordu, olayın gerçek yayın
+kronolojisine (`published_at`) göre DEĞİL.** Ticket'ın "delayed analysis"
+örneğiyle (bölüm 9) kanıtlandı: 09:00'da yayınlanıp 12:00'de (backlog
+yüzünden) analiz edilen bir haber, 10:00'da yayınlanıp 10:05'te analiz
+edilen bağımsız bir haberden "daha yeni" görünüyordu — işleme gecikmesi,
+gerçek haber kronolojisiyle karışıyordu. Düzeltme:
+`app/services/news/event_dedup.py`'ye `EventCluster.event_recency`
+(temsilcinin `published_at`'i) eklendi; `news_selection.py`
+`_deduplicate_news_analyses()` artık kümeleri bu alana göre azalan sırada
+döndürüyor — `analyses` girdi listesinin (created_at azalan) sırasını
+KORUMA davranışı kaldırıldı. `_aggregate_news_score()` FORMÜLÜ
+DEĞİŞMEDİ; yalnızca hangi 10 olayın pencereye GİRECEĞİNİ/hangi sırada
+DÖNECEĞİNİ belirleyen anahtar düzeltildi. `DecisionEngine` ve
+`ExplanationEngine` HATA 15E'nin paylaşımlı `select_recent_unique_news_
+analyses()`'ini kullanmaya devam ediyor — düzeltme TEK bir yerde
+yapıldığı için ikisi arasında yeni bir sapma riski YOK.
+
+**Dokümante edilen zaman-damgası sözleşmesi (bölüm 26, seri için kapanış
+tanımı):**
+
+- `NewsRawItem.published_at`: yayıncının beyan ettiği yayın zamanı —
+  provider parse anında UTC-aware olarak normalize edilir (Yahoo:
+  ISO+`Z`→`+00:00`; Google/Foreks: `parsedate_to_datetime` + naive→UTC
+  fallback), eksikse ilgili öğe ingestion'da EXCLUDE edilir (`if not ...
+  pub_date_text: continue` — Foreks'te doğrulandı, `test_skips_items_
+  missing_pub_date` ile zaten kilitli, DEĞİŞMEDİ).
+- `NewsRawItem.received_at`: sistemin bu makaleyi İLK gözlemlediği an —
+  artık (bu ticket'tan sonra) upsert boyunca IMMUTABLE. Şu an hiçbir
+  canlı skorlama/seçim yolu tarafından OKUNMUYOR (yalnızca gelecekte bir
+  historical/as-of sorgu inşa edilirse eligibility/causality gate'i için
+  kullanılacak otorite alan budur — bu ticket öyle bir sorgu İNŞA ETMEDİ,
+  yalnızca alanın anlamını sabitledi).
+- `NewsAnalysis.created_at`: LLM analizinin TAMAMLANDIĞI an (işleme
+  kronolojisi/audit — HATA 15D provenance ile aynı ruhta). Artık son-N-
+  benzersiz-olay SEÇİM/SIRALAMA anahtarı OLARAK KULLANILMIYOR (yalnızca
+  `NewsAnalysisRepository.list_for_asset()`'in HAM getirme sırasını
+  belirliyor — dedup katmanı sonucu published_at'e göre yeniden sıralıyor).
+- **Eligibility (bir haber ne zaman "sistem tarafından bilinebilir" hale
+  gelir):** `received_at` — ama bugünkü canlı mimaride bu HİÇBİR ZAMAN
+  ihlal edilemez, çünkü analiz yalnızca zaten `news_raw`'a yazılmış
+  (= zaten gözlemlenmiş) kayıtlar üzerinde çalışır. Historical/backtest
+  bir özellik YOK ve bu ticket'ta İNŞA EDİLMEDİ.
+- **Canlı recency sıralaması (son-N-benzersiz-olay penceresi):**
+  `published_at` (temsilci üzerinden, `EventCluster.event_recency`).
+- **Gelecekte bir historical/as-of analiz özelliği inşa edilirse** o da
+  `received_at`'i (as-of zamanında zaten gözlemlenmiş miydi) eligibility
+  gate'i, `published_at`'i kronoloji/sıralama için kullanmalıdır —
+  `NewsAnalysis.created_at`'i ASLA yayın zamanı yerine kullanmamalıdır.
+
+**Disclosed, düzeltilmeyen kalan boşluk:** Yahoo provider'da `pub_date =
+content.get("pubDate") or content.get("displayTime")` her ikisi de eksik
+olursa `None.replace(...)` ile crash eder (sessiz veri bozulması değil,
+gürültülü hata — provider yeniden tasarımı bu ticket kapsamı dışında
+bırakıldı, bkz. bölüm "DO NOT: redesign providers"). Gelecekte
+malformed/future-dated `published_at` değerlerine karşı açık bir
+doğrulama da YOK (ör. `published_at > received_at`) — mevcut kodda somut
+bir kanıt/olay bulunamadı, bu yüzden İCAT EDİLMİŞ bir doğrulama
+EKLENMEDİ; residual, belgelenmiş bir gözlem olarak bırakıldı.
+
+Test: `test_event_intelligence_causality.py` (yeni dosya, 11 test) —
+`received_at` immutability + ilk-upsert normal davranış, delayed-analysis
+kritik testi (+ `limit=1` varyantı), created_at/published_at BİLEREK
+karıştırılmış 10-bağımsız-olay backfill regresyonu, çoklu-sağlayıcı
+temsilci kimliği DEĞİŞMEDİ testi, Decision/Explanation sıralama parity
+(HATA 15E üzerine), timezone-offset doğru sıralama, ham-provenance-yok
+fallback (crash yok), ve iki rigor-check testi (eski `created_at`-sıralı
+dedup'ı ve eski `.set()`-tabanlı upsert'i test dosyası içinde geçici
+monkeypatch ile simüle edip YANLIŞ sonucu ürettiklerini kanıtlıyor —
+production kodu bu testler için hiç değiştirilmedi/geri alınmadı).
+
+HATA 15B (cross-source dedup/48s pencere/0.82 eşik/asset sınırı) / 15C
+(source-reliability formülü) / 15D (LLM provenance mekanizması) semantiği
+tamamen KORUNDU — yalnızca son-10-benzersiz-olay SIRALAMA anahtarı ve
+`received_at` immutability'si düzeltildi. Yeni bir historical/backtest
+pipeline'ı EKLENMEDİ. No deployment performed.
