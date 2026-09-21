@@ -9,6 +9,7 @@ from app.engines.decision.engine import (
     DecisionEngine,
     _aggregate_news_score,
     _classify,
+    _WeightedNewsAnalysis,
     resolve_decision_thresholds,
     resolve_decision_weights,
 )
@@ -494,13 +495,18 @@ def test_aggregate_news_score_returns_none_when_no_analyses():
 
 
 def test_aggregate_news_score_weights_by_confidence():
-    analyses = [_news(sentiment_score=100.0, confidence=0.9), _news(sentiment_score=-100.0, confidence=0.1)]
-    assert _aggregate_news_score(analyses) == pytest.approx(80.0)
+    # HATA 15C: source_reliability=None -- reliability boyutu bu testte YOK,
+    # eski (HATA 15B) confidence-only formülle AYNI sonucu üretmeli.
+    weighted = [
+        _WeightedNewsAnalysis(analysis=_news(sentiment_score=100.0, confidence=0.9), source_reliability=None),
+        _WeightedNewsAnalysis(analysis=_news(sentiment_score=-100.0, confidence=0.1), source_reliability=None),
+    ]
+    assert _aggregate_news_score(weighted) == pytest.approx(80.0)
 
 
 def test_aggregate_news_score_none_when_all_zero_confidence():
-    analyses = [_news(sentiment_score=50.0, confidence=0.0)]
-    assert _aggregate_news_score(analyses) is None
+    weighted = [_WeightedNewsAnalysis(analysis=_news(sentiment_score=50.0, confidence=0.0), source_reliability=None)]
+    assert _aggregate_news_score(weighted) is None
 
 
 class _FakeTechnicalEngine:

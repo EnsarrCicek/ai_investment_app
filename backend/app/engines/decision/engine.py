@@ -26,6 +26,7 @@ hale gelmez ve maliyet yalnızca haber analizi ayrıca istendiğinde oluşur.
 """
 
 import math
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.engines.technical.engine import TechnicalAnalysisEngine
@@ -164,27 +165,83 @@ def resolve_decision_thresholds(raw_doc: dict | None) -> dict[str, float]:
     return {k: float(v) for k, v in raw_doc.items()}
 
 
-def _aggregate_news_score(analyses: list[NewsAnalysis]) -> float | None:
-    """Son N haber analizinin confidence-ağırlıklı ortalama sentiment_score'u.
+@dataclass(frozen=True)
+class _WeightedNewsAnalysis:
+    """HATA 15C: `_deduplicate_news_analyses()`'ın döndürdüğü, her BENZERSİZ
+    mantıksal olayın temsilci analizini KENDİ kaynak güvenilirliğiyle
+    eşleyen zarf. `source_reliability=None`, o temsilcinin ham makale
+    kaydı bulunamadığı (provenance eksik) anlamına gelir -- ASLA fabrike
+    bir OTHER_MEDIA=0.60 değeri DEĞİL (bkz. HATA 15C bölüm 8-9).
 
-    Confidence ağırlıklandırması: modelin düşük güvenle verdiği bir analiz,
-    yüksek güvenle verilen bir analizle aynı ağırlıkta kararı etkilememeli.
-    Hiç analiz yoksa None döner (Missing Data Davranışı — 0 gibi yanlış bir
-    "nötr" varsayımı YAPILMAZ).
+    `analysis`'ın olmayan bir alanına erişim (ör. `.news_id`,
+    `.sentiment_score`) şeffaf şekilde ona yönlendirilir -- çağıran kod
+    için `NewsAnalysis`'in kendisi gibi davranır."""
+
+    analysis: NewsAnalysis
+    source_reliability: float | None
+
+    def __getattr__(self, name: str):
+        return getattr(self.analysis, name)
+
+
+def _effective_news_weight(confidence: float, source_reliability: float | None) -> float:
+    """HATA 15C bölüm 6/8/9: bir olayın skorlamadaki etkin ağırlığı.
+
+    `source_reliability` gerçekten mevcut ve geçerliyse (0..1 -- bkz.
+    `source_reliability.py::DEFAULT_SOURCE_RELIABILITY`, gerçek production
+    ölçeği) `confidence * source_reliability` döner. `None` ise (ham
+    provenance bulunamadı) reliability boyutu bu olay için DIŞLANIR --
+    `effective_weight = confidence` (yalnızca "mevcut boyutlarla" ağırlıklandırma,
+    ASLA icat edilmiş bir reliability değeri DEĞİL).
+
+    Geçersiz (negatif/NaN/±inf/1'den büyük) bir `source_reliability` sessizce
+    clamp/coerce EDİLMEZ -- fail-fast (bölüm 21), bu projenin
+    `resolve_decision_weights`/`resolve_decision_thresholds` ile aynı
+    "corrupted config/data'yı gizlice düzeltme" karşıtı ilkesiyle tutarlı.
     """
-    if not analyses:
+    if source_reliability is None:
+        return confidence
+    if (
+        isinstance(source_reliability, bool)
+        or not isinstance(source_reliability, (int, float))
+        or not math.isfinite(source_reliability)
+        or source_reliability < 0.0
+        or source_reliability > 1.0
+    ):
+        raise ValueError(
+            f"Geçersiz source_reliability değeri: {source_reliability!r} "
+            "(0..1 aralığında finite bir sayı olmalı) -- fail-fast, sessizce "
+            "clamp/coerce EDİLMİYOR (HATA 15C bölüm 21)."
+        )
+    return confidence * source_reliability
+
+
+def _aggregate_news_score(weighted: list[_WeightedNewsAnalysis]) -> float | None:
+    """Son N BENZERSİZ olayın, kaynak-güvenilirlik-farkında ağırlıklı
+    ortalama sentiment_score'u (HATA 15C).
+
+    Formül DEĞİŞMEDİ (HATA 15B'den): yalnızca ağırlık artık salt
+    `confidence` değil `confidence * source_reliability` (mevcutsa) --
+    bkz. `_effective_news_weight()`. Hiç girdi yoksa VEYA toplam etkin
+    ağırlık sıfırsa None döner (Missing Data Davranışı — 0 gibi yanlış bir
+    "nötr" varsayımı YAPILMAZ, ne confidence=0 ne de reliability=0 için).
+    """
+    if not weighted:
         return None
-    weight_total = sum(a.confidence for a in analyses)
+    weights = [_effective_news_weight(w.analysis.confidence, w.source_reliability) for w in weighted]
+    weight_total = sum(weights)
     if weight_total == 0:
         return None
-    weighted_sum = sum(a.sentiment_score * a.confidence for a in analyses)
+    weighted_sum = sum(w.analysis.sentiment_score * wt for w, wt in zip(weighted, weights))
     return round(weighted_sum / weight_total, 2)
 
 
 def _deduplicate_news_analyses(
     analyses: list[NewsAnalysis], news_raw_repo: NewsRawRepository
-) -> list[NewsAnalysis]:
+) -> list[_WeightedNewsAnalysis]:
     """HATA 15B: skorlama girdisini benzersiz MANTIKSAL OLAYLARA indirger.
+    HATA 15C: her benzersiz olayın temsilcisini KENDİ `source_reliability`'si
+    ile eşler (diğer küme üyelerininki TOPLANMAZ/ORTALANMAZ -- bkz. bölüm 15).
 
     Sorun (HATA 15A bulgu #2): aynı gerçek-dünya olayı Yahoo/Google/Foreks'ten
     ayrı `external_id`'lerle geldiği ve hiçbir yerde birleştirilmediği için,
@@ -196,19 +253,23 @@ def _deduplicate_news_analyses(
     temsilcisininkini bırakır (bkz. app/services/news/event_dedup.py).
 
     `_aggregate_news_score()`'un formülü DEĞİŞMEDİ — yalnızca ona giden girdi
-    kümesi artık tekilleştirilmiş.
+    kümesi artık tekilleştirilmiş VE her girdi kendi temsilcisinin
+    reliability'siyle etiketlenmiş.
 
     Ham haber kaydı bulunamayan (savunma amaçlı; olağan akışta olmamalı) bir
     analiz kümelenemez -- kendi başına tek üyeli bir küme olarak GÜVENLİ
-    şekilde geçilir, crash YOK ve sessizce yanlış bir kümeye de eklenmez.
+    şekilde geçilir, crash YOK, sessizce yanlış bir kümeye de eklenmez, ve
+    reliability'si `None` (fabrike bir OTHER_MEDIA=0.60 DEĞİL) olarak kalır.
     """
     if not analyses:
         return []
 
     entries: list[DedupEntry[NewsAnalysis]] = []
+    reliability_by_news_id: dict[str, float | None] = {}
     for analysis in analyses:
         raw = news_raw_repo.get_by_external_id(analysis.news_id)
         if raw is None:
+            reliability_by_news_id[analysis.news_id] = None
             entries.append(
                 DedupEntry(
                     asset=analysis.asset,
@@ -220,6 +281,7 @@ def _deduplicate_news_analyses(
                 )
             )
         else:
+            reliability_by_news_id[analysis.news_id] = raw.source_reliability
             entries.append(
                 DedupEntry(
                     asset=analysis.asset,
@@ -233,7 +295,11 @@ def _deduplicate_news_analyses(
 
     clusters = cluster_by_event(entries)
     kept_ids = {cluster.representative.event_id for cluster in clusters}
-    return [a for a in analyses if a.news_id in kept_ids]
+    return [
+        _WeightedNewsAnalysis(analysis=a, source_reliability=reliability_by_news_id[a.news_id])
+        for a in analyses
+        if a.news_id in kept_ids
+    ]
 
 
 def _classify(score: float, t: dict) -> str:
@@ -385,18 +451,19 @@ class DecisionEngine:
         macro, macro_id = (macro_repo or MacroSnapshotRepository()).get_latest_with_id()
 
         news_analyses = (news_repo or NewsAnalysisRepository()).list_for_asset(asset, limit=None)
+        weighted_news: list[_WeightedNewsAnalysis] = []
         if news_analyses:
-            news_analyses = _deduplicate_news_analyses(
+            weighted_news = _deduplicate_news_analyses(
                 news_analyses, news_raw_repo or NewsRawRepository()
             )[:NEWS_SCORE_LIMIT]
 
         return self.decide(
             asset=asset,
             technical_score=analysis.technical_score,
-            news_score=_aggregate_news_score(news_analyses),
+            news_score=_aggregate_news_score(weighted_news),
             macro_score=macro.macro_score if macro else None,
             technical_analysis_id=analysis_id,
-            news_analysis_ids=[a.news_id for a in news_analyses],
+            news_analysis_ids=[w.analysis.news_id for w in weighted_news],
             macro_snapshot_id=macro_id,
             persist=persist,
         )

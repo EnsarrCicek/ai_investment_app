@@ -17,6 +17,7 @@ from app.engines.decision.engine import (
     DecisionEngine,
     _aggregate_news_score,
     _deduplicate_news_analyses,
+    _WeightedNewsAnalysis,
 )
 from app.engines.event_intelligence import engine as ei_engine_module
 from app.engines.event_intelligence.engine import EventIntelligenceEngine
@@ -474,7 +475,11 @@ def test_score_effect_duplicate_event_no_longer_dominates_aggregate():
     )
 
     # Düzeltme ÖNCESİ (dedup uygulanmadan) -- kilit için referans: 3xA + 1xB.
-    before_score = _aggregate_news_score(analyses)
+    # source_reliability=None (HATA 15C reliability boyutu bu referansta YOK) --
+    # confidence-only eski formülle AYNI değeri üretir.
+    before_score = _aggregate_news_score(
+        [_WeightedNewsAnalysis(analysis=a, source_reliability=None) for a in analyses]
+    )
     assert before_score == pytest.approx(45.0)  # (90*3 + -90) / 4
 
     deduped = _deduplicate_news_analyses(analyses, raw_repo)

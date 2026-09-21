@@ -1914,3 +1914,70 @@ geçici olarak geri getirildi, 3 yeni test kırıldı (regresyon kilidi
 doğrulandı), düzeltme geri yüklendi (dosya byte-identical), tüm testler
 tekrar yeşil. Tam backend paketi: 2057 passed, 0 failed, 0 skipped, 0
 xfail (2054 mevcut + 3 yeni). No deployment performed.
+
+# HATA 15C — SOURCE RELIABILITY SCORING COMPLETE
+
+HATA 15A bulgu #1 (`source_reliability` sağlayıcılar tarafından hesaplanıp
+saklanıyor ama skorlamada hiç okunmuyordu — ölü veri) düzeltildi.
+
+Formül: `effective_weight = confidence * source_reliability` (mevcutsa),
+`news_score = sum(sentiment_score * effective_weight) / sum(effective_weight)`
+(HATA 15B'nin kümeleme/temsilci-seçim SIRASI DEĞİŞMEDİ — reliability her
+BENZERSİZ olayın yalnızca deterministik temsilcisinden okunuyor, kümenin
+diğer üyeleri ASLA toplanmıyor/ortalanmıyor).
+
+Config kaynağı DEĞİŞMEDİ: reliability değerleri hâlâ sağlayıcı tarafında
+`system_config` (`source_reliability` dokümanı, `DEFAULT_SOURCE_RELIABILITY`
+fallback'i ile) üzerinden `NewsRawItem.source_reliability`'ye yazılıyor —
+DecisionEngine bunu ham kayıttan OKUYOR, ikinci bir config mekanizması
+oluşturulmadı.
+
+Eksik-reliability semantiği (bilinçli seçim, bölüm 9): ham makale kaydı
+bulunamayan (silinmiş/legacy provenance) bir temsilci için reliability
+`None` kalır — fabrike bir OTHER_MEDIA=0.60 değeri ASLA ATANMAZ. Bu durumda
+o olay için reliability boyutu skorlamadan DIŞLANIR, `effective_weight`
+sadece `confidence`'a düşer ("mevcut boyutlarla ağırlıklandırma"). Bilinen
+bir yayıncı kategorisi (OTHER_MEDIA dahil) GERÇEK configured bir değerdir —
+bu durum "eksik" ile KARIŞTIRILMAZ ve normal şekilde ağırlıklandırmaya
+katılır.
+
+Durum:
+- reliability now affects unique-event weighting: EVET
+- exact formula: `confidence * source_reliability` (mevcutsa), yoksa
+  `confidence` (reliability boyutu dışlanır, icat edilmez)
+- config source: `system_config.source_reliability` (DEĞİŞMEDİ, ikinci bir
+  mekanizma oluşturulmadı)
+- missing reliability semantics: ham kayıt bulunamazsa `None` → reliability
+  dışlanır, fabrike OTHER_MEDIA=0.60 ATANMAZ
+- known OTHER_MEDIA semantics: gerçek configured kategori, ağırlıklandırmayı
+  etkiler (eksik provenance ile karıştırılmaz)
+- no duplicate-source amplification: EVET (yalnızca temsilcinin reliability'si
+  kullanılır, kümenin diğer üyelerininki toplanmaz)
+- last-10-unique rule unchanged: EVET (HATA 15B FINAL semantiği korunuyor)
+- no time decay/historical similarity added: EVET (bu ticket'ın kapsamı
+  dışında bırakıldı)
+- ExplanationEngine dedup/reliability issue remains separately open: EVET
+  (bilinen, dokümante, ayrı bir ticket'ta ele alınacak — `explain()` hâlâ
+  ham son-10 kaydı okuyor, HATA 15B/15C katmanına bağlı değil; bu ticket
+  yalnızca paylaşılan `_aggregate_news_score()` imzasına uyum için
+  `source_reliability=None` ile mevcut confidence-only davranışını
+  DEĞİŞTİRMEDEN plumbing güncellemesi aldı)
+- no deployment performed: EVET
+
+Geçersiz (negatif/NaN/±inf/1'den büyük) bir `source_reliability` sessizce
+clamp/coerce edilmez — fail-fast `ValueError` (bu projenin
+`resolve_decision_weights`/`resolve_decision_thresholds` ile aynı ilkesi).
+"Yanlış tip" senaryosu production'da fiilen erişilemez -- `NewsRawItem.
+source_reliability: float` Pydantic tarafından zaten garanti ediliyor;
+sayısal aralık/finite kontrolü savunma amaçlı kalıyor.
+
+Test: `backend/tests/test_news_reliability_scoring.py` (15 yeni test —
+sayısal reliability etkisi, eşit-reliability kontrolü, confidence hâlâ
+çarpan, sıfır/geçersiz reliability, bilinmeyen-kaynak/None semantiği,
+bilinen OTHER_MEDIA ağırlıklandırması, config-değişikliği hassasiyeti,
+çoklu-sağlayıcı amplifikasyon-yok, son-10-benzersiz pencere regresyonu).
+Rigor check A/B/C (reliability boyutu kaldırıldı / eksik kaynak fabrike
+OTHER_MEDIA'ya düşürüldü / kümenin tüm üyelerinin reliability'si toplandı)
+üçü de ilgili testleri gerçekten kırdı, restore sonrası tekrar yeşil. Tam
+backend paketi: 2072 passed, 0 failed, 0 skipped, 0 xfail (2057 mevcut +
+15 yeni). No deployment performed.

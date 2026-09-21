@@ -9,7 +9,12 @@ bu uç nokta yalnızca mevcut kararın gerekçesini gösterir, yeni bir karar ka
 oluşturmaz.
 """
 
-from app.engines.decision.engine import NEWS_SCORE_LIMIT, DecisionEngine, _aggregate_news_score
+from app.engines.decision.engine import (
+    NEWS_SCORE_LIMIT,
+    DecisionEngine,
+    _aggregate_news_score,
+    _WeightedNewsAnalysis,
+)
 from app.engines.technical.engine import TechnicalAnalysisEngine
 from app.models.news_analysis import NewsAnalysis
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
@@ -96,10 +101,19 @@ class ExplanationEngine:
         macro, macro_id = self._macro_repo.get_latest_with_id()
         news_analyses = self._news_repo.list_for_asset(asset, limit=NEWS_SCORE_LIMIT)
 
+        # HATA 15C: `_aggregate_news_score()` artık paylaşımlı bir zarf tipi
+        # (`_WeightedNewsAnalysis`) bekliyor. ExplanationEngine burada HATA
+        # 15B/15C dedup/reliability katmanına BAĞLANMIYOR (bilinen, ayrı açık
+        # konu -- bkz. HATA 15B FINAL raporu) -- `source_reliability=None`
+        # ile eski confidence-only formül DEĞİŞMEDEN korunuyor, bu yalnızca
+        # yeni fonksiyon imzasına uyum sağlayan veri aktarımı.
+        weighted_news_analyses = [
+            _WeightedNewsAnalysis(analysis=a, source_reliability=None) for a in news_analyses
+        ]
         decision = self._decision_engine.decide(
             asset=asset,
             technical_score=analysis.technical_score,
-            news_score=_aggregate_news_score(news_analyses),
+            news_score=_aggregate_news_score(weighted_news_analyses),
             macro_score=macro.macro_score if macro else None,
             technical_analysis_id=analysis_id,
             news_analysis_ids=[a.news_id for a in news_analyses],
