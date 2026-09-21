@@ -1799,3 +1799,47 @@ oluşturma endpoint'i yok; gerçek bir Cloud Scheduler job'ı oluşturulmadı;
 `evidence_capture_ready`/`prospective_holdout_started`/`effective_holdout_
 start` HÂLÂ `false`/`false`/`null`; gerçek Firestore/GCS'e hiçbir production
 yazma denenmedi (yalnızca sahte/stub bağımlılıklarla test edildi).
+
+# PROD-3 — PRODUCTION DEPLOYMENT DEFERRED
+
+Technical V1 kodu production deployment aşamasına kadar hazırlanmıştır.
+Ancak `ai-investment-app-2026` Google Cloud projesinde Cloud Billing
+devre dışıdır.
+
+Cloud Build, Artifact Registry, Cloud Run deployment, Cloud Scheduler,
+Secret Manager ve production evidence-storage altyapısının ilgili
+kısımlarının kullanılabilmesi için aktif bir Google Cloud Billing hesabı
+gerekmektedir.
+
+Bu nedenle production deployment ve prospective validation activation
+şimdilik bilinçli olarak ERTELENMİŞTİR.
+
+Bu durum:
+- kod correctness problemi değildir,
+- Technical V1 bilimsel/provenance blocker'ı değildir,
+- HATA 12/13 çalışmalarını yeniden açmaz.
+
+İleride production deployment istenirse:
+1. Cloud Billing kullanıcı tarafından bilinçli olarak etkinleştirilecek,
+2. PROD-3 kontrollü deployment adımlarından devam edilecek,
+3. deploy sonrasında runtime/IAM/GCS doğrulamaları yapılacak,
+4. activation lock/event bundan SONRA oluşturulacak,
+5. scheduler en son etkinleştirilecek,
+6. prospective holdout ancak tüm production kontrolleri geçtikten sonra
+   başlayacaktır.
+
+Şu an durum:
+
+PROD-2 = COMPLETE
+PROD-3 = DEFERRED — BILLING REQUIRED
+Production deploy = YOK
+Production activation = YOK
+Scheduler = YOK
+evidence_capture_ready = false
+prospective_holdout_started = false
+effective_holdout_start = null
+
+Not:
+Billing etkinleştirilmesi gelecekte Google Cloud kullanım ücretlerinin
+oluşmasına neden olabilir. Kullanıcının açık kararı olmadan billing
+etkinleştirilmeyecektir.
