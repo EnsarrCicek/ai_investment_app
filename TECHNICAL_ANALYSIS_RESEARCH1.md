@@ -2267,3 +2267,67 @@ HATA 15B (cross-source dedup/48s pencere/0.82 eşik/asset sınırı) / 15C
 tamamen KORUNDU — yalnızca son-10-benzersiz-olay SIRALAMA anahtarı ve
 `received_at` immutability'si düzeltildi. Yeni bir historical/backtest
 pipeline'ı EKLENMEDİ. No deployment performed.
+
+# HATA 16B — MACRO CONFIG / FAKE-NEUTRAL FIX COMPLETE
+
+HATA 16A denetiminin (salt okunur, kod değiştirilmedi) doğruladığı iki
+bağlantılı production hatası düzeltildi:
+
+1. `MacroAnalysisEngine` artık `macro_indicator_weights`/
+   `macro_indicator_scales` config'lerini `SystemConfigRepository.get()`
+   (auto-seed + sessiz partial-merge, HATA 5B2C'nin kök nedeni) İLE DEĞİL,
+   `get_raw()` + yeni fail-fast `resolve_macro_weights()`/
+   `resolve_macro_scales()` resolver'ları İLE okuyor —
+   `decision/engine.py::resolve_decision_weights()`/
+   `resolve_decision_thresholds()` (HATA 5C3B) ile AYNI desen. Resolver'lar
+   provider fetch'ten ÖNCE çağrılır: eksik/geçersiz config, hiçbir Yahoo
+   çağrısı yapılmadan fail-fast eder, Firestore'a hiçbir auto-seed/write
+   YAPILMAZ.
+2. Bir RUN'da mevcut göstergelerin TAMAMI sıfır ağırlıklı kanallara denk
+   gelirse (`available_weight == 0` — config toplamda geçerli/pozitif
+   olsa bile, ör. `dxy=0` + o an yalnızca dxy verisi mevcut), engine artık
+   `macro_score = 0.0` UYDURMUYOR — `ValueError` (`NO_POSITIVE_WEIGHT_
+   AVAILABLE`, `DecisionEngine.decide()`'daki aynı desenle simetrik)
+   fırlatıyor ve hiçbir `MacroSnapshot` kaydedilmiyor. Gerçek/hesaplanmış
+   nötr sonuç (mevcut bileşenlerin ağırlıklı toplamı tam olarak 0'a denk
+   gelmesi, `available_weight > 0` iken) KORUNDU — bu durumda
+   `macro_score == 0.0` hâlâ başarıyla persist edilir (gerçek bir nötr
+   sonuçtur, uydurma değildir).
+
+Config kuralları: her weight finite + `>= 0` olmalı (tek tek sıfır
+SERBEST), toplam config weight'i `> 0` olmalı (tümü-sıfır config GEÇERSİZ);
+her scale finite + STRICTLY `> 0` olmalı (weight'in aksine, tek tek sıfır
+scale de GEÇERSİZ — 0 scale o göstergeyi ölçek üzerinden sessizce devre
+dışı bırakırdı). Beklenen anahtar seti tam eşleşmeli (eksik/fazla anahtar
+fail-fast, HATA 5B2C'deki sessiz partial-merge deseni TEKRARLANMIYOR).
+Weight'lerin toplamının tam olarak 1'e eşit olması ZORUNLU DEĞİL (engine
+zaten mevcut göstergeler üzerinden renormalize ediyor).
+
+Eksik gösterge renormalizasyonu (bir gösterge tamamen mevcut değilse,
+yalnızca mevcut olanlar üzerinden ağırlıklandırma) DEĞİŞMEDİ — doğru
+davranıyordu, HATA 16A'da zaten G (no issue) olarak sınıflandırılmıştı.
+
+Bulgu #1 ve #2 (HATA 16A) için 41 yeni dedicated test eklendi (daha önce
+`MacroAnalysisEngine`/`YahooMacroProvider`/`MacroSnapshotRepository` için
+SIFIR test coverage vardı) — resolver validasyon testleri (eksik/partial/
+extra-key/bool/string/NaN/±inf/negatif/tümü-sıfır), engine-seviyesi
+config-öncesi-provider-fetch testi, available-weight-zero reprodüksiyonu
+(HATA 16A'nın confirmed bug'ı, artık `MacroSnapshot` kaydedilmediği
+kanıtlanmış), gerçek-nötr-0.0 persist testi, kısmi-veri renormalizasyon
+tam sayısal testi, HATA 16A'nın audit örneğinin kilitlenmesi
+(`macro_score == -13.75`, regresyon yok), config weight/scale source-
+sensitivity testleri (resolved config'in gerçekten kullanıldığını,
+`DEFAULT_WEIGHTS`/`DEFAULT_SCALES`'in sessizce gölgelenmediğini kanıtlıyor)
+ve `YahooMacroProvider` için 20-bar pct_change/insufficient-history/
+per-ticker partial-failure testleri (provider davranışı DEĞİŞMEDİ, yalnızca
+test edildi). Üç rigor-check (eski fake-`0.0` davranışını, eski `get()`
+partial-merge yolunu ve `DEFAULT_WEIGHTS`/`DEFAULT_SCALES` gölgelemesini
+test dosyası içinde geçici olarak geri getirip ilgili testlerin gerçekten
+FAIL ettiğini kanıtlayıp geri almak) production kodu hiç değiştirmeden
+yapıldı.
+
+Freshness/staleness (HATA 16A bulgu #3) ve macro provenance/config-hash
+persistansı (HATA 16A bulgu #4) BİLEREK bu tickette ele alınmadı — ayrı,
+gelecekteki HATA 16 ticket'ları için açık bırakıldı. `DecisionEngine`'in
+eksik-macro renormalizasyon davranışı DEĞİŞMEDİ (regression testleriyle
+doğrulandı). No deployment performed.
