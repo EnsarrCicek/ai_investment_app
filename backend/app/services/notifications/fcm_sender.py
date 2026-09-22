@@ -53,6 +53,7 @@ from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.bist_provider import BistProvider
+from app.utils.decision_score_format import format_decision_score
 from app.utils.percent_format import format_percent_fraction, format_percent_value
 
 STRONG_DECISIONS = {"BUY", "SELL"}
@@ -91,8 +92,14 @@ def _compose_and_send(
     # yüzden HER ZAMAN mevcuttur, version-aware bir legacy dal GEREKMEZ).
     # `format_percent_value`/`format_percent_fraction`, Flutter'ın
     # `toStringAsFixed(0)` ile presentation-eşdeğer half-up rounding kullanır.
+    # HATA 18B: `{decision.final_score:+.1f}` YERİNE `format_decision_score(...)`
+    # -- ExplanationEngine ile AYNI paylaşımlı, threshold-safe/adaptif-hassasiyetli
+    # yardımcı (bkz. `app.utils.decision_score_format` docstring'i, HATA 18A
+    # bulgu #1). İki sunum yüzeyinin (Explanation/FCM) yeniden AYRI
+    # formatlama mantığına sahip olup sürüklenmemesi bu paylaşımla garanti
+    # edilir.
     score_line = (
-        f"Final skor: {decision.final_score:+.1f}, "
+        f"Final skor: {format_decision_score(decision.final_score, decision.decision, decision.decision_thresholds)}, "
         f"Sinyal Mutabakatı: {format_percent_value(decision.confidence)}, "
         f"Veri Kapsamı: {format_percent_fraction(decision.channel_completeness)}"
     )

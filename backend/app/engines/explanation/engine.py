@@ -38,6 +38,7 @@ from app.services.news.news_selection import (
     _aggregate_news_score,
     select_recent_unique_news_analyses,
 )
+from app.utils.decision_score_format import format_decision_score
 from app.utils.percent_format import format_percent_fraction, format_percent_value
 
 _DECISION_LABELS = {
@@ -166,9 +167,14 @@ class ExplanationEngine:
         # "62"), Flutter'ın `toStringAsFixed(0)`'ı ise round-half-UP (62.5 ->
         # "63") kullanıyordu; bu, aynı kararın ekranlar arasında farklı
         # yüzdeyle görünmesine yol açıyordu (bkz. HATA 5C-UI3 raporu).
+        # HATA 18B: `{decision.final_score:+.1f}` YERİNE `format_decision_
+        # score(...)` kullanılıyor -- sabit 1-ondalık yuvarlama, eşiğe yakın
+        # skorları (ör. 39.996/WEAK_BUY) görsel olarak yanlış katmana
+        # (+40.0/BUY) taşıyabiliyordu (bkz. HATA 18A bulgu #1).
+        score_text = format_decision_score(decision.final_score, decision.decision, decision.decision_thresholds)
         summary = (
             f"{asset} için '{label}' kararı verildi "
-            f"(final skor: {decision.final_score:+.1f}, "
+            f"(final skor: {score_text}, "
             f"sinyal mutabakatı: {format_percent_value(decision.confidence)}, "
             f"veri kapsamı: {format_percent_fraction(decision.channel_completeness)})."
         )

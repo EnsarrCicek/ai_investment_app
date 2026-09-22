@@ -2709,3 +2709,73 @@ ettiği kanıtlanıp geri alındı; üçüncü rigor-check (unavailable kanalı 
 olarak serialize etmek) HATA 15/16/17 serisinin TAMAMINDAKİ None-vs-zero
 testlerinin geniş çaplı FAIL ettiğini kanıtladı (beklenenden de güçlü bir
 kanıt). No deployment performed.
+
+# HATA 18B — THRESHOLD-SAFE SCORE PRESENTATION COMPLETE
+
+HATA 18A audit bulgu #1'in (highest-priority) düzeltmesi. `ExplanationEngine`
+özeti ve `fcm_sender.py` bildirim body'si, `AIDecision.final_score`'u sabit
+`:+.1f` (1 ondalık) ile gösteriyordu — bu, eşiğe yeterince yakın bir skoru
+YANLIŞ katmana yuvarlayabiliyordu: final_score=39.996 (bilimsel olarak
+WEAK_BUY, HATA 17B'nin düzelttiği ham-skor sınıflandırmasıyla DOĞRU) "+40.0"
+gösteriyordu — bu, kullanıcıya BUY eşiğini geçmiş gibi GÖRÜNÜYORDU, tam da
+HATA 17B'nin bilimsel katmanda kapattığı çelişkinin sunum katmanında geri
+sızması.
+
+`AIDecision.final_score`'un KENDİSİ (scientific value, API serialization
+dahil) HİÇBİR ŞEKİLDE değişmedi — bu ticket SADECE insan-okunur metin
+(Explanation özeti, FCM bildirim body'si) katmanını değiştirir.
+
+Yeni paylaşımlı sunum yardımcısı: `app.utils.decision_score_format.
+format_decision_score(final_score, decision, decision_thresholds)`.
+`ExplanationEngine` ve `fcm_sender.py` ARTIK YALNIZCA bu fonksiyonu
+kullanır — ikisinin de bağımsız `:+.1f` (veya başka sabit hassasiyetli)
+formatlaması YOK; iki sunum yüzeyi bir daha SESSİZCE ayrı mantığa
+sürüklenemez (dedicated parity testiyle kilitlendi).
+
+**Adaptif hassasiyet** (sabit 2/3 ondalığa geçmek YERİNE — ticket'ın
+açıkça yasakladığı sahte çözüm, bir skor her zaman herhangi bir sabit
+hassasiyette bile eşiğe yeterince yakın olabilir): 1 ondalıktan başlar,
+gösterilecek string'i DecisionEngine'in TEK gerçek sınıflandırma
+mantığıyla (`_classify()` — İKİNCİ KEZ YAZILMADI, doğrudan `app.engines.
+decision.engine`'den import edilir) yeniden sınıflandırıp persisted
+`decision` ile eşleşene kadar hassasiyeti artırır (`_MAX_ADAPTIVE_DECIMALS
+= 6`). Sınırlı deneme dizisi tükenirse (patolojik durum), `final_score`'un
+TAM, round-trip-safe temsiline (`repr()`) düşer — bu, `decision`'ı ÜRETEN
+değerin ta kendisi olduğundan, sınıflandırması TANIM GEREĞİ eşleşir
+(epsilon/tolerans hack'i YOK).
+
+Eşikler DAİMA persisted `AIDecision.decision_thresholds` (HATA 17D)
+snapshot'ından gelir — canlı `SystemConfigRepository`'den ASLA okunmaz
+(config drift, zaten hesaplanmış bir kararın sunumunu SESSİZCE
+değiştirmemeli). **Legacy (17D-öncesi) kayıtlar**: `decision_thresholds
+=None` — güncel eşikler UYDURULMAZ, doğrudan `final_score`'un round-trip-
+safe temsili gösterilir (ne config lookup, ne crash, ne sabit lossy 1-
+ondalık yuvarlama).
+
+Kozmetik: `-0.0` (ör. final_score=-0.04, 1 ondalıkta) "+0.0"'a normalize
+edilir — bilimsel işaret hiçbir şekilde değişmez, yalnızca zaten sıfıra
+yuvarlanmış bir STRING üzerinde çalışır; +0.04/-0.04 ikisi de meşru HOLD/
+nötr bandında, bu bir eşik-çelişkisi DEĞİL. Normal skorlar (32.0, 45.0,
+0.0, -18.5) ve tam eşik değerleri (score==buy/weak_buy/weak_sell/sell)
+kompakt 1-ondalık formatta kalmaya devam eder — adaptif hassasiyet
+yalnızca gerçekten gerektiğinde tetiklenir.
+
+Üç rigor-check GERÇEKTEN yapıldı: (A) eski sabit `:+.1f`'e dönüldü →
+39.996 dahil 8 test FAIL etti, geri alındı. (B) koşulsuz sabit `:+.2f`'e
+(fallback'siz) dönüldü → 39.996 dahil 12 test FAIL etti (ilk denemede
+yalnızca kompaktlık testleri FAIL etmişti çünkü güvenli fallback hâlâ
+devredeydi — bu, rigor check'in KENDİSİNİN de yeterince agresif olması
+gerektiğini gösterdi, ikinci, daha sert mutasyonla asıl eşik-güvenliği
+testleri de FAIL ettirildi). (C) `fcm_sender.py` eski formatlamaya
+döndürülüp `ExplanationEngine` yeni yardımcıda bırakıldı → parity testi
+(round OLMAYAN bir threshold config'i — buy=45.04 — kullanılarak GERÇEK
+bir escalation senaryosuyla) FAIL etti ("+45.04" beklenirken "+45.0"
+alındı). Üçü de geri alındı, suite yeniden yeşil.
+
+16 yeni dedicated test eklendi (`test_decision_score_format.py`) — HATA
+17B/17C/17D regresyonu, tüm dört eşik sınırı (buy/weak_buy/weak_sell/
+sell) için hem "az altı/üstü" hem "tam eşit" fixture'ları, yük taşıyan
+display-classification-parity invariant'ı (her fixture için gösterilen
+string parse edilip AYNI eşiklerle sınıflandırıldığında persisted
+`decision` ile TAM eşleşir), legacy no-threshold fallback, config-drift
+bağımsızlığı, ve Explanation/FCM parity dahil. No deployment performed.
