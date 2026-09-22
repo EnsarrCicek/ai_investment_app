@@ -568,3 +568,150 @@ def test_decide_for_asset_missing_technical_channel_excludes_it(engine):
     # yalnız news (.3) mevcut, final ile aynı yönde -- tam mutabakat, düşük coverage.
     assert decision.confidence == pytest.approx(100.0)
     assert decision.channel_completeness == pytest.approx(0.3)
+
+
+# ---------------------------------------------------------------------------
+# HATA 17B — round-before-classify bugfix (HATA 17A audit bulgu #1).
+#
+# Tek-kanal (`technical_score` yalnız) fixture'ları burada bilerek
+# kullanılıyor: yalnızca technical mevcutken `available_weight ==
+# weights["technical"]` olduğundan ağırlık İPTAL OLUR ve
+# `final_score == technical_score` TAM OLARAK -- bu, ham (unrounded)
+# final_score'u doğrudan kontrol etmenin en basit yolu.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw_score,expected_decision",
+    [
+        (39.996, "WEAK_BUY"),  # eski bug: round(39.996,2)==40.0 -> yanlışlıkla BUY
+        (40.0, "BUY"),  # tam eşik -- inclusive (>=)
+        (40.004, "BUY"),  # eşiğin az üstü -- kontrol (bug'dan etkilenmez)
+    ],
+)
+def test_decide_buy_boundary_uses_raw_unrounded_score(engine, raw_score, expected_decision):
+    decision = engine.decide(asset="TEST", technical_score=raw_score, persist=False)
+    assert decision.decision == expected_decision
+    assert decision.final_score == pytest.approx(raw_score)
+
+
+def test_decide_buy_regression_39_996_is_not_buy(engine):
+    # Ticket'ın zorunlu regresyon örneği: raw=39.996, buy=40.0 -- bilimsel
+    # olarak 39.996 < 40.0, WEAK_BUY olmalı. Persisted final_score de 40.0'ın
+    # ALTINDA kalmalı (final_score=40.00 yanında decision=WEAK_BUY gibi
+    # tutarsız bir kayıt OLUŞMAMALI).
+    decision = engine.decide(asset="TEST", technical_score=39.996, persist=False)
+    assert decision.decision == "WEAK_BUY"
+    assert decision.final_score < 40.0
+
+
+@pytest.mark.parametrize(
+    "raw_score,expected_decision",
+    [
+        (-39.996, "WEAK_SELL"),  # eski bug: round(-39.996,2)==-40.0 -> yanlışlıkla SELL
+        (-40.0, "SELL"),  # tam eşik -- inclusive (<=)
+        (-40.004, "SELL"),  # eşiğin az altı -- kontrol
+    ],
+)
+def test_decide_sell_boundary_uses_raw_unrounded_score(engine, raw_score, expected_decision):
+    decision = engine.decide(asset="TEST", macro_score=raw_score, persist=False)
+    assert decision.decision == expected_decision
+    assert decision.final_score == pytest.approx(raw_score)
+
+
+def test_decide_sell_regression_neg39_996_is_not_sell(engine):
+    decision = engine.decide(asset="TEST", macro_score=-39.996, persist=False)
+    assert decision.decision == "WEAK_SELL"
+    assert decision.final_score > -40.0
+
+
+@pytest.mark.parametrize(
+    "raw_score,expected_decision",
+    [
+        (14.996, "HOLD"),  # eski bug: round(14.996,2)==15.0 -> yanlışlıkla WEAK_BUY
+        (15.0, "WEAK_BUY"),  # tam eşik -- inclusive (>=)
+        (15.004, "WEAK_BUY"),  # eşiğin az üstü -- kontrol
+    ],
+)
+def test_decide_weak_buy_boundary_uses_raw_unrounded_score(engine, raw_score, expected_decision):
+    decision = engine.decide(asset="TEST", technical_score=raw_score, persist=False)
+    assert decision.decision == expected_decision
+    assert decision.final_score == pytest.approx(raw_score)
+
+
+@pytest.mark.parametrize(
+    "raw_score,expected_decision",
+    [
+        (-14.996, "HOLD"),  # eski bug: round(-14.996,2)==-15.0 -> yanlışlıkla WEAK_SELL
+        (-15.0, "WEAK_SELL"),  # tam eşik -- inclusive (<=)
+        (-15.004, "WEAK_SELL"),  # eşiğin az altı -- kontrol
+    ],
+)
+def test_decide_weak_sell_boundary_uses_raw_unrounded_score(engine, raw_score, expected_decision):
+    decision = engine.decide(asset="TEST", technical_score=raw_score, persist=False)
+    assert decision.decision == expected_decision
+    assert decision.final_score == pytest.approx(raw_score)
+
+
+def test_decide_weak_buy_hold_direction_flip_fixes_confidence(engine):
+    # HATA 17A bulgu #1'in en kritik sonucu: final_score'un yönü (NEUTRAL vs
+    # POSITIVE) YANLIŞ hesaplanırsa, confidence (agreement) de YANLIŞ
+    # hesaplanır -- iki kanal (technical=news=14.996, HOLD/NEUTRAL) ile:
+    #   eski bug: final round(14.996)=15.0 -> WEAK_BUY/POSITIVE -- HİÇBİR
+    #             kanal (ikisi de NEUTRAL) eşleşmez -> confidence=0.0.
+    #   düzeltme: final=14.996 (raw) -> HOLD/NEUTRAL -- HER İKİ kanal da
+    #             eşleşir -> confidence=100.0.
+    decision = engine.decide(asset="TEST", technical_score=14.996, news_score=14.996, macro_score=None, persist=False)
+    assert decision.final_score == pytest.approx(14.996)
+    assert decision.decision == "HOLD"
+    assert decision.confidence == pytest.approx(100.0)
+    assert decision.channel_completeness == pytest.approx(0.8)  # (.5+.3)/1.0
+
+
+def test_decide_weak_sell_hold_direction_flip_fixes_confidence(engine):
+    # Ayna senaryo: technical=news=-14.996 (HOLD/NEUTRAL).
+    #   eski bug: final round(-14.996)=-15.0 -> WEAK_SELL/NEGATIVE -- HİÇBİR
+    #             kanal eşleşmez -> confidence=0.0.
+    #   düzeltme: final=-14.996 (raw) -> HOLD/NEUTRAL -- HER İKİ kanal da
+    #             eşleşir -> confidence=100.0.
+    decision = engine.decide(
+        asset="TEST", technical_score=-14.996, news_score=-14.996, macro_score=None, persist=False
+    )
+    assert decision.final_score == pytest.approx(-14.996)
+    assert decision.decision == "HOLD"
+    assert decision.confidence == pytest.approx(100.0)
+    assert decision.channel_completeness == pytest.approx(0.8)
+
+
+@pytest.mark.parametrize(
+    "raw_score",
+    [39.996, 40.0, 40.004, 14.996, 15.0, 15.004, -14.996, -15.0, -15.004, -39.996, -40.0, -40.004],
+)
+def test_decide_persisted_final_score_and_decision_are_always_consistent(engine, raw_score):
+    # HATA 17B'nin temel koruması (ticket madde 28): persisted final_score'a
+    # `_classify()`'ın YENİDEN uygulanması, persisted `decision` ile HER
+    # ZAMAN eşleşmeli -- final_score'un ima ettiği eşik kovası ile ayrı
+    # persist edilmiş `decision` arasında ASLA çatışma olmamalı (ör.
+    # final_score=40.00 yanında decision=WEAK_BUY gibi).
+    decision = engine.decide(asset="TEST", technical_score=raw_score, persist=False)
+    assert _classify(decision.final_score, DEFAULT_THRESHOLDS) == decision.decision
+    assert decision.final_score == pytest.approx(raw_score)
+
+
+def test_decide_hata17a_normal_three_channel_example_unchanged(engine):
+    # HATA 17A audit'in "normal" örneği -- HATA 17B'nin bir davranış
+    # DEĞİŞİKLİĞİ getirmediğinin regresyon kilidi (tam sayı skorlar,
+    # rounding'den etkilenmez).
+    decision = engine.decide(asset="TEST", technical_score=60.0, news_score=20.0, macro_score=-20.0, persist=False)
+    assert decision.final_score == pytest.approx(32.0)
+    assert decision.decision == "WEAK_BUY"
+    assert decision.confidence == pytest.approx(80.0)
+    assert decision.channel_completeness == pytest.approx(1.0)
+
+
+def test_decide_hata17a_two_channel_example_unchanged(engine):
+    decision = engine.decide(asset="TEST", technical_score=60.0, news_score=20.0, macro_score=None, persist=False)
+    assert decision.final_score == pytest.approx(45.0)
+    assert decision.decision == "BUY"
+    assert decision.confidence == pytest.approx(100.0)
+    assert decision.channel_completeness == pytest.approx(0.8)

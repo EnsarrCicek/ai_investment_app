@@ -231,7 +231,20 @@ class DecisionEngine:
                 "(NO_POSITIVE_WEIGHT_AVAILABLE) -- karar üretilemez."
             )
 
-        final_score = round(sum(scores[k] * weights[k] for k in available) / available_weight, 2)
+        # HATA 17B (round-before-classify bugfix): `final_score` ARTIK
+        # `round(...)` EDİLMİYOR -- ham (unrounded) ağırlıklı ortalama
+        # DOĞRUDAN `_classify()`'a geçirilir VE persist edilir. Önceki
+        # davranış (`round(raw, 2)` sonra `_classify(rounded, ...)`)
+        # eşik-geçişi bug'ıydı: ör. raw=39.996 (BUY eşiği 40.0'ın ALTINDA,
+        # bilimsel olarak WEAK_BUY) `round(39.996, 2) == 40.0` olduğundan
+        # YANLIŞLIKLA BUY'a sınıflandırılıyordu (bkz. HATA 17A audit
+        # bulgu #1). Persisted `final_score` ile `decision` arasında ASLA
+        # tutarsızlık (ör. final_score=40.00 yanında decision=WEAK_BUY)
+        # oluşmaması için ikisi de AYNI (ham) değerden türetilir -- ikinci
+        # bir "rounded_final_score"/"display_score" alanı EKLENMEDİ (bkz.
+        # modül raporu). 2 ondalığa yuvarlama artık yalnızca sunum
+        # katmanında (varsa) yapılmalı, bilimsel depoda DEĞİL.
+        final_score = sum(scores[k] * weights[k] for k in available) / available_weight
 
         # HATA 5C3B madde 13: "Veri Kapsamı" -- yalnızca kanal/ağırlık
         # mevcudiyetini ölçer, `confidence`'a KARIŞTIRILMAZ (ayrı, çarpılmayan/

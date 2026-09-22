@@ -2476,3 +2476,65 @@ kanıtlamak, window/freshness-eşiğini hash'ten çıkarmak) geçici
 mutasyonlarla gerçekten yapılıp ilgili testlerin FAIL ettiği kanıtlanıp
 geri alındı (engine.py mutasyon-öncesi haliyle byte-birebir aynı olarak
 doğrulandı). No deployment performed.
+
+# HATA 17B — DECISION CLASSIFICATION PRECISION COMPLETE
+
+HATA 17A audit'inin tek confirmed correctness bulgusu (round-before-
+classify): `DecisionEngine.decide()` `final_score`'u `_classify()`'a
+geçirmeden ÖNCE 2 ondalığa yuvarlıyordu (`round(raw, 2)` → `_classify
+(rounded, ...)`). Örnek: raw=39.996 bilimsel olarak BUY eşiği 40.0'ın
+ALTINDA (WEAK_BUY olmalı), ama `round(39.996, 2) == 40.0` olduğundan
+YANLIŞLIKLA BUY'a sınıflandırılıyordu.
+
+Düzeltme: sınıflandırma ARTIK ham (unrounded) bilimsel skoru kullanıyor
+— `final_score = sum(scores[k]*weights[k] for k in available) /
+available_weight` (round() YOK) → `decision = _classify(final_score,
+thresholds)`. Persisted `AIDecision.final_score` de AYNI ham değerdir —
+sınıflandırma ile persist edilen skor ARTIK farklı değerler OLAMAZ (ör.
+final_score=40.00 yanında decision=WEAK_BUY gibi bir tutarsızlık
+yapısal olarak imkânsız hale geldi). İkinci bir "raw_final_score"/
+"rounded_final_score"/"display_score" alanı EKLENMEDİ — mevcut public
+API/serileştirme katmanında `final_score` için var olan bir 2-ondalık
+sunum sözleşmesi bulunmadığından (FastAPI/Pydantic ham float'ı olduğu
+gibi döndürüyor), tek bir bilimsel `final_score` alanı yeterli.
+
+Eşik dahil-etme/hariç-tutma semantiği (`>=`/`<=`, dört eşik: buy/
+weak_buy/weak_sell/sell) DEĞİŞMEDİ. `_classify()`'ın kendisi hiç
+değiştirilmedi — yalnızca ona geçirilen değerin ne zaman yuvarlandığı
+değişti. Epsilon-tolerans HİÇ eklenmedi (ticket'ın açık yasağı) — bu
+fixture'larda (39.996/14.996/-14.996/-39.996 vb.) gözlenen float
+aritmetiği tam beklenen değerleri üretti, ekstra bir temsil artefaktı
+GÖZLENMEDİ.
+
+Confidence ("Sinyal Mutabakatı") formülünün KENDİSİ değişmedi, ama
+final kararın yönü (NEUTRAL/POSITIVE/NEGATIVE) artık doğru
+hesaplandığından, eşiğe çok yakın (weak_buy/weak_sell ↔ HOLD) durumlarda
+agreement/confidence SONUCU da düzeliyor — bu formül değişikliği değil,
+sınıflandırma düzeltmesinin doğal bir sonucu (kilitlendi: technical=
+news=14.996/−14.996 çift-kanal fixture'ları, eski davranışta confidence
+%0 üretirken düzeltmeyle %100 üretiyor, çünkü final yön artık doğru
+NEUTRAL).
+
+None/0.0 semantiği, weight renormalizasyonu ve `NO_POSITIVE_WEIGHT_
+AVAILABLE` guard'ı DEĞİŞMEDİ (mevcut testler regresyon kanıtı).
+`ExplanationEngine` ayrı bir kod yolu TAŞIMIYOR — aynı `DecisionEngine.
+decide()`'ı çağırdığından düzeltmeyi otomatik devralıyor. Bildirim
+tüketicileri (`fcm_sender.py`) yalnızca `decision.decision` etiketini
+okuyor, skordan yeniden sınıflandırma YAPMIYOR — etkilenmedi.
+`outcome_evaluator.dominant_factor()` da `final_score`'dan bağımsız
+şekilde ham kanal katkılarını kıyaslıyor, yeniden sınıflandırma
+YAPMIYOR — etkilenmedi.
+
+Disclosed (bilinçli olarak bu ticket'ta ÇÖZÜLMEDİ) bir sunum endişesi:
+`ExplanationEngine.explain()`'in özet metni ve `fcm_sender.py`'nin
+bildirim gövdesi, final_score'u `f"{value:+.1f}"` (1 ondalık) ile
+gösteriyor — ör. raw=39.996 "+40.0" olarak görünür, "ZAYIF AL" (WEAK_BUY)
+etiketinin YANINDA biraz kafa karıştırıcı olabilir (görsel BUY eşiğine
+çok yakın görünür). Bu, bilimsel depoyu/sınıflandırmayı BOZMADAN
+çözülemeyecek, ayrı bir sunum kararı — bu ticket'ta bilinçli olarak
+raporlanıp ÇÖZÜLMEDİ (kapsam dışı).
+
+Eşik provenance/hash (hangi threshold config'in geçerli olduğunun
+persisted kaydı) ve DecisionEngine seviyesinde cross-channel freshness/
+as-of kontrolü (HATA 17A bulgu #2/#3) HÂLÂ AÇIK — ayrı, gelecekteki
+ticket'lar. No deployment performed.
