@@ -2618,3 +2618,94 @@ testlerin FAIL ettiği kanıtlanıp geri alındı (dosyalar mutasyon-öncesi
 haliyle byte-birebir aynı olarak doğrulandı). Eşik/config provenance
 (HATA 17A bulgu #2) hâlâ AYRI, gelecekteki bir ticket. No deployment
 performed.
+
+# HATA 17D — DECISION CONFIG PROVENANCE COMPLETE
+
+HATA 17A bulgu #2'nin kapanışı ve HATA 17 DecisionEngine correctness
+serisinin (17A audit → 17B precision → 17C freshness → 17D provenance)
+son ticket'ı. `final_score` zaten (weights+scores her zaman persist
+edildiği için) reproducible'dı, ama `decision` LABEL'ı — threshold
+config'e bağımlı — mevcut Firestore config'i okumadan yeniden
+üretilemiyordu, çünkü HANGİ threshold'ların kullanıldığı hiç persist
+edilmiyordu.
+
+`AIDecision`'a iki yeni, opsiyonel (`None` varsayılan — 17D-öncesi
+kayıtlarda YOK, destructive migration YOK, eski kayıt için "provenance
+mevcut değil" dürüstçe temsil edilir, eski threshold/hash UYDURULMAZ)
+alan eklendi:
+
+- `decision_thresholds`: o kararda GERÇEKTEN kullanılan resolved
+  `{buy, weak_buy, weak_sell, sell}` sözlüğü — bir config doküman
+  referansı DEĞİL, ham değerlerin kendisi (Firestore config zaman
+  içinde değişebilir).
+- `decision_config_sha256`: yalnızca `{resolved decision_weights,
+  resolved decision_thresholds}` üzerinden — config KİMLİĞİ, hangi
+  skorların geldiğinden BAĞIMSIZ; `created_at`/`decision_as_of`/input
+  skorları/doküman ID'leri kasıtlı olarak DAHİL DEĞİL (bunlar runtime/
+  input provenance'tır, config kimliği değil). `app.research.
+  canonical_hash.content_sha256` (proje-genelindeki TEK paylaşılan
+  kanonik JSON/SHA-256 ilkeli, HATA 12N2A/16D ile AYNI) ile hesaplanır
+  — sıralı anahtarlar + UTF-8, dict ekleme sırasından bağımsız, Python
+  `hash()` KULLANILMAZ. Model-seviyesinde 64-küçük-harf-hex format
+  validasyonu var (HATA 15D'nin `analyzed_text_sha256` deseniyle AYNI),
+  `None` her zaman serbest.
+
+`decision_input_sha256` (ayrı, daha geniş bir hash) KASITLI OLARAK
+EKLENMEDİ: bu hash'in bağlayacağı HER alan (technical/news/macro
+skorları+ID'leri, decision_as_of, weights, thresholds, engine_version)
+zaten ayrı ayrı, doğrudan, dönüşümsüz alanlar olarak persist ediliyor
+(macro'nun `indicators` sözlüğünün aksine — orada normalize edilmiş bir
+iç-içe yapı vardı, hash gerçek bir değer katıyordu). İkinci bir hash
+burada yeni bir reproducibility yeteneği eklemezdi, yalnızca zaten
+mevcut alanları tekrar ederdi.
+
+Weight snapshot semantiği doğrulandı (değişmedi): `technical_weight`/
+`news_weight`/`macro_weight` HER ZAMAN (17D-öncesi dahil) config-
+resolution-sonrası ama availability-renormalization-ÖNCESİ configured
+değerlerdir — teknik-only bir kararda bile persisted weight alanları
+HALA orijinal `{0.5, 0.3, 0.2}`, çökmüş effective-1.0 DEĞİL. Bu, geçmiş
+reproduction'ın kendi renormalizasyonunu persisted configured
+weight'lerden doğru şekilde yapabilmesini sağlar.
+
+`ENGINE_VERSION`: HATA 5C3B'nin `"1.1.0"`'ı sonrasında HATA 17B
+(round-before-classify düzeltmesi) ve HATA 17C (macro tüketim-tazeliği +
+haber as_of/causality) ikisi de GERÇEK bilimsel/uygunluk davranışı
+değiştirdi ama versiyon bump'lamadı (o ticket'ların kapsamı buydu,
+geriye dönük düzeltilmiyor). 17D bunun üstüne yalnızca provenance
+alanları ekliyor (davranış değişikliği YOK) ama "düzeltilmiş metodoloji"
+(17B+17C+17D) altında üretilen kararları eski `"1.1.0"` kararlarından
+ayırt etmek için TEK, kasıtlı bir yakalama bump'ı yapıldı: `"1.2.0"`.
+
+Reproducibility kanıtlandı: final_score/decision/confidence/channel_
+completeness'ın TAMAMI, yalnızca persisted `AIDecision` alanlarından
+(hiçbir `SystemConfigRepository`/provider erişimi OLMADAN) yeniden
+üretilebiliyor — normal 3-kanal (32.0/WEAK_BUY), 2-kanal (45.0/BUY),
+technical-only (renormalizasyon persisted TAM configured weight'lerden
+doğru yapılıyor), genuine-zero (0.0/HOLD), ve HATA 17B'nin near-
+threshold örneği (39.996/WEAK_BUY, threshold snapshot buy=40.0 içeriyor)
+dahil. Load-bearing invariant testi: CONFIG A ile bir karar persist
+edilip SONRA fake config CONFIG B'ye mutasyona uğratıldığında,
+reproduction (yalnızca persisted kayıttan) HALA CONFIG A sonuçlarını
+üretiyor — mevcut config değişiklikleri geçmiş kararların audit'ini
+ETKİLEMEZ (rigor check'le de doğrulandı: reproduction CURRENT config'i
+okusaydı `BUY` üretirdi, doğrusu `WEAK_BUY`).
+
+None/0.0 semantiği (unavailable kanal ASLA 0 olarak serialize edilmez),
+weight renormalizasyonu, `NO_POSITIVE_WEIGHT_AVAILABLE` guard'ı, HATA
+17B'nin unrounded classification'ı, HATA 17C'nin freshness/as-of
+davranışı ve HATA 15/16 serisinin TAMAMI regresyon testleriyle
+DOĞRULANDI — DEĞİŞMEDİ. `ExplanationEngine` "her zaman canlı" mimarisine
+dokunulmadı (bu ticket yalnızca PERSISTED `AIDecision`'ı auditable
+yapar, geçmiş explanation replay'i denemez); notifications/outcome_
+evaluator yalnızca `decision.decision` (persisted label) okur, yeni
+alanlardan etkilenmez. `AIDecisionRepository` append-only semantiği
+(no update/delete) korundu.
+
+17 yeni dedicated test eklendi (`test_decision_config_provenance.py`) —
+iki rigor-check (config hash'inden threshold'ları çıkarmak, reproduction'ı
+persisted snapshot yerine current config okuyacak şekilde mutasyona
+uğratmak) geçici mutasyonlarla gerçekten yapılıp ilgili testlerin FAIL
+ettiği kanıtlanıp geri alındı; üçüncü rigor-check (unavailable kanalı 0
+olarak serialize etmek) HATA 15/16/17 serisinin TAMAMINDAKİ None-vs-zero
+testlerinin geniş çaplı FAIL ettiğini kanıtladı (beklenenden de güçlü bir
+kanıt). No deployment performed.

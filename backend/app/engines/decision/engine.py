@@ -35,6 +35,7 @@ from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.news_raw_repository import NewsRawRepository
 from app.repositories.system_config_repository import SystemConfigRepository
+from app.research.canonical_hash import content_sha256
 from app.services.news.news_selection import (
     NEWS_SCORE_LIMIT,
     _aggregate_news_score,
@@ -51,7 +52,23 @@ from app.services.news.news_selection import (
 # `from app.engines.decision.engine import _WeightedNewsAnalysis` gibi
 # import'ları DEĞİŞTİRMEDEN çalışmaya devam eder.
 
-ENGINE_VERSION = "1.1.0"
+# HATA 17D: HATA 5C3B'nin "1.1.0"'ı (confidence/channel_completeness
+# ayrımı) SONRASINDA, HATA 17B (round-before-classify düzeltmesi --
+# classification/persisted final_score artık HAM/unrounded değer) VE HATA
+# 17C (macro consumption-tazeliği + haber as_of/causality gate'i --
+# `decide_for_asset()`'in girdi UYGUNLUĞU) her ikisi de GERÇEK bilimsel/
+# uygunluk davranışı değiştirdi ama versiyon bump'lamadı (o ticket'ların
+# kapsamı buydu, geriye dönük DÜZELTİLMİYOR). 17D bunun ÜSTÜNE yalnızca
+# provenance alanları ekliyor (davranış değişikliği YOK) ama bu, "düzeltilmiş
+# metodoloji" (17B+17C+17D) altında üretilen kararları ESKİ "1.1.0" kararlarından
+# ayırt etmek için TEK, kasıtlı bir yakalama bump'ı yapmanın doğru anıdır --
+# üç ayrı bump YOK, sahte bir "17D provenance-only bump" da YOK: bu numara
+# GERÇEKTEN "1.1.0"dan farklı, gerçekten daha yeni bir bilimsel sözleşmeyi
+# temsil ediyor. Threshold snapshot'ının KENDİSİ (bkz. `AIDecision.
+# decision_thresholds`/`decision_config_sha256`) bu versiyon numarasının
+# YERİNE GEÇMEZ -- config kod DEĞİŞMEDEN değişebilir, ikisi de AYRI AYRI
+# persist edilir.
+ENGINE_VERSION = "1.2.0"
 
 # HATA 5C3B (28.08.2026): production'da ARTIK bir "missing config fallback"
 # DEĞİLDİR -- `decision_weights`/`decision_thresholds` Firestore dokümanları
@@ -214,6 +231,29 @@ def resolve_decision_thresholds(raw_doc: dict | None) -> dict[str, float]:
     return {k: float(v) for k, v in raw_doc.items()}
 
 
+def _sorted_copy(d: dict[str, float]) -> dict[str, float]:
+    return {k: d[k] for k in sorted(d)}
+
+
+def compute_decision_config_sha256(weights: dict[str, float], thresholds: dict[str, float]) -> str:
+    """HATA 17D: `MacroAnalysisEngine.compute_macro_config_sha256` (HATA 16D)
+    İLE AYNI dar-kapsamlı desen -- yalnızca bir kararı klasifiye eden CONFIG
+    KİMLİĞİ üzerinden (resolved decision_weights + resolved decision_
+    thresholds), hangi skorların/ID'lerin geldiğinden BAĞIMSIZ. `created_at`/
+    `decision_as_of`/input skorları/doküman ID'leri KASITLI OLARAK dahil
+    DEĞİL -- onlar runtime/input provenance'tır, config KİMLİĞİ değil (bkz.
+    modül raporu madde 6). `decision_weights`/`decision_thresholds` dışında,
+    `decide()`'da klasifikasyonu/skorlamayı doğrudan etkileyen BAŞKA bir
+    Firestore config değeri YOK (audit edildi) -- bu yüzden payload yalnızca
+    bu ikisini bağlar. `app.research.canonical_hash.content_sha256`
+    (proje-genelindeki TEK paylaşılan kanonik JSON/SHA-256 ilkeli, HATA
+    12N2A) kullanılır -- sıralı anahtarlar + UTF-8, dict ekleme sırasından
+    BAĞIMSIZ, Python `hash()` KULLANILMAZ.
+    """
+    payload = {"weights": _sorted_copy(weights), "thresholds": _sorted_copy(thresholds)}
+    return content_sha256(payload)
+
+
 def _classify(score: float, t: dict) -> str:
     if score >= t["buy"]:
         return "BUY"
@@ -334,6 +374,13 @@ class DecisionEngine:
             news_analysis_ids=news_analysis_ids or [],
             macro_snapshot_id=macro_snapshot_id,
             decision_engine_version=ENGINE_VERSION,
+            # HATA 17D: threshold snapshot + config kimlik hash'i -- final_score
+            # (zaten reproducible, weights de zaten yukarıda persist ediliyor)
+            # İLE BİRLİKTE, `decision` LABEL'ının (ve ondan türeyen `confidence`'ın)
+            # de mevcut Firestore config'i OKUMADAN, yalnızca bu kayıttan
+            # yeniden üretilebilmesini sağlar (HATA 17A bulgu #2'nin kapanışı).
+            decision_thresholds=dict(thresholds),
+            decision_config_sha256=compute_decision_config_sha256(weights, thresholds),
         )
 
         if persist:
