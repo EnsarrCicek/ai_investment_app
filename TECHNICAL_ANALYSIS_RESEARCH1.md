@@ -2538,3 +2538,83 @@ Eşik provenance/hash (hangi threshold config'in geçerli olduğunun
 persisted kaydı) ve DecisionEngine seviyesinde cross-channel freshness/
 as-of kontrolü (HATA 17A bulgu #2/#3) HÂLÂ AÇIK — ayrı, gelecekteki
 ticket'lar. No deployment performed.
+
+# HATA 17C — DECISION INPUT FRESHNESS COMPLETE
+
+HATA 17A bulgu #3 (cross-channel as-of/freshness eksikliği): `Decision
+Engine`, Technical/News/Macro kanallarını tek bir ortak "bu an" referansına
+bağlamıyordu ve haftalarca eski, sessizce kırılmış bir scheduler'dan kalan
+bir `MacroSnapshot`, tazesiyle AYNI şekilde tüketilebiliyordu. Bu ticket
+SADECE tüketim-anı freshness/as-of güvenliğini kapatır — HATA 17B
+(precision), HATA 15 (dedup/last-10-unique/source-reliability/causality)
+ve HATA 16 (macro üretim-anı freshness/provenance) semantiği DEĞİŞMEDİ.
+
+`decision_as_of`: `decide_for_asset()` (ve bağımsız olarak `Explanation
+Engine.explain()`) her çalıştırmada TEK bir `datetime.now(timezone.utc)`
+yakalar; bu AYNI değer HEM macro tüketim-tazeliği kontrolünde HEM haber
+`as_of`/causality filtresinde HEM `AIDecision.created_at`/yeni
+`decision_as_of` alanında kullanılır — macro/news için AYRI `now()`
+çağrısı YOK (sınır tutarsızlığı riski yok, mutasyon-tabanlı bir rigor
+check'le kanıtlandı: simüle edilmiş ikinci/sürüklenmiş bir zaman kaynağı
+4 testi FAIL ettirdi). `decide_for_asset()`'in kendi `decision_as_of`'u
+ile `ExplanationEngine.explain()`'inki BİLİNÇLİ olarak PAYLAŞILMAZ (ikisi
+tasarım gereği bağımsız, her biri kendi "şu an"ı için — modül docstring'i).
+
+Technical kanalı: her çağrıda LIVE yeniden hesaplandığı doğrulandı
+(cache/TTL yok) — bu yüzden hiçbir yaş kontrolü EKLENMEDİ, gereksiz olurdu.
+
+Macro tüketim-tazeliği (YENİ katman, HATA 16C'nin üretim-anı gösterge
+tazeliğinden AYRI): `_is_macro_snapshot_fresh_for_consumption(created_at,
+decision_as_of)` — `MacroSnapshot.created_at`, `decision_as_of`'a göre en
+fazla `MAX_MACRO_SNAPSHOT_CONSUMPTION_AGE_DAYS=5` takvim günü eski
+olabilir (sınır DAHİL, takvim-tarihi/UTC bazlı, HATA 16C ile AYNI stil).
+5 gün: `MacroAnalysisEngine` sabit bir scheduler cadence'i OLMADAN talep
+üzerine/API-tetiklemeli çalıştığından (repo'da macro için cron/Cloud
+Scheduler config YOK — dürüstçe doğrulandı), istatistiksel bir cadence'ten
+türetilemedi; bunun yerine HATA 16C'nin ZATEN gerekçelendirilmiş
+muhafazakâr eşiğiyle KASITLI olarak AYNI büyüklük kullanıldı (bir
+snapshot'ın "bu haftaki" görünümü temsil etmeyi bıraktığı an, tek bir
+göstergenin stale olduğu andan daha az şüpheli değildir). Stale bir
+snapshot ne silinir ne mutasyona uğrar (üretildiği an geçerliydi) — o
+KARAR için `None`'a düşürülür, `macro_snapshot_id` katkı sağlamamış bir
+referans olarak PERSIST EDİLMEZ, kalan kanallar HATA 5C3B'nin mevcut
+renormalizasyonuyla (değişmedi) devam eder.
+
+Haber `as_of`/causality: `select_recent_unique_news_analyses()`'e
+opsiyonel `as_of` parametresi eklendi — HATA 15F `received_at`
+(eligibility) `as_of`'tan SONRA olan kayıtlar, dedup/backfill'den ÖNCE
+(HATA 15B FINAL'in "limit dedup'tan önce" hatasını farklı bir yüzeyde
+yeniden açmamak için doğru sırada) elenir. `as_of=None` (varsayılan)
+davranışı TAMAMEN korur. Ham kaydı çözümlenemeyen analizler as_of
+filtresiyle ELENMEZ (17C-öncesi güvenli fallback korunur). LIVE haber
+maksimum-yaş eşiği İSTENEREK EKLENMEDİ: haber sıklığı düzensiz/olay-
+tabanlıdır (macro'nun sürekli piyasa fiyatı doğasının AKSİNE), repo'da
+"haber geçerlilik süresi" kavramına dair hiçbir kanıt/dokümantasyon
+bulunmadı ve düşük hacimli bir BIST hissesi için günler/haftalar haber
+sessizliği NORMALDİR — bu koşullarda keyfi bir eşik icat etmek ticket'ın
+kendi yasağını ("do not choose arbitrary numbers without documenting
+why") ihlal ederdi; bu NET, dürüst bir N/A kararıdır, gizlenen bir
+konu DEĞİL.
+
+`ExplanationEngine.explain()` AYNI iki mekanizmayı (macro tüketim-tazeliği
++ haber `as_of`) KENDİ bağımsız `decision_as_of`'uyla çağırır — `Decision
+Engine`/`ExplanationEngine` üyelik/temsilci paritesi (HATA 15E) freshness
+filtresi altında da KORUNUR (parity testiyle kilitlendi).
+
+`AIDecision.decision_as_of` (yeni, opsiyonel, `None` varsayılan — 17C-
+öncesi kayıtlarda YOK, migration YOK) yalnızca "freshness hangi anda
+değerlendirildi" sorusuna cevap verir — eşik/config provenance'ı (HATA
+17A bulgu #2, hâlâ AYRI açık konu) KAPSAMAZ.
+
+None/0.0 semantiği, weight renormalizasyonu, `NO_POSITIVE_WEIGHT_
+AVAILABLE` guard'ı, HATA 17B'nin unrounded classification'ı ve HATA
+15B/15C/15D/15E/16C/16D'nin TÜMÜ regresyon testleriyle DOĞRULANDI —
+DEĞİŞMEDİ. 20 yeni dedicated test eklendi
+(`test_decision_input_freshness.py`) — üç rigor-check (macro tüketim-
+tazeliği filtresini bypass etmek, haber `as_of`/causality gate'ini bypass
+etmek, tek `decision_as_of`'u simüle edilmiş sürüklenmiş bir ikinci zaman
+kaynağıyla değiştirmek) geçici mutasyonlarla gerçekten yapılıp ilgili
+testlerin FAIL ettiği kanıtlanıp geri alındı (dosyalar mutasyon-öncesi
+haliyle byte-birebir aynı olarak doğrulandı). Eşik/config provenance
+(HATA 17A bulgu #2) hâlâ AYRI, gelecekteki bir ticket. No deployment
+performed.

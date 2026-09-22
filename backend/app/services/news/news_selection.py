@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.models.news_analysis import NewsAnalysis
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
@@ -201,11 +202,29 @@ def _deduplicate_news_analyses(
     ]
 
 
+def _received_before_or_at(analysis: NewsAnalysis, raw_repo: NewsRawRepository, as_of: datetime) -> bool:
+    """HATA 17C: HATA 15F `received_at` (sistemin bu makaleyi İLK gözlemlediği
+    an -- causality/eligibility alanı, `published_at`/yayın kronolojisiyle
+    KARIŞTIRILMAZ) `as_of`'tan SONRA mı diye bakar. Ham kaydı çözümlenemeyen
+    (savunma amaçlı, olağan akışta olmamalı) bir analiz için `received_at`
+    bilinmez -- bu durumda ELENMEZ (True döner): `as_of` canlı kullanımda
+    pratik olarak her zaman "şimdi"dir ve zaten var olan bir kayıt axiomatik
+    olarak geçmişte alınmıştır; belirsizliği dışlama yönünde çözmek, bu
+    fonksiyon eklenmeden ÖNCEki güvenli fallback davranışını (crash yok,
+    sessizce yanlış bir kümeye eklenmiyor, tek başına kalıyor) BOZAR ve
+    kanıtlanmamış bir varsayıma dayanırdı."""
+    raw = raw_repo.get_by_external_id(analysis.news_id)
+    if raw is None:
+        return True
+    return raw.received_at <= as_of
+
+
 def select_recent_unique_news_analyses(
     asset: str,
     news_repo: NewsAnalysisRepository,
     news_raw_repo: NewsRawRepository | None,
     limit: int = NEWS_SCORE_LIMIT,
+    as_of: datetime | None = None,
 ) -> list[_WeightedNewsAnalysis]:
     """HATA 15E: `DecisionEngine` ve `ExplanationEngine`'in PAYLAŞTIĞI TEK
     seçim yolu -- "son `limit` BENZERSİZ mantıksal olay".
@@ -231,8 +250,26 @@ def select_recent_unique_news_analyses(
 
     SEÇİM ile TOPLAMA/SKORLAMA bilinçli olarak ayrıdır -- bu fonksiyon
     skorlama matematiğine karışmaz (bkz. `_aggregate_news_score`).
+
+    HATA 17C: opsiyonel `as_of` -- verilirse, `received_at`'i `as_of`'tan
+    SONRA olan kayıtlar dedup'tan/backfill'den ÖNCE elenir (bkz.
+    `_received_before_or_at`). Bu sıralama BİLİNÇLİDİR: filtre kümelemeden
+    SONRA uygulansaydı, HATA 15B FINAL'in düzelttiği "limit dedup'tan önce
+    uygulanırsa çoklu-sağlayıcı tekrarı bağımsız eski olayları pencereden
+    dışarı itebilir" hatası farklı bir yüzeyde (limit yerine as_of) YENİDEN
+    ortaya çıkardı. `as_of=None` (varsayılan) davranışı TAMAMEN KORUR --
+    mevcut hiçbir çağıran/test etkilenmez. Bu, bir historical/backtest
+    çerçevesi KURMAZ: canlı kullanımda `as_of` pratik olarak her zaman
+    "şimdi"dir (bkz. `decide_for_asset`), yalnızca tek bir `now()` çağrısının
+    macro/news arasında tutarlı paylaşılmasını ve causality'nin (HATA 15F)
+    sentetik fixture'larla test edilebilir olmasını sağlar.
     """
     news_analyses = news_repo.list_for_asset(asset, limit=None)
     if not news_analyses:
         return []
-    return _deduplicate_news_analyses(news_analyses, news_raw_repo or NewsRawRepository())[:limit]
+    raw_repo = news_raw_repo or NewsRawRepository()
+    if as_of is not None:
+        news_analyses = [a for a in news_analyses if _received_before_or_at(a, raw_repo, as_of)]
+        if not news_analyses:
+            return []
+    return _deduplicate_news_analyses(news_analyses, raw_repo)[:limit]

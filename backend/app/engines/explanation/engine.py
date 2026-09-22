@@ -25,7 +25,9 @@ LLM analizi (`EventIntelligenceEngine.analyze_item`) ASLA tetiklemez (bkz.
 test_explanation_news_consistency.py provenance-regresyon testi).
 """
 
-from app.engines.decision.engine import DecisionEngine
+from datetime import datetime, timezone
+
+from app.engines.decision.engine import DecisionEngine, _is_macro_snapshot_fresh_for_consumption
 from app.engines.technical.engine import TechnicalAnalysisEngine
 from app.models.news_analysis import NewsAnalysis
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
@@ -116,14 +118,26 @@ class ExplanationEngine:
         self._news_raw_repo = news_raw_repo or NewsRawRepository()
 
     def explain(self, asset: str) -> dict:
+        # HATA 17C: bu çağrı için TEK `decision_as_of` -- `DecisionEngine.
+        # decide_for_asset()`'inki İLE PAYLAŞILMAZ (ikisi bilinçli olarak
+        # BAĞIMSIZ, her biri "şu an" için ayrı hesaplanır -- modül docstring'i,
+        # "her zaman mevcut kararın gerekçesi"), ama KENDİ İÇİNDE macro
+        # tüketim-tazeliği VE haber `as_of`/causality kontrolleri arasında
+        # tutarlıdır (aynı sınır mantığı `decide_for_asset()` ile PAYLAŞILIR --
+        # `_is_macro_snapshot_fresh_for_consumption`, `select_recent_unique_
+        # news_analyses(as_of=...)`).
+        decision_as_of = datetime.now(timezone.utc)
+
         analysis, analysis_id = self._technical_engine.analyze_with_id(asset, persist=False)
         macro, macro_id = self._macro_repo.get_latest_with_id()
+        if macro is not None and not _is_macro_snapshot_fresh_for_consumption(macro.created_at, decision_as_of):
+            macro, macro_id = None, None
 
         # HATA 15E: DecisionEngine.decide_for_asset() ile PAYLAŞILAN seçim
         # yardımcısı -- aynı repo verisiyle çağrıldığında birebir aynı son-
         # NEWS_SCORE_LIMIT-BENZERSİZ-olay üyeliğini/temsilcisini üretir.
         weighted_news = select_recent_unique_news_analyses(
-            asset, self._news_repo, self._news_raw_repo, NEWS_SCORE_LIMIT
+            asset, self._news_repo, self._news_raw_repo, NEWS_SCORE_LIMIT, as_of=decision_as_of
         )
         news_analyses = [w.analysis for w in weighted_news]
 
@@ -136,6 +150,7 @@ class ExplanationEngine:
             news_analysis_ids=[a.news_id for a in news_analyses],
             macro_snapshot_id=macro_id,
             persist=False,
+            decision_as_of=decision_as_of,
         )
 
         label = _DECISION_LABELS.get(decision.decision, decision.decision)

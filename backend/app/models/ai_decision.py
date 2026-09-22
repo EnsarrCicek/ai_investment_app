@@ -33,3 +33,13 @@ class AIDecision(BaseModel):
     macro_snapshot_id: str | None = None
     decision_engine_version: str
     immutable: bool = True
+
+    # HATA 17C: bu kararın hesaplandığı anın tek, açık zaman damgası --
+    # macro/news freshness/as-of karşılaştırmalarının TÜMÜNÜN kullandığı
+    # (ve `created_at` ile AYNI) değer (bkz. `decision/engine.py::decide()`).
+    # `None` varsayılan -- 17C-ÖNCESİ mevcut kayıtlarda bu alan yok, geriye
+    # dönük migration YOK. Tam threshold/config provenance (HATA 17A bulgu
+    # #2) AYRI, henüz açık bir konu -- bu alan yalnızca "hangi anda
+    # freshness değerlendirildi" sorusuna cevap verir, threshold/weight
+    # provenance'ı KAPSAMAZ.
+    decision_as_of: datetime | None = None

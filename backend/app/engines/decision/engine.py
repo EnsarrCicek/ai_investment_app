@@ -77,6 +77,45 @@ _DIRECTION_BY_CLASSIFICATION = {
     "SELL": "NEGATIVE",
 }
 
+# HATA 17C: HATA 16C'nin `MAX_OBSERVATION_AGE_DAYS`'i, bir MacroSnapshot'ın
+# GÖSTERGELERİNİN ÜRETİM ANINDA taze olup olmadığını garanti eder -- bu,
+# snapshot'ın KENDİSİNİN bugün, DecisionEngine tarafından TÜKETİLİRKEN hâlâ
+# yeterince taze olduğu anlamına GELMEZ (ör. macro job'ı tetikleyen scheduler
+# 3 hafta önce sessizce kırılmışsa, o snapshot üretildiği anda geçerliydi ama
+# bugün için ARTIK GEÇERLİ DEĞİLDİR -- HATA 17A bulgu #3). `MacroAnalysisEngine`
+# talep üzerine/API-tetiklemeli çalışır (bkz. `engines/macro/engine.py` modül
+# docstring'i, `POST`/`GET /analysis/macro`) -- repo'da GÜVENİLİR, sabit bir
+# scheduler cadence'i (cron/Cloud Scheduler config) YOK, bu yüzden bu eşik
+# İSTATİSTİKSEL bir cadence'ten türetilemedi (madde 8, dürüstçe). Bunun
+# yerine HATA 16C'nin ZATEN gerekçelendirilmiş, muhafazakâr (sıradan hafta
+# sonu + tatil-bitişik hafta sonunu güvenle kapsayan, ama haftalarca eski
+# gerçek stale veriyi yakalayan) 5-günlük takvim eşiğiyle AYNI büyüklük
+# kullanılır -- bu tutarlılık kasıtlıdır: bir MacroSnapshot'ın "bu haftaki"
+# görünümü temsil etmeyi bıraktığı an, tek bir göstergenin stale olduğu
+# andan daha az şüpheli DEĞİLDİR. Karşılaştırma HATA 16C'yle AYNI stilde
+# (takvim tarihi, UTC, sınır DAHİL, naive/gelecek-tarihli REDDEDİLİR).
+MAX_MACRO_SNAPSHOT_CONSUMPTION_AGE_DAYS = 5
+
+
+def _is_macro_snapshot_fresh_for_consumption(
+    created_at,
+    decision_as_of: datetime,
+    max_age_days: int = MAX_MACRO_SNAPSHOT_CONSUMPTION_AGE_DAYS,
+) -> bool:
+    """HATA 17C: bir `MacroSnapshot.created_at`'in, `decision_as_of` anındaki
+    bir karar için TÜKETİM açısından hâlâ taze olup olmadığı -- HATA 16C'nin
+    `_is_fresh_observation()`'ından KASITLI OLARAK AYRI bir kontrol (üretim-
+    anı gösterge tazeliği vs. tüketim-anı snapshot tazeliği, farklı
+    katmanlar). Stale bir snapshot SİLİNMEZ/geçersiz İŞARETLENMEZ -- üretildiği
+    an geçerliydi, yalnızca BU karar için kullanılamaz (bkz. `decide_for_asset`).
+    """
+    if not isinstance(created_at, datetime) or created_at.tzinfo is None:
+        return False
+    created_utc = created_at.astimezone(timezone.utc)
+    as_of_utc = decision_as_of.astimezone(timezone.utc)
+    age_days = (as_of_utc.date() - created_utc.date()).days
+    return 0 <= age_days <= max_age_days
+
 
 def resolve_decision_weights(raw_doc: dict | None) -> dict[str, float]:
     """`decision_weights` config'i için FAIL-FAST okuma sözleşmesi (HATA
@@ -206,6 +245,7 @@ class DecisionEngine:
         news_analysis_ids: list[str] | None = None,
         macro_snapshot_id: str | None = None,
         persist: bool = True,
+        decision_as_of: datetime | None = None,
     ) -> AIDecision:
         # HATA 5C3B (28.08.2026): `get()` (auto-seed + sessiz partial-merge,
         # HATA 5B2C'nin kök nedeni) ARTIK KULLANILMIYOR -- `get_raw()` +
@@ -268,9 +308,18 @@ class DecisionEngine:
         ) / available_weight
         confidence = round(agreement * 100, 2)
 
+        # HATA 17C bölüm 14: `decision_as_of` verilmemişse (mevcut/eski
+        # çağıranlar) TEK bir `now()` burada üretilir ve HEM `created_at`
+        # HEM `decision_as_of` için kullanılır -- iki ayrı `datetime.now()`
+        # çağrısı arasında (teorik) bir sürüklenme riski YOK. `decide_for_
+        # asset()` kendi `decision_as_of`'unu ÖNCEDEN (macro/news freshness
+        # kontrollerinde de kullanılan AYNI değer) yakalayıp buraya geçirir.
+        now = decision_as_of or datetime.now(timezone.utc)
+
         record = AIDecision(
             asset=asset,
-            created_at=datetime.now(timezone.utc),
+            created_at=now,
+            decision_as_of=now,
             technical_score=technical_score,
             news_score=news_score,
             macro_score=macro_score,
@@ -321,17 +370,33 @@ class DecisionEngine:
         mantıksal olay" anlamına gelir — "son `NEWS_SCORE_LIMIT` HAM kayıttan
         tekilleştirilmiş alt küme" DEĞİL (bkz. `select_recent_unique_news_
         analyses` docstring'i, HATA 15A bulgu #2).
+
+        HATA 17C: `decision_as_of` bu execution için BİR KEZ yakalanır ve HEM
+        macro tüketim-tazeliği kontrolünde HEM haber `as_of`/causality
+        filtresinde HEM persist edilen kayıtta kullanılır -- macro/news için
+        AYRI `datetime.now()` çağrıları YAPILMAZ (sınır tutarsızlığı riski,
+        bkz. `_is_macro_snapshot_fresh_for_consumption`/`select_recent_
+        unique_news_analyses` docstring'leri). Stale bir `MacroSnapshot`
+        (üretildiği anda geçerliydi ama bugün için çok eski -- HATA 17A
+        bulgu #3) bu karar için `None`'a düşürülür; ne snapshot silinir/
+        mutasyona uğrar (üretim-anı geçerliliği KORUNUR) ne de `macro_
+        snapshot_id` katkı sağlamamış bir referans olarak persist edilir.
         """
+        decision_as_of = datetime.now(timezone.utc)
+
         engine = technical_engine or TechnicalAnalysisEngine()
         analysis, analysis_id = engine.analyze_with_id(asset, persist=persist)
 
         macro, macro_id = (macro_repo or MacroSnapshotRepository()).get_latest_with_id()
+        if macro is not None and not _is_macro_snapshot_fresh_for_consumption(macro.created_at, decision_as_of):
+            macro, macro_id = None, None
 
         weighted_news = select_recent_unique_news_analyses(
             asset,
             news_repo or NewsAnalysisRepository(),
             news_raw_repo,
             NEWS_SCORE_LIMIT,
+            as_of=decision_as_of,
         )
 
         return self.decide(
@@ -343,4 +408,5 @@ class DecisionEngine:
             news_analysis_ids=[w.analysis.news_id for w in weighted_news],
             macro_snapshot_id=macro_id,
             persist=persist,
+            decision_as_of=decision_as_of,
         )
