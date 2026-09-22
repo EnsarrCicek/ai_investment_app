@@ -43,8 +43,19 @@ def _extract_observed_at(index) -> datetime | None:
 
 class YahooMacroProvider(MacroDataProvider):
     SOURCE = "yahoo_finance"
+    # HATA 16D: `SOURCE`'tan KASITLI OLARAK ayrı, stabil/makine-okunabilir bir
+    # kimlik -- provenance/hash için (`SOURCE` insan-okunabilir bir veri
+    # kaynağı adı, `PROVIDER_ID` ise sürümlenebilir bir sözleşme kimliğidir).
+    PROVIDER_ID = "yahoo_macro_v1"
+    # `get_indicator_changes()`'in varsayılan `window` değeriyle AYNI --
+    # `MacroAnalysisEngine` bu değeri (call argümanı olarak GEÇİRMEDEN, mevcut
+    # `_FakeProvider`-tabanlı testlerin imzasını bozmamak için) `getattr` ile
+    # okuyup snapshot provenance'ına gömer; böylece hangi window'un GERÇEKTEN
+    # kullanıldığı gelecekte bu sabit değişse bile geçmiş bir kayıtta sabit
+    # kalır (HATA 16A madde 12).
+    WINDOW = 20
 
-    def get_indicator_changes(self, window: int = 20) -> dict[str, dict]:
+    def get_indicator_changes(self, window: int = WINDOW) -> dict[str, dict]:
         result = {}
         for key, symbol in TICKERS.items():
             history = yf.Ticker(symbol).history(period="2mo")

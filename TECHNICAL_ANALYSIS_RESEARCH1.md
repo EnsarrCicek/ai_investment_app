@@ -2353,9 +2353,18 @@ günü) VE borsa tatiliyle birleşen bir hafta sonunu (ör. Perşembe kapanış�
 -> Salı analizi = 5 takvim günü) rahatça kapsar, +1 gün pay bırakır; buna
 karşın ~1 hafta veya daha eski gerçekten stale/cache'lenmiş bir feed yine
 de YAKALANIR (excluded). Sınır DAHİLDİR (`age_days == 5` fresh, `== 6`
-stale). Eksik/geçersiz/tz-naive `observed_at` VEYA analiz anına göre
+stale). Eksik/geçersiz `observed_at` (`None`) VEYA analiz anına göre
 GELECEK tarihli bir gözlem asla "fresh" olarak KABUL EDİLMEZ — sessizce
-güncelmiş gibi kullanılmaz.
+güncelmiş gibi kullanılmaz. (HATA 16D netleştirmesi: tz-naive bir
+`observed_at`'ın iki AYRI katmanda farklı bir karşılığı vardır —
+provider'daki `_extract_observed_at()` naive bir `pd.Timestamp`'i asla
+`None`'a çevirmez, UTC olarak KABUL EDER [aşağıya bakınız]; engine'deki
+`_is_fresh_observation()` ise KENDİSİNE ayrıca savunma amaçlı bir
+tz-naive-reddetme kontrolü taşır, ama gerçek `YahooMacroProvider` yolunda
+bu kontrol asla naive bir değerle karşılaşmaz çünkü extraction katmanı
+zaten her zaman tz-aware döner — bu kontrol yalnızca varsayımsal/gelecekte
+naive bir `datetime`'ı doğrudan `_is_fresh_observation()`'a geçirebilecek
+farklı bir provider'a karşı savunma amaçlıdır.)
 
 Stale bir gösterge bu run için TAMAMEN ELENİR: sıfıra/nötre çevrilmez,
 skorlanmaz, `MacroSnapshot.components`/`indicators`'a hiç girmez. Kalan
@@ -2391,3 +2400,79 @@ yanlış sınıflandıracak kadar sıkılaştırmak, eksik/gelecek zaman damgas�
 sessizce fresh kabul etmek) geçici mutasyonlarla production kodu üzerinde
 gerçekten yapılıp ilgili testlerin FAIL ettiği kanıtlanıp geri alındı. No
 deployment performed.
+
+# HATA 16D — MACRO PROVENANCE COMPLETE
+
+HATA 16A bulgu #4'ü (`MacroSnapshot` hangi indicator gözlemleri/weights/
+scales/provider/config sürümünün bir `macro_score` ürettiğini bağlamıyordu
+— historical reproducibility gap) kapatır. Her yeni `MacroSnapshot` artık
+YALNIZCA kendi persisted alanlarından — Yahoo'ya yeniden sorgu atmadan,
+GÜNCEL Firestore config'i okumadan — yeniden üretilebilir.
+
+Eklenen alanlar (`MacroSnapshot`, hepsi `None` varsayılanlı — eski kayıtlar
+DESTRUCTIVE migration olmadan güvenle okunur, "provenance mevcut değil"
+dürüstçe temsil edilir, eski weights/scales/provider/hash UYDURULMAZ):
+`provider_id` (`YahooMacroProvider.PROVIDER_ID = "yahoo_macro_v1"` —
+`SOURCE`'tan [`"yahoo_finance"`, insan-okunabilir] KASITLI OLARAK ayrı,
+sürümlenebilir bir kimlik), `window` (`YahooMacroProvider.WINDOW = 20`,
+provider'dan `getattr` ile okunur — engine `window=` argümanını AÇIKÇA
+geçirmez, mevcut fake-provider testlerinin imzasını bozmamak için;
+attribute yoksa `DEFAULT_PROVIDER_WINDOW=20` fallback), `max_observation_age_days`
+(HATA 16C'nin `MAX_OBSERVATION_AGE_DAYS`'i — o run'da GERÇEKTEN kullanılan
+değer), `resolved_weights`/`resolved_scales` (bu run için resolve edilmiş
+TAM 6-anahtarlı config, Firestore doküman referansı DEĞİL — config zaman
+içinde değişebileceğinden ham değerler gömülür), `macro_config_sha256`,
+`macro_input_sha256`.
+
+İki AYRI hash, iki AYRI soruya cevap verir: `macro_config_sha256` yalnızca
+METODOLOJİ parametreleri (weights + scales + window + freshness-eşiği)
+üzerinden — hangi piyasa verisi geldiğinden BAĞIMSIZ olarak iki run'ın AYNI
+config'i kullanıp kullanmadığını tespit eder. `macro_input_sha256` daha
+GENİŞ — provider kimliği + metodoloji parametreleri + resolved config +
+GERÇEKTEN KULLANILAN (fresh) gözlem kümesi (`pct_change` + UTC'ye normalize
+edilmiş ISO-8601 `observed_at` — aynı ANI temsil eden farklı UTC offset'li
+timestamp'ler AYNI hash'i üretir) + `engine_version` üzerinden — bu
+spesifik snapshot'ın tam bilimsel imzası. `created_at` gibi bilimsel
+olmayan runtime metadata'sı hash'e HİÇ dahil edilmez. Her ikisi de proje-
+genelindeki TEK paylaşılan kanonik ilkel (`app.research.canonical_hash.
+content_sha256`, HATA 12N2A — sıralı anahtarlar + UTF-8 + `hashlib.sha256`,
+Python `hash()` KULLANILMAZ) ile hesaplanır; yeniden kullanıldı, tekrar
+icat edilmedi.
+
+`ENGINE_VERSION` `"1.0.0"` → `"1.1.0"`'a BİLEREK artırıldı: HATA 16B
+(fail-fast config resolution) ve HATA 16C (freshness exclusion) gerçek,
+production skorlama davranışını değiştiren bilimsel değişikliklerdi ama
+o ticket'ların kapsamı bir sürüm artışı içermiyordu; bu ticket (kendisi
+provenance-only, skor DAVRANIŞI değiştirmiyor) bu BİRİKMİŞ sözleşme farkını
+dürüstçe yansıtmak için TEK bir artış yapar — `"1.0.0"` damgalı eski bir
+kayıt artık auto-seed/fake-neutral/freshness-kontrolsüz bir sözleşme
+altında üretilmiş olarak okunmalı, `"1.1.0"` ve sonrası fail-fast+
+freshness+tam-provenance sözleşmesini işaret eder. Çekirdek formül/
+gösterge seti/yön semantiği DEĞİŞMEDİĞİ için major artış (`"2.0.0"`)
+YAPILMADI.
+
+tz-naive `observed_at` netleştirmesi (HATA 16C raporundaki çelişkili
+ifadeyi düzeltir — yukarıdaki HATA 16C bölümüne inline not eklendi): iki
+AYRI katman var. Provider katmanı (`_extract_observed_at()`) naive bir
+`pd.Timestamp`'i ASLA `None`'a çevirmez — UTC olarak KABUL EDER. Engine
+katmanı (`_is_fresh_observation()`) KENDİSİ ayrıca savunma amaçlı bir
+tz-naive-reddetme kontrolü taşır, ama gerçek `YahooMacroProvider` yolunda
+bu kontrol asla naive bir değerle karşılaşmaz (extraction her zaman
+tz-aware döner) — yalnızca varsayımsal bir gelecekteki provider'a karşı
+savunma. Kod/testler DEĞİŞMEDİ, yalnızca dokümantasyon netleştirildi.
+
+`MacroSnapshotRepository.add()`'in append-only semantiği KORUNDU (update/
+overwrite path eklenmedi). Aynı gözlemler + aynı config verildiğinde
+`macro_score`/`confidence` HATA 16D öncesi/sonrası SAYISAL OLARAK
+BİREBİR AYNI — bu ticket yalnızca alan ekler, skorlama matematiğini
+DEĞİŞTİRMEZ (regresyon testleriyle doğrulandı: -13.75 örneği, kısmi-
+gösterge -18.82 örneği, weight/scale duyarlılık örnekleri hepsi aynen
+korundu). `DecisionEngine` DEĞİŞMEDİ — hâlâ yalnızca `macro_score`/
+`macro_id` tüketiyor, yeni provenance alanları ona kablolanmadı (ihtiyaç
+yok). 15 yeni dedicated test eklendi (`test_macro_provenance.py`) — üç
+rigor-check (weights'i hash'ten çıkarmak, self-contained reproduction
+yerine GÜNCEL/mutasyona uğramış config okumanın YANLIŞ bir skor ürettiğini
+kanıtlamak, window/freshness-eşiğini hash'ten çıkarmak) geçici
+mutasyonlarla gerçekten yapılıp ilgili testlerin FAIL ettiği kanıtlanıp
+geri alındı (engine.py mutasyon-öncesi haliyle byte-birebir aynı olarak
+doğrulandı). No deployment performed.

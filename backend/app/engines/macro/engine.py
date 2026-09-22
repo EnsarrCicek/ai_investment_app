@@ -16,10 +16,37 @@ from datetime import datetime, timezone
 from app.models.macro_snapshot import MacroSnapshot
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
 from app.repositories.system_config_repository import SystemConfigRepository
+from app.research.canonical_hash import content_sha256
 from app.services.macro.base import MacroDataProvider
 from app.services.macro.yahoo_macro_provider import YahooMacroProvider
 
-ENGINE_VERSION = "1.0.0"
+# HATA 16D: `ENGINE_VERSION` HATA 16A'dan (audit) beri "1.0.0"'da SABİT
+# kalmıştı; ancak HATA 16B (fail-fast config resolution -- eski `get()`
+# auto-seed/partial-merge davranışı KALDIRILDI) ve HATA 16C (freshness
+# exclusion -- stale göstergeler artık skora GİRMİYOR) GERÇEK, production
+# skorlama davranışını değiştiren bilimsel değişikliklerdi ve bir sürüm
+# artışı GEREKTİRİRDİ, ama o ticket'ların kapsamı bunu içermiyordu (retroaktif
+# olarak burada da "düzeltilmiyor" -- geçmiş commit'ler değiştirilemez). Bu
+# ticket (16D, provenance-only, bilimsel SKOR DAVRANIŞI değişmiyor) BİLE, bu
+# BİRİKMİŞ üç ticket'lık sözleşme farkını (16A'daki auto-seed/fake-neutral
+# davranışı vs. bugünkü fail-fast/freshness/provenance sözleşmesi) dürüstçe
+# yansıtmak için TEK, kasıtlı bir "1.1.0" artışı yapar: "1.0.0" damgalı eski
+# bir `MacroSnapshot` artık BAŞKA bir bilimsel sözleşme altında üretilmiş
+# olarak okunmalı (auto-seed config, freshness kontrolü yok, provenance yok);
+# "1.1.0" ve sonrası fail-fast+freshness+tam-provenance sözleşmesini işaret
+# eder. Çekirdek formül/gösterge seti/yön semantiği DEĞİŞMEDİĞİ için "2.0.0"
+# gibi bir major artış GEREKMEZ.
+ENGINE_VERSION = "1.1.0"
+
+# HATA 16D: `YahooMacroProvider.get_indicator_changes()`'in varsayılan
+# `window` değeriyle (bkz. `YahooMacroProvider.WINDOW`) AYNI -- yalnızca
+# provider `WINDOW` attribute'u EXPOSE ETMEYEN bir test double/gelecekteki
+# bir provider ile kullanıldığında provenance'a gömülecek fallback değeridir.
+# Engine, `get_indicator_changes()`'i KASITLI OLARAK açık bir `window=`
+# argümanı GEÇİRMEDEN çağırır (mevcut `_FakeProvider`-tabanlı testlerin
+# imzasını bozmamak için) -- gerçek kullanılan değeri `getattr` ile PROVIDER'
+# DAN okur, burada TEKRAR tanımlamaz.
+DEFAULT_PROVIDER_WINDOW = 20
 
 # HATA 16B: `DEFAULT_SCALES`/`DEFAULT_WEIGHTS`'in production `analyze()`
 # path'indeki tek rolü artık `resolve_macro_weights()`/`resolve_macro_scales()`
@@ -190,6 +217,66 @@ def resolve_macro_scales(raw_doc: dict | None) -> dict[str, float]:
     return {k: float(v) for k, v in raw_doc.items()}
 
 
+def _sorted_copy(d: dict[str, float]) -> dict[str, float]:
+    return {k: d[k] for k in sorted(d)}
+
+
+def compute_macro_config_sha256(
+    weights: dict[str, float], scales: dict[str, float], window: int, max_observation_age_days: int
+) -> str:
+    """HATA 16D: yalnızca METODOLOJİ/CONFIG parametreleri üzerinden (hangi
+    piyasa verisinin geldiğinden BAĞIMSIZ) -- iki farklı run'ın AYNI
+    weights/scales/window/freshness-eşiği ile üretilip üretilmediğini tespit
+    etmek için dar kapsamlı bir imza. `app.research.canonical_hash.
+    content_sha256` (proje-genelindeki TEK paylaşılan kanonik JSON/SHA-256
+    ilkeli, HATA 12N2A) kullanılır -- sıralı anahtarlar + UTF-8, dict ekleme
+    sırasından BAĞIMSIZ, Python `hash()` KULLANILMAZ."""
+    payload = {
+        "weights": _sorted_copy(weights),
+        "scales": _sorted_copy(scales),
+        "window": window,
+        "max_observation_age_days": max_observation_age_days,
+    }
+    return content_sha256(payload)
+
+
+def compute_macro_input_sha256(
+    provider_id: str,
+    window: int,
+    max_observation_age_days: int,
+    weights: dict[str, float],
+    scales: dict[str, float],
+    engine_version: str,
+    used_indicators: dict[str, dict],
+) -> str:
+    """HATA 16D: `compute_macro_config_sha256`'dan DAHA GENİŞ -- bu spesifik
+    snapshot'ı üreten TAM bilimsel girdiyi (provider kimliği + metodoloji
+    parametreleri + resolved config + GERÇEKTEN KULLANILAN/fresh gözlem
+    kümesi + engine sürümü) bağlar. `observed_at` her zaman UTC'ye
+    normalize edilip ISO-8601 olarak serialize edilir (aynı ANI temsil eden
+    farklı UTC offset'li timestamp'ler AYNI hash'i üretir -- HATA 16D madde
+    26). `created_at` gibi bilimsel olmayan runtime metadata'sı HİÇ dahil
+    edilmez -- amaç runtime zamanını değil, DİVERGENT bilimsel girdiyi tespit
+    etmektir."""
+    observations = {
+        key: {
+            "pct_change": data["pct_change"],
+            "observed_at": data["observed_at"].astimezone(timezone.utc).isoformat(),
+        }
+        for key, data in sorted(used_indicators.items())
+    }
+    payload = {
+        "provider_id": provider_id,
+        "window": window,
+        "max_observation_age_days": max_observation_age_days,
+        "weights": _sorted_copy(weights),
+        "scales": _sorted_copy(scales),
+        "engine_version": engine_version,
+        "observations": observations,
+    }
+    return content_sha256(payload)
+
+
 class MacroAnalysisEngine:
     def __init__(
         self,
@@ -210,6 +297,13 @@ class MacroAnalysisEngine:
         # yapılmadan fail-fast eder.
         weights = resolve_macro_weights(self._config_repo.get_raw("macro_indicator_weights"))
         scales = resolve_macro_scales(self._config_repo.get_raw("macro_indicator_scales"))
+
+        # HATA 16D: provider kimliği/window, provenance için PROVIDER'DAN
+        # okunur (`getattr` ile, attribute yoksa fallback) -- `_FakeProvider`
+        # gibi bu attribute'ları taşımayan test double'ların çağrı imzasını
+        # bozmadan gerçek `YahooMacroProvider`'ın GERÇEK değerlerini yakalar.
+        provider_id = getattr(self._provider, "PROVIDER_ID", type(self._provider).__name__)
+        window = getattr(self._provider, "WINDOW", DEFAULT_PROVIDER_WINDOW)
 
         changes = self._provider.get_indicator_changes()
         if not changes:
@@ -268,6 +362,14 @@ class MacroAnalysisEngine:
         ) / len(components)
         confidence = round(_clamp(0.3 + 0.4 * agreement + 0.3 * completeness, 0.0, 1.0), 2)
 
+        # HATA 16D: bilimsel reproducibility/provenance -- ham Yahoo yeniden
+        # sorgulanmadan veya GÜNCEL Firestore config okunmadan, YALNIZCA bu
+        # persisted kayıttan `macro_score`'un yeniden üretilebilmesi için.
+        macro_config_sha256 = compute_macro_config_sha256(weights, scales, window, MAX_OBSERVATION_AGE_DAYS)
+        macro_input_sha256 = compute_macro_input_sha256(
+            provider_id, window, MAX_OBSERVATION_AGE_DAYS, weights, scales, ENGINE_VERSION, changes
+        )
+
         snapshot = MacroSnapshot(
             macro_score=macro_score,
             confidence=confidence,
@@ -275,6 +377,13 @@ class MacroAnalysisEngine:
             indicators=changes,
             created_at=datetime.now(timezone.utc),
             engine_version=ENGINE_VERSION,
+            provider_id=provider_id,
+            window=window,
+            max_observation_age_days=MAX_OBSERVATION_AGE_DAYS,
+            resolved_weights=weights,
+            resolved_scales=scales,
+            macro_config_sha256=macro_config_sha256,
+            macro_input_sha256=macro_input_sha256,
         )
 
         doc_id = self._snapshot_repo.add(snapshot) if persist else None
