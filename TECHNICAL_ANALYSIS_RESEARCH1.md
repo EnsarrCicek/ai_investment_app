@@ -2779,3 +2779,88 @@ display-classification-parity invariant'ı (her fixture için gösterilen
 string parse edilip AYNI eşiklerle sınıflandırıldığında persisted
 `decision` ile TAM eşleşir), legacy no-threshold fallback, config-drift
 bağımsızlığı, ve Explanation/FCM parity dahil. No deployment performed.
+
+# HATA 18C — DECISION-BOUND EXPLANATION COMPLETE
+
+HATA 18A audit bulgu #2'nin (`GET /decisions/{symbol}/explanation`'ın her
+zaman YENİ bir canlı karar hesapladığı, hiçbir kimlik/as-of maruz
+bırakmadığı) düzeltmesi ve HATA 18 ExplanationEngine correctness serisinin
+(18A audit → 18B sunum → 18C kimlik) KAPANIŞ ticket'ı.
+
+`ExplanationEngine.explain(asset, decision_id=None)` artık İKİ AYRI,
+mimari olarak ayrık mod sunar:
+
+- **`decision_id=None`** (varsayılan) — `_explain_current()`: MEVCUT canlı
+  yeniden-hesaplama davranışı TAM olarak korunur (canlı Technical, HATA
+  17C tazelik-kontrollü Macro, HATA 15E/15F paylaşımlı seçici ile
+  causality-valid News, `DecisionEngine.decide(persist=False)`). Var olan
+  HİÇBİR çağıran (route dahil) etkilenmez — geriye dönük uyumluluk
+  zorunluydu, test edildi. Tek katkı: yanıt artık kendi `decision_as_of`'unu
+  ve `mode: "live"`'ı da (additive alanlar) sızdırıyor — daha önce
+  (18C-öncesi) bu hiç maruz bırakılmıyordu (HATA 18A bulgu #2).
+
+- **`decision_id=<id>`** — `_explain_decision()`: persisted `AIDecision`'ın
+  gerekçesini üretir. `final_score`/`decision`/`confidence`/
+  `channel_completeness`/`weights`/`decision_thresholds` BURADA ASLA
+  yeniden hesaplanmaz — `AIDecision`'ın kendi alanları KOŞULSUZ kullanılır
+  (`DecisionEngine.decide()`/`decide_for_asset()`, canlı
+  `TechnicalAnalysisEngine`, paylaşımlı haber seçici,
+  `MacroSnapshotRepository.get_latest_with_id()` bu modda HİÇ çağrılmaz —
+  mock-tabanlı "no recomputation" testiyle kilitlendi).
+
+Referanslı Technical/News/Macro DETAY kayıtları (zenginleştirilmiş gerekçe
+metni için) yeni salt-okunur repository metotlarıyla (`AIDecisionRepository.
+get_by_id`, `TechnicalAnalysisRepository.get_by_id`,
+`MacroSnapshotRepository.get_by_id`, mevcut `NewsAnalysisRepository.
+get_by_news_id`) TEK TEK, `AIDecision`'ın kendi ID'leriyle geri çağrılır —
+BUGÜNKÜ "en son"/tazelik durumundan tamamen BAĞIMSIZ. Bir detay kaydı
+artık bulunamıyorsa (legacy/silinmiş) CANLI/GÜNCEL veriyle SESSİZCE İKAME
+EDİLMEZ — bunun yerine persisted skorla birlikte açık bir "ayrıntılı kayıt
+artık erişilebilir değil" notu eklenir; persisted `AIDecision` zaten
+final_score/decision/confidence/completeness için YETERLİ olduğundan hiçbir
+detay-kaydı eksikliği bu modu başarısız KILMAZ. `macro_score`/`news_score
+is None` (kanal hiç kullanılmadı) ile "detay kaydı artık erişilemiyor"
+(kanal kullanıldı ama zenginleştirilmiş kayıt kayıp) AÇIKÇA ayrı notlarla
+temsil edilir — None-vs-zero doktrini bu modda da korunur (macro_score=None
+asla "makro nötr" olarak gösterilmez).
+
+Bilinmeyen `decision_id` veya sembol-uyuşmazlığı (`decision.asset !=
+route symbol`) → `LookupError` → API'de 404 — canlı moda SESSİZCE
+düşülmez (bu, bir kimlik hatasını gizlerdi). Route: opsiyonel
+`decision_id` query parametresi eklendi (`GET /decisions/{symbol}/
+explanation?decision_id=...`), eski çağrı şekli (parametre yok) davranış
+DEĞİŞTİRMEDEN çalışır.
+
+Üç rigor-check GERÇEKTEN yapıldı (mutasyon → test FAIL → geri alma →
+suite yeşil): (A) `decision_id`'yi yok sayıp sabit bir kayda bakıldı →
+D1-vs-D2 kimlik testi FAIL etti. (B) persisted `news_analysis_ids` yerine
+canlı paylaşımlı seçici kullanıldı → news-drift testi, fake repo'nun
+kendi guard'ı üzerinden FAIL etti. (C) `macro_snapshot_id` yerine
+`get_latest_with_id()` kullanıldı → macro-drift testi aynı şekilde FAIL
+etti. Üçü de geri alındı, dosya mutasyon-öncesiyle byte-birebir aynı
+doğrulandı.
+
+14 yeni dedicated test eklendi (`test_explanation_decision_bound.py`):
+exact decision-ID kimliği (D1≠D2/"latest"), karar-sonrası piyasa
+değişikliğine bağışıklık, canlı modun GERÇEKTEN değişmediği (backward-
+compat kilidi), config-drift bağımsızlığı, news-drift ve macro-drift
+bağımsızlığı, `macro_snapshot_id=None`'ın güncel bir snapshot varken bile
+"kullanılmadı" kalması, eksik detay-kaydında zarif bozulma (skor/etiket/
+confidence/completeness DEĞİŞMEDEN), yanlış-sembol reddi, bilinmeyen-ID
+reddi (canlı fallback YOK), iki modun kimlik metadatasıyla ayırt
+edilebilirliği, "no recomputation" mock-tabanlı regresyon, HATA 18B
+threshold-safe sunum regresyonu (decision-bound modda da 39.996 asla
+"+40.0" göstermez), ve None-vs-zero regresyonu.
+
+**Bilinçli kapsam sınırı**: açıklama METNİNİN kendisi bu ticket'ta HÂLÂ
+persist/versiyonlanmıyor (yalnızca zaten var olan `AIDecision` provenance'ı
+kullanılıyor) — bu, HATA 18A bulgu #3'ün (explanation reproducibility gap)
+TAM kapanışı değil, yalnızca historical FACT tutarlılığının (skor/etiket/
+girdi-üyeliği) garantilenmesidir; bu, 18C'nin kapsamı için YETERLİDİR.
+`ExplanationEngine`'in decisions API'de dedicated bir HTTP-seviyeli test
+dosyası (`test_decisions_api.py` tarzı) hâlâ yok (HATA 18A'da da
+disclosed edilmiş bir boşluk) — route'un kendisi ince bir sarmalayıcı
+olduğundan ve tüm gerekli senaryolar engine-seviyesinde kilitlendiğinden,
+bu ticket'ta yeni bir API-test altyapısı kurulmadı.
+
+No deployment performed.

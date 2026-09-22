@@ -24,6 +24,15 @@ class AIDecisionRepository:
         records = self.list_for_asset(asset, limit=1)
         return records[0] if records else None
 
+    def get_by_id(self, decision_id: str) -> AIDecision | None:
+        """HATA 18C: belirli bir persisted kararı kimliğiyle geri çağırır --
+        `ExplanationEngine`'in decision-bound (historical) modu için.
+        Salt-okunur bir ek: append-only sözleşmeyi (Kural 5) ihlal ETMEZ."""
+        doc = self._db.collection(COLLECTION).document(decision_id).get()
+        if not doc.exists:
+            return None
+        return AIDecision(**doc.to_dict())
+
     def list_for_asset(self, asset: str, limit: int = 20) -> list[AIDecision]:
         docs = (
             self._db.collection(COLLECTION)

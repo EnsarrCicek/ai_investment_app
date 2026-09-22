@@ -30,3 +30,14 @@ class MacroSnapshotRepository:
         if not docs:
             return None, None
         return MacroSnapshot(**docs[0].to_dict()), docs[0].id
+
+    def get_by_id(self, snapshot_id: str) -> MacroSnapshot | None:
+        """HATA 18C: `ExplanationEngine`'in decision-bound (historical) modu
+        için -- persisted `AIDecision.macro_snapshot_id` referansını geri
+        çağırır (`get_latest_with_id()`'in aksine, herhangi bir eski
+        snapshot'ı, bugünkü tazelik durumundan BAĞIMSIZ getirir). Salt-okunur
+        ek."""
+        doc = self._db.collection(COLLECTION).document(snapshot_id).get()
+        if not doc.exists:
+            return None
+        return MacroSnapshot(**doc.to_dict())

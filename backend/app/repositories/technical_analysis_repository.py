@@ -36,3 +36,12 @@ class TechnicalAnalysisRepository:
         records.sort(key=lambda pair: pair[1].created_at, reverse=True)
         latest_id, latest = records[0]
         return latest, latest_id
+
+    def get_by_id(self, analysis_id: str) -> TechnicalAnalysis | None:
+        """HATA 18C: `ExplanationEngine`'in decision-bound (historical) modu
+        için -- persisted `AIDecision.technical_analysis_id` referansını
+        geri çağırır. Salt-okunur ek."""
+        doc = self._db.collection(COLLECTION).document(analysis_id).get()
+        if not doc.exists:
+            return None
+        return TechnicalAnalysis(**doc.to_dict())

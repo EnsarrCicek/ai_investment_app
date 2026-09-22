@@ -42,9 +42,17 @@ def get_decision_history(symbol: str, limit: int = 20):
 
 
 @router.get("/{symbol}/explanation")
-def get_decision_explanation(symbol: str):
+def get_decision_explanation(symbol: str, decision_id: str | None = None):
+    """HATA 18C: opsiyonel `decision_id` -- verilmezse (varsayılan) TAM
+    olarak eski canlı/current davranış (geriye dönük uyumlu, zorunlu).
+    Verilirse decision-bound (historical) mod: persisted `AIDecision`
+    DOĞRUDAN kullanılır, DecisionEngine YENİDEN ÇAĞRILMAZ. Bilinmeyen
+    `decision_id` veya sembol uyuşmazlığı -> 404 (canlı moda SESSİZCE
+    düşülmez -- bu, bir kimlik hatasını gizlerdi, bkz. HATA 18C bölüm 12)."""
     try:
-        return ExplanationEngine().explain(symbol.upper())
+        return ExplanationEngine().explain(symbol.upper(), decision_id=decision_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

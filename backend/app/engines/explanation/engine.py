@@ -23,6 +23,22 @@ Bu motor, halihazırda Firestore'a kalıcı olarak yazılmış `NewsAnalysis`
 kayıtlarını okur -- canlı makale fetch'i (`fetch_article_text`) veya yeniden
 LLM analizi (`EventIntelligenceEngine.analyze_item`) ASLA tetiklemez (bkz.
 test_explanation_news_consistency.py provenance-regresyon testi).
+
+HATA 18C: `explain()` artık İKİ AYRI, birbirine karışmayan mod sunar --
+mimari olarak `_explain_current()` (mevcut, DEĞİŞMEMİŞ canlı yeniden-hesaplama
+davranışı) ve `_explain_decision()` (yeni, decision-bound/historical mod).
+`decision_id=None` (varsayılan) TAM olarak eski davranışı korur -- var olan
+hiçbir çağıran (route dahil) etkilenmez (bkz. HATA 18A bulgu #2: iki ayrı
+`GET` çağrısı arasında canlı state değişebiliyordu, hiçbir kimlik/as-of
+maruz bırakılmıyordu). `decision_id` verildiğinde, açıklama ARTIK
+DecisionEngine'i YENİDEN ÇAĞIRMAZ -- persisted `AIDecision`'ın final_score/
+decision/confidence/channel_completeness/weights/decision_thresholds
+alanları DOĞRUDAN, KOŞULSUZ kullanılır (bkz. `_explain_decision`
+docstring'i, HATA 18A bulgu #2'nin kapanışı). Referanslı technical/news/
+macro DETAY kayıtları (zenginleştirilmiş gerekçe metni için) mevcutsa
+kullanılır; artık erişilemiyorsa CANLI/GÜNCEL veriyle SESSİZCE
+İKAME EDİLMEZ -- bunun yerine persisted skorla birlikte "ayrıntılı kayıt
+artık erişilebilir değil" notu düşülür (HATA 18C bölüm 9).
 """
 
 from datetime import datetime, timezone
@@ -30,9 +46,11 @@ from datetime import datetime, timezone
 from app.engines.decision.engine import DecisionEngine, _is_macro_snapshot_fresh_for_consumption
 from app.engines.technical.engine import TechnicalAnalysisEngine
 from app.models.news_analysis import NewsAnalysis
+from app.repositories.ai_decision_repository import AIDecisionRepository
 from app.repositories.macro_snapshot_repository import MacroSnapshotRepository
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.news_raw_repository import NewsRawRepository
+from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
 from app.services.news.news_selection import (
     NEWS_SCORE_LIMIT,
     _aggregate_news_score,
@@ -111,14 +129,34 @@ class ExplanationEngine:
         macro_repo: MacroSnapshotRepository | None = None,
         news_repo: NewsAnalysisRepository | None = None,
         news_raw_repo: NewsRawRepository | None = None,
+        decision_repo: AIDecisionRepository | None = None,
+        technical_repo: TechnicalAnalysisRepository | None = None,
     ):
         self._decision_engine = decision_engine or DecisionEngine()
         self._technical_engine = technical_engine or TechnicalAnalysisEngine()
         self._macro_repo = macro_repo or MacroSnapshotRepository()
         self._news_repo = news_repo or NewsAnalysisRepository()
         self._news_raw_repo = news_raw_repo or NewsRawRepository()
+        # HATA 18C: yalnızca decision-bound (historical) modda kullanılır --
+        # canlı mod (`_explain_current`) bu iki repo'ya HİÇ dokunmaz. Bilinçli
+        # olarak LAZY: burada varsayılan (gerçek Firestore) örneği İNŞA
+        # EDİLMEZ -- `decision_repo`/`technical_repo` verilmeden `explain()`'i
+        # yalnızca canlı modda çağıran mevcut (18C-öncesi) hiçbir test/çağıran
+        # bu iki YENİ bağımlılığın inşasından ETKİLENMEMELİDİR.
+        self._decision_repo = decision_repo
+        self._technical_repo = technical_repo
 
-    def explain(self, asset: str) -> dict:
+    def explain(self, asset: str, decision_id: str | None = None) -> dict:
+        """HATA 18C: `decision_id=None` (varsayılan) -- TAM olarak eski
+        davranış, `_explain_current()`'a delege eder (geriye dönük
+        uyumluluk, zorunlu). `decision_id` verildiğinde `_explain_decision()`
+        -- persisted `AIDecision`'ı DOĞRUDAN kullanır, DecisionEngine'i
+        YENİDEN ÇAĞIRMAZ (bkz. o metodun docstring'i)."""
+        if decision_id is not None:
+            return self._explain_decision(asset, decision_id)
+        return self._explain_current(asset)
+
+    def _explain_current(self, asset: str) -> dict:
         # HATA 17C: bu çağrı için TEK `decision_as_of` -- `DecisionEngine.
         # decide_for_asset()`'inki İLE PAYLAŞILMAZ (ikisi bilinçli olarak
         # BAĞIMSIZ, her biri "şu an" için ayrı hesaplanır -- modül docstring'i,
@@ -203,4 +241,134 @@ class ExplanationEngine:
             # Parity testinin kilitlediği load-bearing invariant budur.
             "news_analysis_ids": [a.news_id for a in news_analyses],
             "missing": missing,
+            # HATA 18C bölüm 13: canlı modun KENDİ `decision_as_of`'u --
+            # `decision.decision_as_of` ile SAYISAL OLARAK AYNI (aynı
+            # `decide()` çağrısına geçirildi) ama BURADA ayrıca, açıkça
+            # sızdırılıyor -- daha önce (18C-öncesi) hiç maruz bırakılmıyordu,
+            # çağıran taraf bu açıklamanın "ne zaman"a ait olduğunu
+            # BİLEMİYORDU (bkz. HATA 18A bulgu #2). Yalnızca ADDITIVE bir alan
+            # -- mevcut hiçbir çağıran/test bundan etkilenmez.
+            "decision_as_of": decision_as_of,
+            "mode": "live",
+        }
+
+    def _explain_decision(self, asset: str, decision_id: str) -> dict:
+        """HATA 18C: decision-bound (historical) mod -- persisted bir
+        `AIDecision`'ın gerekçesini üretir.
+
+        Kilitli ilke (HATA 18A bulgu #2'nin doğrudan kapanışı): final_score/
+        decision/confidence/channel_completeness/weights/decision_thresholds
+        BURADA ASLA yeniden hesaplanmaz -- `AIDecision`'ın kendi alanları
+        KOŞULSUZ, DOĞRUDAN kullanılır. `DecisionEngine.decide()`/
+        `decide_for_asset()`, canlı `TechnicalAnalysisEngine`, paylaşımlı
+        haber seçici (`select_recent_unique_news_analyses`) veya
+        `MacroSnapshotRepository.get_latest_with_id()` BURADA HİÇ
+        çağrılmaz (bkz. test_explanation_decision_bound.py, "no
+        recomputation" mock-tabanlı regresyon testi).
+
+        Referanslı technical/news/macro DETAY kayıtları yalnızca daha
+        zengin gerekçe metni İÇİN, ID'leriyle (BUGÜNKÜ "en son"/"tazelik"
+        durumundan BAĞIMSIZ -- `MacroSnapshotRepository.get_by_id()`,
+        `get_latest_with_id()` DEĞİL) tek tek geri çağrılır. Bir kayıt
+        artık bulunamıyorsa (legacy/silinmiş -- olağan akışta olmamalı ama
+        savunma amaçlı) CANLI/GÜNCEL veriyle SESSİZCE İKAME EDİLMEZ --
+        yalnızca persisted skorla birlikte açık bir "ayrıntılı kayıt artık
+        erişilebilir değil" notu eklenir (bölüm 9). Persisted `AIDecision`
+        zaten final_score/decision/confidence/completeness için YETERLİ
+        olduğundan, hiçbir detay-kaydı eksikliği bu metodun BAŞARISIZ
+        olmasına yol açmaz.
+        """
+        decision_repo = self._decision_repo or AIDecisionRepository()
+        technical_repo = self._technical_repo or TechnicalAnalysisRepository()
+
+        decision = decision_repo.get_by_id(decision_id)
+        if decision is None:
+            raise LookupError(f"'{decision_id}' kimlikli bir karar bulunamadı.")
+        if decision.asset != asset:
+            raise LookupError(
+                f"'{decision_id}' kimlikli karar '{decision.asset}' varlığına ait, '{asset}' değil."
+            )
+
+        label = _DECISION_LABELS.get(decision.decision, decision.decision)
+        score_text = format_decision_score(decision.final_score, decision.decision, decision.decision_thresholds)
+        summary = (
+            f"{asset} için '{label}' kararı verildi "
+            f"(final skor: {score_text}, "
+            f"sinyal mutabakatı: {format_percent_value(decision.confidence)}, "
+            f"veri kapsamı: {format_percent_fraction(decision.channel_completeness)})."
+        )
+
+        missing: list[str] = []
+
+        technical_reasons: list[str] = []
+        if decision.technical_score is not None:
+            technical = (
+                technical_repo.get_by_id(decision.technical_analysis_id)
+                if decision.technical_analysis_id is not None
+                else None
+            )
+            if technical is not None:
+                technical_reasons = _top_reasons(technical.components, _TECHNICAL_LABELS)
+            else:
+                missing.append(
+                    f"Bu kararın teknik skoru {decision.technical_score:+.1f} idi; "
+                    "ayrıntılı geçmiş teknik kayıt artık erişilebilir değil."
+                )
+
+        news_reasons: list[str] = []
+        if decision.news_score is None:
+            missing.append("Bu varlık için bu karar sırasında karara dahil edilmiş bir haber yoktu.")
+        else:
+            resolved_news = [
+                found
+                for news_id in decision.news_analysis_ids
+                if (found := self._news_repo.get_by_news_id(news_id, asset)) is not None
+            ]
+            news_reasons = _news_reasons(resolved_news)
+            unresolved_count = len(decision.news_analysis_ids) - len(resolved_news)
+            if unresolved_count:
+                missing.append(
+                    f"Bu karara katkı sağlayan {unresolved_count} haber kaydı artık "
+                    "ayrıntılı olarak erişilebilir değil."
+                )
+
+        macro_reasons: list[str] = []
+        if decision.macro_score is None:
+            missing.append("Güncel bir makro veri anlık görüntüsü bu karara dahil edilmemişti.")
+        else:
+            macro = (
+                self._macro_repo.get_by_id(decision.macro_snapshot_id)
+                if decision.macro_snapshot_id is not None
+                else None
+            )
+            if macro is not None:
+                macro_reasons = _top_reasons(macro.components, _MACRO_LABELS)
+            else:
+                missing.append(
+                    f"Bu kararın makro skoru {decision.macro_score:+.1f} idi; "
+                    "ayrıntılı geçmiş makro kayıt artık erişilebilir değil."
+                )
+
+        return {
+            "asset": asset,
+            "decision": decision.decision,
+            "final_score": decision.final_score,
+            "confidence": decision.confidence,
+            "summary": summary,
+            "technical_weight": decision.technical_weight,
+            "news_weight": decision.news_weight,
+            "macro_weight": decision.macro_weight,
+            "technical_reasons": technical_reasons,
+            "macro_reasons": macro_reasons,
+            "news_reasons": news_reasons,
+            # HATA 18C: `AIDecision.news_analysis_ids`'in TAMAMI -- yalnızca
+            # BUGÜN detay-kaydı geri çağrılabilenler DEĞİL. Bu liste, kararın
+            # ÜRETİLDİĞİ anda GERÇEKTEN katkı sağlayan kimliklerin değişmez
+            # tarihsel kaydıdır; bugünkü retrievability'si bu FACT'ı
+            # değiştirmez (bkz. bölüm 18).
+            "news_analysis_ids": list(decision.news_analysis_ids),
+            "missing": missing,
+            "decision_id": decision_id,
+            "decision_as_of": decision.decision_as_of,
+            "mode": "decision_bound",
         }
