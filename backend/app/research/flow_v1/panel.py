@@ -85,7 +85,9 @@ def segment_observations(symbol: str, seg: pd.DataFrame, bench: pd.DataFrame, ba
             "nsv20": nsv20.to_numpy(float),
             "pvfs": fi.pvfs(cmf20, nsv20).to_numpy(float),
             "mfi14": fi.mfi(seg).to_numpy(float),
-            "rv20": relative_volume_series(seg["Volume"].astype(float)).astype(float).to_numpy(float),
+            # relative_volume_series, medyan==0 iken pd.NA (object dtype) döndürür;
+            # to_numeric(coerce) bunu NaN'a (mevcut değil) çevirir — 0/1 UYDURULMAZ.
+            "rv20": pd.to_numeric(relative_volume_series(seg["Volume"].astype(float)), errors="coerce").to_numpy(float),
             "turnover20": fi.median_turnover(seg).to_numpy(float),
             "roc20_price": fi.price_roc(close).to_numpy(float),
             "technical_score": technical_score_series(seg, baseline["weights"], baseline["family_weights"]).to_numpy(float),
