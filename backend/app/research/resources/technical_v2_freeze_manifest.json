@@ -19,7 +19,8 @@
     "methodology_git_commit": "8180ed8dd484dccafe1fd9eceda32a33a92f7d92",
     "engine_version": "1.15.0",
     "scoring_config_hash": "90ba569cf09eb771e6a40de7e5c8a75e3ac97629315c4d59b2607e53a88d9850",
-    "methodology_source_fingerprint_at_commit": "bbbe3c8d2fc5815ff70a4a2b2922c729ce7058f0f83035d24bed0c6ed88b96dc",
+    "methodology_source_fingerprint": "8fbea7ed233ba6741fa7cd07ad0fbd3b630f3e68f7ad9a244ae6a484248884e1",
+    "methodology_source_fingerprint_algorithm": "methodology_fingerprint.compute_methodology_source_fingerprint(normalize_newlines=True): SHA-256 of canonical JSON {path: SHA-256(file bytes with CRLF->LF)} over the 27 METHODOLOGY_FINGERPRINT_FILES. Equals the fingerprint of the git blobs at methodology_git_commit.",
     "classifier_methodology": "signal_classifier 1.15.0: STRONG_BULLISH_INITIATION = technical_score >= 40 AND market_structure == UPTREND AND confirmed (confirmed is True) BULLISH breakout AND retest_held is not False AND mtf_aligned AND mtf_consensus == UP. relative_volume_class is observational only (no STRONG gate); it still participates only in the NO_SIGNAL all-context-unknown data-availability label."
   },
   "technical_indicator_weights": {
@@ -99,5 +100,14 @@
     "audit_primary_result": "strong_preconditions_without_volume: high minus not-high volume, T+10 XU100-relative return -1.12 pp, 95% CI [-2.10, -0.10]; classification HARMFUL",
     "fix_ticket": "TECH-VOL 1B",
     "validation_note": "The TECH-VOL 1A sample is fully observed and is NOT validation for V2. V2 requires prospective validation (TECH-VOL 1C)."
-  }
+  },
+  "corrections": [
+    {
+      "corrected_in_ticket": "TECHNICAL V2 protocol + evidence pipeline migration",
+      "previous_manifest_sha256": "90d8f5e9ddd5d41d31f85483597f75b31bf0457af2c194d638ae101071bbc25e",
+      "previous_field": "methodology_source_fingerprint_at_commit",
+      "previous_value": "bbbe3c8d2fc5815ff70a4a2b2922c729ce7058f0f83035d24bed0c6ed88b96dc",
+      "reason": "The previous value was computed from raw Windows working-tree bytes (core.autocrlf=true; 3 of 27 files had CRLF), so it did not equal the fingerprint of the source at methodology_git_commit. Corrected before any protocol, activation lock or evidence referenced this manifest. No methodology, weight or scoring change."
+    }
+  ]
 }

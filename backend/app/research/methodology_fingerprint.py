@@ -96,6 +96,7 @@ def _resolve(relative_path: str) -> Path:
 def compute_file_hashes(
     relative_paths: tuple[str, ...] = METHODOLOGY_FINGERPRINT_FILES,
     root: Path | None = None,
+    normalize_newlines: bool = False,
 ) -> dict[str, str]:
     """Her dosyanın HAM (raw) baytlarının SHA-256 hex digest'ini döner.
 
@@ -110,6 +111,12 @@ def compute_file_hashes(
         if not file_path.is_file():
             raise FileNotFoundError(f"Metodoloji parmak-izi dosyası bulunamadı: {rel_path}")
         raw_bytes = file_path.read_bytes()
+        if normalize_newlines:
+            # TECHNICAL V2: CRLF -> LF. Ham-bayt parmak izi, dosyanın hangi
+            # makinede/checkout ayarıyla (core.autocrlf) yazıldığına bağlıydı;
+            # git blob'ları (LF) ile deploy baytları farklı olabiliyordu.
+            # V1 algoritması (normalize_newlines=False) DEĞİŞMEDİ.
+            raw_bytes = raw_bytes.replace(b"\r\n", b"\n")
         hashes[rel_path] = hashlib.sha256(raw_bytes).hexdigest()
     return hashes
 
@@ -117,6 +124,7 @@ def compute_file_hashes(
 def compute_methodology_source_fingerprint(
     relative_paths: tuple[str, ...] = METHODOLOGY_FINGERPRINT_FILES,
     root: Path | None = None,
+    normalize_newlines: bool = False,
 ) -> str:
     """`compute_file_hashes()`'in kanonik (sort_keys) JSON serileştirmesinin
     SHA-256'sı -- tek bir birleşik metodoloji-parmak-izi string'i.
@@ -124,6 +132,6 @@ def compute_methodology_source_fingerprint(
     `compute_scoring_config_hash()`'teki (scoring.py) AYNI kanonikleştirme
     deseni: `json.dumps(..., sort_keys=True, separators=(",", ":"))`.
     """
-    file_hashes = compute_file_hashes(relative_paths, root=root)
+    file_hashes = compute_file_hashes(relative_paths, root=root, normalize_newlines=normalize_newlines)
     canonical = json.dumps(file_hashes, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

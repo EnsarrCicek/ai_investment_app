@@ -56,3 +56,39 @@ def test_v2_methodology_commit_contains_the_gate_removal():
     engine_src = subprocess.run(["git", "show", f"{commit}:backend/app/engines/technical/engine.py"],
                                 cwd=_REPO, capture_output=True, text=True, encoding="utf-8", check=True).stdout
     assert 'ENGINE_VERSION = "1.15.0"' in engine_src
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git yok")
+def test_v2_fingerprint_equals_normalized_source_at_pinned_commit():
+    import hashlib
+
+    from app.research.methodology_fingerprint import METHODOLOGY_FINGERPRINT_FILES
+
+    commit = _V2["methodology_identity"]["methodology_git_commit"]
+    hashes = {}
+    for rel in METHODOLOGY_FINGERPRINT_FILES:
+        blob = subprocess.run(["git", "show", f"{commit}:backend/{rel}"], cwd=_REPO, capture_output=True, check=True).stdout
+        hashes[rel] = hashlib.sha256(blob.replace(b"\r\n", b"\n")).hexdigest()
+    expected = hashlib.sha256(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    assert _V2["methodology_identity"]["methodology_source_fingerprint"] == expected
+
+
+def test_v2_manifest_records_its_fingerprint_correction():
+    corr = _V2["corrections"][0]
+    assert corr["previous_field"] == "methodology_source_fingerprint_at_commit"
+    assert corr["previous_value"] != _V2["methodology_identity"]["methodology_source_fingerprint"]
+
+
+def test_normalized_fingerprint_is_line_ending_independent(tmp_path):
+    from app.research.methodology_fingerprint import compute_methodology_source_fingerprint
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "a" / "f.py").write_bytes(b"x = 1\r\ny = 2\r\n")
+    (tmp_path / "b" / "f.py").write_bytes(b"x = 1\ny = 2\n")
+    fa = compute_methodology_source_fingerprint(("f.py",), root=tmp_path / "a", normalize_newlines=True)
+    fb = compute_methodology_source_fingerprint(("f.py",), root=tmp_path / "b", normalize_newlines=True)
+    assert fa == fb
+    # V1 algoritması (normalize yok) değişmedi: ham baytlar farklı -> farklı parmak izi
+    assert compute_methodology_source_fingerprint(("f.py",), root=tmp_path / "a") != \
+        compute_methodology_source_fingerprint(("f.py",), root=tmp_path / "b")
