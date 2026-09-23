@@ -90,7 +90,31 @@ def rows_to_frame(rows: list[list]) -> pd.DataFrame:
 
 
 def freeze_dataset(provider=None, now: datetime | None = None) -> dict:
-    """AĞ KULLANIR. Evreni + XU100'ü BİR KEZ çeker ve dondurur."""
+    """AĞ KULLANIR. FLOW 1B evrenini + XU100'ü BİR KEZ çeker ve dondurur."""
+    symbols, tech_protocol_sha = load_frozen_universe()
+    return freeze_symbols(
+        symbols,
+        data_file=FROZEN_DATA_FILE,
+        manifest_file=DATASET_MANIFEST_FILE,
+        dataset_id="FLOW_V1_FROZEN_OHLCV",
+        extra_manifest={"universe_source_protocol_sha256": tech_protocol_sha},
+        provider=provider,
+        now=now,
+    )
+
+
+def freeze_symbols(
+    symbols: list[str],
+    data_file: Path,
+    manifest_file: Path,
+    dataset_id: str,
+    extra_manifest: dict,
+    provider=None,
+    now: datetime | None = None,
+) -> dict:
+    """AĞ KULLANIR. Verilen semboller + XU100'ü BİR KEZ çeker; ham satırları
+    gzip JSON olarak `data_file`'a (git-ignored), hash manifest'ini
+    `manifest_file`'a yazar."""
     import yfinance
 
     from app.services.market_data.bist_provider import BistProvider
@@ -99,7 +123,6 @@ def freeze_dataset(provider=None, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     end_date = latest_expected_completed_date(now)
     end_exclusive = (end_date + timedelta(days=1)).isoformat()
-    symbols, tech_protocol_sha = load_frozen_universe()
 
     frozen: dict[str, dict] = {}
     entries: dict[str, dict] = {}
@@ -137,7 +160,7 @@ def freeze_dataset(provider=None, now: datetime | None = None) -> dict:
     ok_hashes = {s: e["content_sha256"] for s, e in entries.items() if e["status"] == "OK"}
     manifest = {
         "manifest_schema_version": "1.0.0",
-        "dataset_id": "FLOW_V1_FROZEN_OHLCV",
+        "dataset_id": dataset_id,
         "freeze_now_utc": now.isoformat(),
         "latest_expected_completed_date": end_date.isoformat(),
         "requested_start": REQUESTED_START,
@@ -147,19 +170,19 @@ def freeze_dataset(provider=None, now: datetime | None = None) -> dict:
         "adjustment_mode": ADJUSTMENT_MODE,
         "yfinance_version": yfinance.__version__,
         "pandas_version": pd.__version__,
-        "universe_source_protocol_sha256": tech_protocol_sha,
+        **extra_manifest,
         "symbols": entries,
         "dataset_sha256": content_sha256(ok_hashes),
         "hash_primitive": "app.research.canonical_hash.content_sha256",
     }
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    data_file.parent.mkdir(parents=True, exist_ok=True)
     raw = json.dumps(frozen, sort_keys=True, separators=(",", ":")).encode("utf-8")
     buf = io.BytesIO()
     with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0, compresslevel=9) as gz:
         gz.write(raw)
-    FROZEN_DATA_FILE.write_bytes(buf.getvalue())
-    DATASET_MANIFEST_FILE.write_text(json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    data_file.write_bytes(buf.getvalue())
+    manifest_file.write_text(json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
     return manifest
 
 

@@ -111,7 +111,7 @@ def newey_west_t(series: np.ndarray, lag: int) -> float:
 
 
 def summarize_series(series: pd.Series, horizon: int, scale: float = 1.0,
-                     block_length: int = BOOTSTRAP_BLOCK_LENGTH) -> dict:
+                     block_length: int = BOOTSTRAP_BLOCK_LENGTH, ci_level: float = 95.0) -> dict:
     """Tarih bazlı bir istatistik serisinin özeti + blok bootstrap CI + NW t.
     `block_length` serinin KENDİ adımları cinsindendir (günlük seride 20
     seans; her 10 seansta bir örneklenen seride 2 = yine 20 seans)."""
@@ -121,7 +121,8 @@ def summarize_series(series: pd.Series, horizon: int, scale: float = 1.0,
         return {"n_dates": 0, "mean": None, "median": None, "std": None, "positive_rate": None,
                 "ci_low": None, "ci_high": None, "p_boot": None, "nw_t": None}
     boot = block_bootstrap_means(x, block_length=block_length)
-    lo, hi = np.percentile(boot, [2.5, 97.5])
+    tail = (100.0 - ci_level) / 2.0
+    lo, hi = np.percentile(boot, [tail, 100.0 - tail])
     p = 2.0 * min(float((boot <= 0).mean()), float((boot >= 0).mean()))
     p = max(min(p, 1.0), 1.0 / BOOTSTRAP_REPLICATES)
     return {
@@ -130,6 +131,7 @@ def summarize_series(series: pd.Series, horizon: int, scale: float = 1.0,
         "median": float(np.median(x)),
         "std": float(x.std(ddof=1)) if n > 1 else None,
         "positive_rate": float((x > 0).mean()),
+        "ci_level": float(ci_level),
         "ci_low": float(lo),
         "ci_high": float(hi),
         "p_boot": float(p),

@@ -1,0 +1,110 @@
+{
+  "protocol_schema_version": "1.0.0",
+  "protocol_version": "FLOW_V1C_EXTERNAL_PROTOCOL_V1",
+  "ticket": "FLOW 1C",
+  "study_label": "EXTERNAL CROSS-SECTIONAL ROBUSTNESS STUDY (current-listing universe, retrospective)",
+  "scope": "Does the CMF20 price/volume flow PROXY finding from FLOW 1B survive on symbols that were NOT used to discover it? Validation only; no production implementation regardless of outcome.",
+  "terminology_rule": "CMF20/CMFScore are PRICE/VOLUME FLOW PROXIES, never actual money inflow/outflow.",
+
+  "discovery_reference": {
+    "flow_1b_protocol": "FLOW_V1_OFFLINE_PROTOCOL_V1",
+    "flow_1b_dataset_sha256": "a031900a35cc01d91c967a5ef3541b1cf2195a7913227a4ad22bb9d4cee4b61a",
+    "flow_1b_status": "FULLY OBSERVED. Not an independent validation set. Not reused in FLOW 1C."
+  },
+
+  "technical_blinding": {
+    "mode": "TECHNICAL_BLIND (carried over from FLOW 1B, user decision)",
+    "never_computed_or_exposed": ["standalone Technical IC", "Technical-only hit rate", "Technical-only average return", "Technical-only benchmark-relative performance", "unfiltered Technical-positive portfolio level return"],
+    "permitted": ["CMF partial IC controlling Technical", "differences between CMF groups INSIDE the Technical-positive condition", "hit-rate deltas inside the condition", "filtered-minus-unfiltered deltas", "counts, turnover and candidate-count changes", "CMF/Technical correlation"]
+  },
+
+  "universe": {
+    "artifact": "app/research/resources/flow_v1c_universe.json",
+    "rule": "external = BIST TÜM members from the official KAP index-constituents PDF (https://www.kap.org.tr/tr/api/company/indices/pdf/endeksler, retrieved 2026-09-23T08:57:42Z, pdf sha256 95350b7b...) minus the FLOW 1B frozen 100 symbols.",
+    "size": 484,
+    "overlap_with_discovery": 0,
+    "no_other_symbol_filters": "No symbol is added or removed based on returns, liquidity, sector or data appearance. The only data-driven exclusions are mechanical and counted: Yahoo fetch failure, and observation-level eligibility (calendar/integrity/continuity/warm-up rules identical to FLOW 1B).",
+    "official_tum_minus_100_note": "The official 'BIST TÜM-100' PDF section is not used because its extracted text is truncated (458 of 484; missing V–Z tail).",
+    "survivorship": "Current-listing universe applied backwards: historical-membership / listing survivorship bias REMAINS. FLOW 1C provides EXTERNAL CROSS-SECTIONAL robustness only; it does NOT solve survivorship."
+  },
+
+  "data": {
+    "provider": "BistProvider (Yahoo Finance, yfinance history default auto_adjust=True), same as FLOW 1B",
+    "benchmark": "XU100, frozen again in the same snapshot",
+    "requested_start": "2021-01-01 (earliest supported trading-calendar date)",
+    "requested_end": "latest_expected_completed_date() at freeze time",
+    "validation_period_note": "Same calendar period as FLOW 1B but disjoint symbols. Common market-wide shocks are shared with the discovery sample; this is cross-sectional, not temporal, out-of-sample evidence.",
+    "raw_storage": "LOCAL ONLY at app/research/flow_v1c/data/frozen_ohlcv.json.gz (git-ignored, docker-ignored). Manifest + per-symbol content_sha256 + dataset_sha256 are version-controlled.",
+    "fetch_once_rule": "Fetched once; the study verifies every hash and never contacts Yahoo."
+  },
+
+  "preprocessing": "Identical to FLOW 1B (completed bars, authoritative calendar normalization, per-row integrity, contiguous segments, 60-session warm-up, no fills).",
+
+  "candidate": {
+    "CMF20": "FLOW 1B definition unchanged (window 20; H==L bars excluded from numerator and denominator; unavailable -> NaN).",
+    "CMFScore": "100 * clamp(CMF20 / 0.25, -1, +1). Scale 0.25 = existing FLOW 1B research scale, NOT tuned.",
+    "negative_filter": "CMFScore <= -20  (equivalently CMF20 <= -0.05). The exact boundary value -20 is REJECTED (<=).",
+    "not_carried_forward": ["NSV20 (primary)", "MFI14", "any retuned window/scale/threshold"]
+  },
+
+  "technical_baseline": {
+    "function": "app.engines.backtest.engine.technical_score_series with technical_v1_freeze_manifest weights",
+    "scoring_config_hash": "90ba569cf09eb771e6a40de7e5c8a75e3ac97629315c4d59b2607e53a88d9850",
+    "technical_positive_condition": "technical_score >= 15.0 (existing V1 / FLOW 1B definition)"
+  },
+
+  "targets": {
+    "primary": "Close(T) -> Close(T+10) stock return minus XU100 return over the same dates (information target, FLOW 1B definition).",
+    "secondary_horizons": [1, 5, 20]
+  },
+
+  "co_primary_hypotheses": {
+    "P1": {
+      "statement": "CMF20 carries positive T+10 information beyond the Technical score.",
+      "metric": "mean over dates of the cross-sectional rank semi-partial IC of CMF20 controlling rank(technical_score) (FLOW 1B method), min 20 assets per date.",
+      "SUPPORTED": "lower bound of the multiplicity-adjusted CI > 0",
+      "NOT_SUPPORTED": "upper bound of the adjusted CI < 0.02 (a meaningful positive effect is excluded) OR the adjusted CI lies entirely below 0",
+      "INCONCLUSIVE": "otherwise"
+    },
+    "P2": {
+      "statement": "Inside Technical-positive candidates, strongly negative CMF identifies worse T+10 outcomes.",
+      "metric": "per date d with >= 2 rejected (CMFScore <= -20) and >= 2 passed (CMFScore > -20) Technical-positive candidates with valid T+10 target: delta_d = mean excess(rejected) - mean excess(passed); mean over dates.",
+      "SUPPORTED": "upper bound of the multiplicity-adjusted CI < 0",
+      "NOT_SUPPORTED": "lower bound of the adjusted CI > -0.0040 (an underperformance of at least 0.40 percentage points is excluded) OR the adjusted CI lies entirely above 0",
+      "INCONCLUSIVE": "otherwise",
+      "economic_meaningfulness": "point estimate <= -0.0040 (rejected candidates underperform passed ones by at least 0.40 pp over 10 sessions, i.e. at least the most conservative 40 bps round-trip cost assumption)",
+      "also_reported": "hit-rate delta (pp), counts of rejected/passed observations, share of Technical-positive candidates rejected"
+    },
+    "multiple_testing": "Bonferroni over the two co-primary hypotheses: each is judged on a two-sided 97.5% circular-block-bootstrap CI (percentiles 1.25 / 98.75; block 20 sessions; 10000 replicates; seed 12001). All other analyses are secondary/exploratory and can never enter the gate."
+  },
+
+  "offset_robustness": {
+    "applies_to": ["negative-CMF filter (primary economic use: FILTER/VETO)", "Technical-residualized CMF quintile long-short (secondary, FLOW 1B comparison)"],
+    "offsets": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "rebalance": "for offset o: every 10th eligible date starting at the o-th eligible date; holding period T+10",
+    "filter_eligible_date": "at least 1 Technical-positive candidate with valid CMF and T+10 target, and at least 1 passed candidate",
+    "filter_measures": "improvement = mean excess(passed) - mean excess(all Technical-positive candidates); rejected_minus_passed; turnover of the passed set and of the all-candidate set between consecutive rebalances; net improvement at c bps = (mean(passed) - c*turnover_passed) - (mean(all) - c*turnover_all)",
+    "costs_round_trip_bps": [10, 20, 40],
+    "reporting": "every offset individually; mean, median, min, max across offsets; number of offsets with net-20bps improvement > 0. No offset is ever selected.",
+    "ci": "per offset: circular block bootstrap with block 2 rebalances (= 20 sessions); across offsets: the all-eligible-dates (overlapping) series with block 20, 95% CI, reported as the CI of the across-offset mean (descriptive, secondary)."
+  },
+
+  "secondary_analyses": [
+    "CMF20 partial IC at T+1, T+5, T+20",
+    "CMF20 vs old PVFS (CMF+NSV, FLOW 1B definition): partial IC of each and the per-date difference CMF - PVFS",
+    "P1 and P2 by calendar year",
+    "liquidity sensitivity: P1 and P2 excluding the bottom cross-sectional quintile of median 20-session TRY turnover",
+    "sample-size diagnostics: fetch failures, quality counts, per-date cross-section sizes, Technical-positive and rejected counts"
+  ],
+
+  "research_gate": {
+    "DEVAM": "P1 SUPPORTED AND P2 SUPPORTED AND P2 economically meaningful AND net-20bps filter improvement > 0 in at least 8 of 10 offsets AND sample adequacy (P1 >= 500 dates, P2 >= 250 dates, median P1 cross-section >= 100 assets).",
+    "DUR": "P1 NOT_SUPPORTED AND P2 NOT_SUPPORTED.",
+    "BELIRSIZ": "every other case.",
+    "production_note": "Even DEVAM does not authorize production infrastructure in FLOW 1C; it only authorizes designing a prospective shadow validation."
+  },
+
+  "future_audit_candidate": "TECHNICAL HIGH-VOLUME CONFIRMATION ASSUMPTION AUDIT (FLOW 1B exploratory negative log(RV20) partial IC). Not analysed or acted on in FLOW 1C; TechnicalAnalysisEngine untouched.",
+
+  "no_post_hoc_rule": "Window, scale, threshold, horizon, universe rule, correction and gate may not change after outcomes are seen; any change creates FLOW_V1C_EXTERNAL_PROTOCOL_V2 and must be reported."
+}
