@@ -6,3 +6,5 @@ tests
 scripts
 .env
 .env.example
+# Research raw market-data snapshots: never part of the production image.
+app/research/**/data/*.json.gz

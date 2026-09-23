@@ -47,6 +47,12 @@ class DatasetIntegrityError(ValueError):
     """Dondurulmuş veri, manifest'teki hash ile eşleşmiyor."""
 
 
+class FrozenDatasetMissingError(FileNotFoundError):
+    """Yerel dondurulmuş ham veri yok. Ham Yahoo snapshot'ları git'te
+    TUTULMAZ (FLOW 1C veri hijyeni) — analiz asla sessizce yeniden
+    çekmez; önce açıkça freeze komutu çalıştırılmalıdır."""
+
+
 def load_protocol() -> tuple[dict, str]:
     protocol = json.loads(PROTOCOL_FILE.read_text(encoding="utf-8"))
     return protocol, content_sha256(protocol)
@@ -160,7 +166,19 @@ def freeze_dataset(provider=None, now: datetime | None = None) -> dict:
 def load_verified_dataset(
     data_file: Path = FROZEN_DATA_FILE, manifest_file: Path = DATASET_MANIFEST_FILE
 ) -> tuple[dict[str, pd.DataFrame], dict]:
-    """AĞ YOK. Her sembolü manifest hash'ine karşı doğrular."""
+    """AĞ YOK. Her sembolü manifest hash'ine karşı doğrular. Yerel ham veri
+    yoksa açık bir hata fırlatır — Yahoo'dan yeniden çekmez (yeni bir
+    snapshot farklı olabilir ve manifest hash'iyle eşleşmez)."""
+    if not manifest_file.exists():
+        raise FrozenDatasetMissingError(f"Dataset manifest bulunamadı: {manifest_file}")
+    if not data_file.exists():
+        raise FrozenDatasetMissingError(
+            f"Yerel dondurulmuş ham veri yok: {data_file}. Ham Yahoo verisi git'te tutulmaz. "
+            "Orijinal snapshot'ı (manifest'teki dataset_sha256) yerel yedekten geri yükleyin; "
+            "ya da açıkça YENİ bir snapshot oluşturun: "
+            "`python -m app.research.flow_v1.dataset --freeze --new-snapshot` (yeni manifest/hash "
+            "üretir, git diff'te görünür; önceki sonuçlar yalnızca orijinal snapshot ile yeniden üretilebilir)."
+        )
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     frozen = json.loads(gzip.decompress(data_file.read_bytes()).decode("utf-8"))
     return verify_frozen(frozen, manifest), manifest
@@ -281,6 +299,13 @@ def main() -> None:
         return
     if FROZEN_DATA_FILE.exists():
         print(f"{FROZEN_DATA_FILE} zaten var — dondurulmuş veri ÜZERİNE YAZILMAZ.")
+        return
+    if DATASET_MANIFEST_FILE.exists() and "--new-snapshot" not in sys.argv:
+        print(
+            f"{DATASET_MANIFEST_FILE} (commit'li hash'ler) mevcut ama ham veri yok. Yeniden çekim FARKLI bir "
+            "snapshot üretir ve manifest'i değiştirir. Bilinçli olarak yeni snapshot istiyorsanız "
+            "--new-snapshot ekleyin."
+        )
         return
     manifest = freeze_dataset()
     print(json.dumps({"dataset_sha256": manifest["dataset_sha256"], "end": manifest["latest_expected_completed_date"]}))

@@ -49,3 +49,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Research raw market-data snapshots (third-party Yahoo data, redistribution
+# rights NOT verified). Kept LOCAL only; manifests/hashes stay tracked.
+backend/app/research/**/data/*.json.gz
