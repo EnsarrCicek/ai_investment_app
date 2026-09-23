@@ -19,6 +19,9 @@ from app.research.technical_v1_scoring_config_values import (
     load_verified_scoring_config_hash,
 )
 
+# TECH-VOL 1B: V1 pipeline mekaniği, V1 metodolojisiyle eşleşen bir motor altında test edilir.
+pytestmark = pytest.mark.usefixtures("v1_era_engine_version")
+
 # HATA 12N3C2-B2-D2'de kilitlenen, protokol dosyasında kayıtlı GERÇEK
 # değer -- bkz. app/research/resources/technical_v1_protocol_v1.json ->
 # methodology_references.freeze_manifest_sha256.
@@ -321,7 +324,12 @@ def test_tampered_manifest_with_recomputed_matching_hash_passes_loader_alone():
     İÇSEL tutarlılığı kanıtlar. Gerçek yetkilendirme `expected_freeze_
     manifest_sha256`'nın BAĞIMSIZ doğrulanmış bir activation lock'tan
     gelmesinden kaynaklanır -- bu test, bu SINIRI dürüstçe belgeler."""
-    tampered_payload = {"methodology_identity": {"scoring_config_hash": "9" * 64}}
+    import app.engines.technical.engine as engine_module
+
+    # TECH-VOL 1B: loader artık manifest engine_version'ını çalışan motorla da
+    # eşleştirir; kendi-içinde-tutarlı sahte manifest bu alanı da taklit eder.
+    tampered_payload = {"methodology_identity": {"scoring_config_hash": "9" * 64,
+                                                 "engine_version": engine_module.ENGINE_VERSION}}
     attacker_recomputed_hash = content_sha256(tampered_payload)
 
     # Saldirgan HEM icerigi degistirdi HEM DE kendi (dogru) hash'ini sagladi --

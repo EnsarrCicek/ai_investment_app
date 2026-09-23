@@ -95,6 +95,31 @@ def _read_manifest_json(path: Path) -> dict:
     return parsed
 
 
+class TechnicalV1MethodologySupersededError(ProvenanceConflictError):
+    """TECH-VOL 1B: paketlenmiş Technical V1 freeze manifest'inin dondurduğu
+    `engine_version`, ŞU AN çalışan `TechnicalAnalysisEngine.ENGINE_VERSION`
+    ile eşleşmiyor -- V1 metodolojisi SUPERSEDED. Bu durumda V1 evidence
+    capture/aktivasyonu yapılamaz: aksi halde V1 kimliğiyle (c1f0d43 /
+    1.14.0) etiketlenmiş kayıtlar FARKLI bir sınıflandırıcıyla üretilirdi.
+    Düzeltilmiş metodoloji `technical_v2_freeze_manifest.json`'da; V2 protokol
+    ve evidence pipeline bağlantısı aktivasyondan önce AYRI bir bilettir."""
+
+
+def assert_v1_methodology_matches_running_engine(parsed_manifest: dict | None = None) -> None:
+    """Fail-fast guard. `parsed_manifest` verilmezse paketlenmiş V1 manifest okunur."""
+    from app.engines.technical.engine import ENGINE_VERSION
+
+    manifest = parsed_manifest if parsed_manifest is not None else _read_manifest_json(_DEFAULT_FREEZE_MANIFEST_PATH)
+    identity = manifest.get("methodology_identity")
+    frozen = identity.get("engine_version") if isinstance(identity, dict) else None
+    if frozen != ENGINE_VERSION:
+        raise TechnicalV1MethodologySupersededError(
+            f"Technical V1 freeze manifest engine_version={frozen!r} ama çalışan engine={ENGINE_VERSION!r}: "
+            "V1 metodolojisi SUPERSEDED (TECH-VOL 1B). V1 aktivasyonu/evidence capture reddedildi; "
+            "bkz. app/research/resources/technical_v2_freeze_manifest.json."
+        )
+
+
 def load_verified_scoring_config_hash(
     expected_freeze_manifest_sha256: str, manifest_path: Path | None = None
 ) -> str:
@@ -147,6 +172,9 @@ def load_verified_scoring_config_hash(
             f"kanonik (64 küçük-harf hex) formatında değil: {scoring_config_hash!r}"
         ) from exc
 
+    # TECH-VOL 1B: kimliği doğrulanmış V1 manifest'i çalışan motorla eşleşmiyorsa
+    # (metodoloji superseded) hiçbir V1 attempt'i bu beklenen değerle ilerleyemez.
+    assert_v1_methodology_matches_running_engine(parsed)
     return scoring_config_hash
 
 

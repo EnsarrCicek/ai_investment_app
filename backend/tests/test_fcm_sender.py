@@ -818,3 +818,87 @@ def test_send_test_notification_returns_false_on_firebase_error(monkeypatch):
 
     assert sent is False
     assert record_repo.added == []
+
+
+# ---------------------------------------------------------------------------
+# TECH-VOL 1B (23.09.2026) — STRONG artık yüksek hacim gerektirmiyor.
+# fcm_sender DAVRANIŞ kodu DEĞİŞMEDİ (signal_class'ı tüketir); bu testler
+# düzeltilmiş sınıflandırıcıdan gelen hacimsiz bir STRONG'un uygunluğa
+# ulaşabildiğini ve BUY kapısı + HATA 4B claim/dedupe yaşam döngüsünün
+# aynen korunduğunu kanıtlar.
+# ---------------------------------------------------------------------------
+
+
+def _strong_without_high_volume_analysis(event_id: str = "THYAO:BULLISH:2026-09-01") -> TechnicalAnalysis:
+    from app.engines.technical.breakout import BreakoutEvent
+    from app.engines.technical.signal_classifier import SignalInputs, classify_signal
+    from app.engines.technical.support_resistance import SRZone
+
+    zone = SRZone(type="RESISTANCE", low=98.0, high=100.0, touch_count=3, last_touch_index=10)
+    inputs = SignalInputs(
+        technical_score=50.0, market_structure="UPTREND",
+        breakout_event=BreakoutEvent(index=10, direction="BULLISH", zone=zone, breakout_atr=2.0, confirmed=True),
+        relative_volume_class="NORMAL", mtf_aligned=True, mtf_consensus="UP",
+    )
+    signal_class = classify_signal(inputs)
+    assert signal_class == "STRONG_BULLISH_INITIATION"  # 1.15.0: NORMAL hacimle STRONG
+    analysis = _strong_analysis(signal_class=signal_class, breakout_event_id=event_id)
+    return analysis.model_copy(update={"relative_volume_class": "NORMAL"})
+
+
+def test_corrected_strong_without_high_volume_reaches_new_opportunity_eligibility(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+    log_repo = _FakeNewOpportunityLogRepo()
+
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_without_high_volume_analysis()),
+        provider=_FakeQuoteProvider(last_price=100.0), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+
+    assert sent is True and len(sent_messages) == 1
+    assert log_repo.claim_calls == [("u1", "THYAO", "THYAO:BULLISH:2026-09-01")]
+
+
+@pytest.mark.parametrize("decision", ["SELL", "HOLD", "WEAK_BUY", "WEAK_SELL"])
+def test_corrected_strong_without_high_volume_still_requires_decision_buy(monkeypatch, decision):
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: pytest.fail("gönderim olmamalı"))
+    log_repo = _FakeNewOpportunityLogRepo()
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision=decision, asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_without_high_volume_analysis()),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    assert sent is False and log_repo.claim_calls == []
+
+
+def test_corrected_strong_same_event_is_not_renotified_dedupe_lifecycle_unchanged(monkeypatch):
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: None)
+    log_repo = _FakeNewOpportunityLogRepo()
+    kwargs = dict(
+        analysis_repo=_FakeAnalysisRepo(_strong_without_high_volume_analysis()),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=log_repo,
+    )
+    first = fcm_sender.notify_if_new_opportunity("u1", _decision(decision="BUY", asset="THYAO"), **kwargs)
+    second = fcm_sender.notify_if_new_opportunity("u1", _decision(decision="BUY", asset="THYAO"), **kwargs)
+    assert (first, second) == (True, False)
+    assert len(log_repo.sent_calls) == 1
+
+
+def test_historical_stored_signal_class_is_consumed_as_is_not_reclassified(monkeypatch):
+    # 1.14.0 döneminde kaydedilmiş bir BULLISH_CONFIRMED (hacim kapısı yüzünden)
+    # TARİHSEL OLGUDUR: fcm_sender kayıtlı signal_class'ı okur, yeniden
+    # sınıflandırmaz -> eski kayıt STRONG sayılmaz, bildirim gitmez.
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: pytest.fail("gönderim olmamalı"))
+    old = _strong_analysis(signal_class="BULLISH_CONFIRMED").model_copy(
+        update={"engine_version": "1.14.0", "relative_volume_class": "NORMAL"})
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1", _decision(decision="BUY", asset="THYAO"), analysis_repo=_FakeAnalysisRepo(old),
+        provider=_FakeQuoteProvider(), config_repo=_FakeSettingsConfigRepo(None),
+        token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
+    )
+    assert sent is False and old.signal_class == "BULLISH_CONFIRMED" and old.engine_version == "1.14.0"

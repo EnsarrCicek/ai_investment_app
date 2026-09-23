@@ -28,6 +28,9 @@ from app.research.activation_lock import TechnicalV1ActivationLock, compute_acti
 from app.research.canonical_hash import content_sha256
 from app.research.evidence_models import EvidenceIntegrityError, ProvenanceConflictError
 
+# TECH-VOL 1B: V1 pipeline mekaniği, V1 metodolojisiyle eşleşen bir motor altında test edilir.
+pytestmark = pytest.mark.usefixtures("v1_era_engine_version")
+
 # ---------------------------------------------------------------------------
 # Sahte (fake) Firestore harness -- diğer immutable repository testleriyle
 # AYNI desen, artı `create_time` sunucu-metadata desteği.

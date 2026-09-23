@@ -29,6 +29,9 @@ class SignalInputs:
     technical_score: float
     market_structure: str = "UNKNOWN"  # "UPTREND" / "DOWNTREND" / "RANGE" / "UNKNOWN"
     breakout_event: BreakoutEvent | None = None
+    # TECH-VOL 1B: GÖZLEMSEL/zenginleştirme verisi -- STRONG_BULLISH_INITIATION
+    # için bir kapı (gate) DEĞİLDİR. Yalnızca aşağıdaki NO_SIGNAL "tüm bağlam
+    # bilinmiyor" veri-eksikliği etiketine katılır (skor -15..15 bandında).
     relative_volume_class: str = "UNKNOWN"  # LOW/NORMAL/HIGH/VERY_HIGH/UNKNOWN
     relative_strength_class: str = "UNKNOWN"  # OUTPERFORMING/UNDERPERFORMING/IN_LINE/UNKNOWN
     mtf_aligned: bool = False
@@ -39,7 +42,6 @@ def classify_signal(inputs: SignalInputs) -> str:
     score = inputs.technical_score
     structure = inputs.market_structure
     breakout = inputs.breakout_event
-    high_volume = inputs.relative_volume_class in ("HIGH", "VERY_HIGH")
 
     # HATA 9A-FIX (02.09.2026): `breakout_confirmed`/`breakout_not_broken`
     # eskiden `breakout.direction`'a HİÇ BAKMIYORDU -- `select_live_breakout_
@@ -62,12 +64,18 @@ def classify_signal(inputs: SignalInputs) -> str:
     breakout_not_broken = bullish_breakout and breakout.retest_held is not False
     mtf_bullish = inputs.mtf_aligned and inputs.mtf_consensus == "UP"
 
+    # TECH-VOL 1B (23.09.2026): `high_volume` (RV20 >= 1.5) artık STRONG için
+    # ZORUNLU pozitif onay DEĞİL. TECH-VOL 1A dış denetimi (hacim hariç tüm
+    # STRONG koşulları sağlanan durumlarda) yüksek hacmin T+10 XU100-göreli
+    # getiriyle NEGATİF ilişkili olduğunu buldu (-1.12 pp [-2.10, -0.10]);
+    # varsayım ZARARLI sınıflandırıldı. Kural TERSİNE ÇEVRİLMEDİ (düşük hacim
+    # pozitif sayılmıyor) -- desteklenmeyen varsayım yalnızca KALDIRILDI.
+    # Diğer tüm koşullar ve alt sınıflar DEĞİŞMEDİ.
     if (
         score >= 40
         and structure == "UPTREND"
         and breakout_confirmed
         and breakout_not_broken
-        and high_volume
         and mtf_bullish
     ):
         return "STRONG_BULLISH_INITIATION"

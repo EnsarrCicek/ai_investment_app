@@ -53,12 +53,24 @@ def _pre_volume_strong_state(rv_class: str) -> SignalInputs:
                         relative_volume_class=rv_class, mtf_aligned=True, mtf_consensus="UP")
 
 
+def _classify_engine_1_14(state: SignalInputs) -> str:
+    """TECH-VOL 1A'nın denetlediği 1.14.0 semantiği (STRONG hacim kapılı) --
+    YALNIZCA denetim-dönemi davranışını belgelemek için; üretim 1.15.0'da kapı
+    kaldırıldı (TECH-VOL 1B)."""
+    if S.strong_preconditions_without_volume(state, classify_signal):
+        return "STRONG_BULLISH_INITIATION" if state.relative_volume_class in ("HIGH", "VERY_HIGH") else "BULLISH_CONFIRMED"
+    return classify_signal(state)
+
+
 def test_ab_pair_differs_only_by_high_volume_and_both_satisfy_primary_predicate():
     a = _pre_volume_strong_state("HIGH")    # high_volume = True
     b = _pre_volume_strong_state("NORMAL")  # high_volume = False
     assert dataclasses.replace(a, relative_volume_class="X") == dataclasses.replace(b, relative_volume_class="X")
-    assert classify_signal(a) == "STRONG_BULLISH_INITIATION"
-    assert classify_signal(b) == "BULLISH_CONFIRMED"
+    # denetim dönemi (1.14.0): A -> STRONG, B -> BULLISH_CONFIRMED
+    assert _classify_engine_1_14(a) == "STRONG_BULLISH_INITIATION"
+    assert _classify_engine_1_14(b) == "BULLISH_CONFIRMED"
+    # üretim 1.15.0 (TECH-VOL 1B): ikisi de STRONG
+    assert classify_signal(a) == classify_signal(b) == "STRONG_BULLISH_INITIATION"
     assert S.strong_preconditions_without_volume(a, classify_signal) is True
     assert S.strong_preconditions_without_volume(b, classify_signal) is True
 
@@ -84,9 +96,9 @@ def test_predicate_equals_all_non_volume_strong_conditions_and_ignores_volume():
                              relative_volume_class=rv, mtf_aligned=aligned, mtf_consensus=cons)
         pred = S.strong_preconditions_without_volume(state, classify_signal)
         assert pred == _explicit_non_volume_strong(state)
-        if pred:  # A/B tek sınıflandırma farkı hacim
-            expected = "STRONG_BULLISH_INITIATION" if rv in ("HIGH", "VERY_HIGH") else "BULLISH_CONFIRMED"
-            assert classify_signal(state) == expected
+        if pred:
+            # 1.15.0: predicate TRUE -> hacimden bağımsız STRONG
+            assert classify_signal(state) == "STRONG_BULLISH_INITIATION"
         n += 1
     assert n > 5000
 

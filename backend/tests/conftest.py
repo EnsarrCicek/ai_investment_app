@@ -56,3 +56,23 @@ class FakeMarketDataProvider(MarketDataProvider):
 @pytest.fixture
 def fake_provider():
     return FakeMarketDataProvider
+
+
+@pytest.fixture
+def v1_era_engine_version(monkeypatch):
+    """TECH-VOL 1B: Technical V1 pipeline MEKANİĞİNİ (kimlik kapıları, claim/
+    evidence/finalization, activation-lock sözleşmesi) V1'in dondurduğu
+    metodolojiyle eşleşen bir çalışan motor altında test etmek için
+    `ENGINE_VERSION`'ı V1 freeze manifest'indeki değere sabitler. Üretimde
+    çalışan motor 1.15.0'dır ve V1 SUPERSEDED guard'ı gerçek davranışta
+    V1 aktivasyonunu/attempt'lerini REDDEDER (bkz. test_technical_v1_superseded_guard.py)."""
+    import json
+    from pathlib import Path
+
+    import app.engines.technical.engine as engine_module
+
+    manifest = json.loads(
+        (Path(engine_module.__file__).resolve().parents[2] / "research" / "resources" / "technical_v1_freeze_manifest.json")
+        .read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(engine_module, "ENGINE_VERSION", manifest["methodology_identity"]["engine_version"])

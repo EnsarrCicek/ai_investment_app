@@ -45,6 +45,9 @@ from app.research.technical_v1_attempt_execution import (
 from app.research.technical_v1_methodology_observation import observe_methodology_source_fingerprint
 from app.services.market_data.trading_calendar import expected_trading_sessions
 
+# TECH-VOL 1B: V1 pipeline mekaniği, V1 metodolojisiyle eşleşen bir motor altında test edilir.
+pytestmark = pytest.mark.usefixtures("v1_era_engine_version")
+
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 25, 13, 0, tzinfo=TZ)  # analysis_start=2026-02-25, boundary=2026-08-24
 

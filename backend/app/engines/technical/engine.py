@@ -349,7 +349,16 @@ from app.services.market_data.trading_calendar import normalize_bist_daily_sessi
 # breakout_timeline, scoring_config_hash HIC DEGISMEDI. Eski 1.13.0
 # kayitlari AYNEN kalir (migration YOK); cache bu bump nedeniyle onlari
 # otomatik MISS eder.
-ENGINE_VERSION = "1.14.0"
+#
+# 1.15.0 (TECH-VOL 1B, 23.09.2026): signal_classifier'da STRONG_BULLISH_
+# INITIATION icin zorunlu `high_volume` (RV20 >= 1.5) kapisi KALDIRILDI
+# (TECH-VOL 1A dis denetimi: varsayim ZARARLI). Yalnizca STRONG/BULLISH_
+# CONFIRMED ayrimi degisir. technical_score/components/confidence/
+# scoring_config_hash, breakout/breakout_timeline, relative_volume
+# hesaplamasi ve relative_volume_class kaydi HIC DEGISMEDI. Eski 1.14.0
+# kayitlari AYNEN kalir (migration YOK); cache bu bump nedeniyle onlari
+# otomatik MISS eder.
+ENGINE_VERSION = "1.15.0"
 
 # HATA 5B2D FINAL COMMIT GATE (27.08.2026): bu sabit ARTIK production'da bir
 # "missing config fallback" DEĞİLDİR -- `technical_indicator_weights`

@@ -221,15 +221,13 @@ def test_technical_analysis_new_document_with_family_scores_parses():
     assert analysis.family_scores == {"trend": 30.0, "oscillator_position": 15.0, "momentum_rate": 38.32}
 
 
-def test_engine_version_is_1_14_0():
-    # HATA 11J: nearest_support/nearest_resistance artık yalnız mevcut
-    # fiyatın doğru tarafında kalan ("aktif") zone'lar arasından seçiliyor
-    # (active_only=True) -- ENGINE_VERSION bump'ını gerektirir (1.13.0 ->
-    # 1.14.0). Technical Score/components, signal_classifier, horizon_
-    # classifier, breakout_timeline HİÇ DEĞİŞMEDİ; yalnızca nearest_support/
-    # nearest_resistance seçimi ve serialized zone dict'lerine eklenen
-    # `display_role_invalid` alanı etkilenir.
-    assert ENGINE_VERSION == "1.14.0"
+def test_engine_version_is_1_15_0():
+    # TECH-VOL 1B: signal_classifier'da STRONG_BULLISH_INITIATION için zorunlu
+    # high_volume kapısı kaldırıldı -- ENGINE_VERSION bump'ını gerektirir
+    # (1.14.0 -> 1.15.0). Technical Score/components/confidence, breakout,
+    # breakout_timeline, relative_volume hesaplaması HİÇ DEĞİŞMEDİ; yalnızca
+    # STRONG/BULLISH_CONFIRMED ayrımı etkilenir. (1.13.0 -> 1.14.0: HATA 11J.)
+    assert ENGINE_VERSION == "1.15.0"
 
 
 def _real_history_df(rows: int = 120) -> pd.DataFrame:
@@ -1763,15 +1761,15 @@ def test_analyze_with_id_cached_1_11_record_misses_under_1_12_engine_version(fak
     assert doc_id == "new-id"  # eski "old-1-11-id" DEĞİL -- gerçekten yeniden persist edildi
 
 
-def test_analyze_with_id_cached_1_13_record_misses_under_1_14_engine_version(fake_provider):
-    # HATA 11J — SPESİFİK cache-invalidation regresyonu: nearest_support/
-    # nearest_resistance'ın active-only hale gelmesi ENGINE_VERSION'ı
-    # 1.13.0'dan 1.14.0'a yükseltti. TTL içinde (fresh) bir 1.13.0 kaydı
-    # artık cache HIT ÜRETMEMELİ -- gerçek 1.14.0 motoruyla YENİDEN
-    # hesaplanmalı, dönen doküman kimliği eski (cache'lenmiş) kayıt DEĞİL,
-    # yeni persist edilen kayıt olmalı.
+def test_analyze_with_id_cached_1_14_record_misses_under_1_15_engine_version(fake_provider):
+    # TECH-VOL 1B — SPESİFİK cache-invalidation regresyonu: STRONG high_volume
+    # kapısının kaldırılması ENGINE_VERSION'ı 1.14.0'dan 1.15.0'a yükseltti.
+    # TTL içinde (fresh) bir 1.14.0 kaydı (eski, hacim-kapılı signal_class'ı
+    # taşıyan) artık cache HIT ÜRETMEMELİ -- gerçek 1.15.0 motoruyla YENİDEN
+    # hesaplanmalı; eski kayıt DEĞİŞTİRİLMEZ (tarihsel olgu), yalnızca yeni
+    # kayıt persist edilir. (Önceki 1.13.0 -> 1.14.0 regresyonu: HATA 11J.)
     old_1_13_cache = _cached_analysis(
-        age_seconds=60, engine_version="1.13.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
+        age_seconds=60, engine_version="1.14.0", scoring_config_hash=_FAKE_CONFIG_REPO_SCORING_HASH
     )
     analysis_repo = _FakeTechnicalAnalysisRepo(cached=old_1_13_cache, cached_id="old-1-13-id")
     provider = fake_provider(history_df=_real_history_df())
@@ -1784,9 +1782,10 @@ def test_analyze_with_id_cached_1_13_record_misses_under_1_14_engine_version(fak
 
     analysis, doc_id = engine.analyze_with_id("TEST")
 
-    assert ENGINE_VERSION == "1.14.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
+    assert ENGINE_VERSION == "1.15.0"  # bu testin varsaydığı ön koşul -- kayarsa test adı/yorumu da güncellenmeli
     assert analysis is not old_1_13_cache  # cache MISS -- age/hash eşleşse bile engine_version farklı
-    assert analysis.engine_version == "1.14.0"
+    assert old_1_13_cache.engine_version == "1.14.0"  # tarihsel kayıt yeniden yazılmadı
+    assert analysis.engine_version == "1.15.0"
     assert doc_id == "new-id"  # eski "old-1-13-id" DEĞİL -- gerçekten yeniden persist edildi
 
 

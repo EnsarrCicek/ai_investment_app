@@ -46,16 +46,18 @@ def test_incomplete_mtf_evidence_cannot_produce_strong_bullish_initiation():
     assert classify_signal(inputs) == "BULLISH_CONFIRMED"
 
 
-def test_falls_back_to_bullish_confirmed_without_high_volume():
+def test_strong_bullish_initiation_does_not_require_high_volume():
+    # TECH-VOL 1B: eskiden (1.14.0) NORMAL hacim -> BULLISH_CONFIRMED'a düşüyordu.
+    # TECH-VOL 1A dış denetimi yüksek-hacim kapısını ZARARLI buldu; kapı kaldırıldı.
     inputs = SignalInputs(
         technical_score=45.0,
         market_structure="UPTREND",
         breakout_event=_confirmed_breakout(retest_held=True),
-        relative_volume_class="NORMAL",  # yüksek hacim yok -> en güçlü sınıfa erişemez
+        relative_volume_class="NORMAL",
         mtf_aligned=True,
         mtf_consensus="UP",
     )
-    assert classify_signal(inputs) == "BULLISH_CONFIRMED"
+    assert classify_signal(inputs) == "STRONG_BULLISH_INITIATION"
 
 
 def test_bullish_confirmed_without_breakout_event():
