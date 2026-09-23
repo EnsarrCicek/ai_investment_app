@@ -1,0 +1,197 @@
+{
+  "protocol_schema_version": "1.0.0",
+  "protocol_version": "FLOW_V1_OFFLINE_PROTOCOL_V1",
+  "ticket": "FLOW 1B",
+  "study_label": "CURRENT FROZEN-UNIVERSE RETROSPECTIVE STUDY",
+  "scope": "Offline retrospective research: do OHLCV-derived price/volume flow PROXIES add cross-sectional information about future XU100-relative returns BEYOND the existing Technical score? Not a trading P&L claim, not a prospective validation, not a production FlowScore.",
+  "terminology_rule": "CMF/NSV/MFI are PRICE/VOLUME FLOW PROXIES. They must never be described as actual net money inflow/outflow.",
+  "primary_question": "After controlling for the existing Technical score, does the candidate price/volume flow score (PVFS) carry positive cross-sectional rank information about 10-session forward XU100-relative return?",
+
+  "technical_blinding": {
+    "mode": "TECHNICAL_BLIND",
+    "reason": "technical_v1_protocol_v1.json sets performance_visibility_before_first_checkpoint=false. User decision (FLOW 1B): Technical is used only as a statistical CONTROL. No Technical-only performance figure (Technical IC, Technical bucket mean/median return, Technical hit rate, Technical quintile returns) is computed, printed or persisted.",
+    "permitted_outputs": [
+      "Flow feature ICs and quintile returns",
+      "Flow partial/residual ICs controlling Technical",
+      "Differences BETWEEN Flow groups INSIDE a Technical bucket (deltas only, never the bucket's own level)",
+      "Feature-feature correlations (including Technical score vs Flow features; these are not performance figures)",
+      "Sample sizes and exclusion counts"
+    ]
+  },
+
+  "universe": {
+    "source": "app/research/resources/technical_v1_protocol_v1.json -> universe.frozen_symbol_list",
+    "source_protocol_sha256": "ee13afdde2a251bd86fc684e0786f01a9d0b12f7a52ebb2b7771693cb1d38f79",
+    "constituent_count": 100,
+    "no_replacement_rule": "The frozen list is used as-is; it is never replaced by a freshly fetched BIST100 list and no symbol is removed because of observed results.",
+    "survivorship_bias": "HIGH RISK. Membership is fixed at 2026-09-09 and applied backwards. Results are NOT a historical BIST100-membership backtest."
+  },
+
+  "data": {
+    "provider": "BistProvider (Yahoo Finance via yfinance), explicit start/end mode",
+    "benchmark_symbol": "XU100",
+    "adjustment_mode": "yfinance Ticker.history default (auto_adjust=True): OHLC split- and dividend back-adjusted, Volume split-adjusted. Yahoo records BIST bonus issues (bedelsiz) as splits.",
+    "adjustment_limitation": "Yahoo history can be retroactively re-adjusted. The study freezes one snapshot so the study itself cannot drift, but the snapshot is NOT proof of point-in-time prices. Rights issues (bedelli) handling is unverified.",
+    "requested_start": "2021-01-01",
+    "requested_start_reason": "Earliest date covered by the project's authoritative BIST trading calendar (trading_calendar.EARLIEST_SUPPORTED_CALENDAR_DATE). Earlier bars cannot be continuity-checked, so they are not used.",
+    "requested_end": "latest_expected_completed_date() at freeze time (recorded in the dataset manifest)",
+    "fetch_once_rule": "Data is fetched exactly once and frozen (gzip JSON + per-symbol content_sha256). The analysis step never contacts Yahoo and verifies every hash before use.",
+    "hash_primitive": "app.research.canonical_hash.content_sha256"
+  },
+
+  "preprocessing": {
+    "steps": [
+      "filter_completed_daily_bars(now=freeze retrieval timestamp)",
+      "normalize_bist_daily_sessions (authoritative calendar; drops weekend/holiday/cancelled phantom rows; counted)",
+      "per-row raw integrity (same rules as data_quality.check_raw_ohlcv_integrity): NaN/inf, non-positive price, negative volume, impossible OHLC -> row marked invalid (counted)",
+      "continuity: every expected session between a symbol's first and last valid bar must be present; a missing or invalid session splits the series into separate contiguous segments (counted). Nothing is forward/back-filled or fabricated."
+    ],
+    "segment_rule": "All indicators, the Technical score and forward returns are computed within one contiguous segment only. No window may span a gap.",
+    "warmup_sessions": 60,
+    "warmup_reason": "Matches completed_history.INDICATOR_WARMUP_SESSIONS used by the project's backtest. The first 60 sessions of every segment are never an observation date T.",
+    "zero_volume_expected_sessions": "Kept as genuine sessions (calendar says expected); they contribute zero volume to flow sums. Counted.",
+    "high_equals_low_bars": "CLV undefined; excluded from both CMF numerator and denominator (never set to 0). Counted as locked/flat-range bars."
+  },
+
+  "features": {
+    "CMF20": {
+      "role": "PRIMARY candidate component",
+      "formula": "CLV_t = ((C-L)-(H-C))/(H-L) for H>L, else undefined; CMF20_T = sum_{valid t in last 20}(CLV_t*V_t) / sum_{valid t in last 20}(V_t)",
+      "window": 20,
+      "unavailable_if": ["fewer than 20 sessions in segment up to T", "any NaN in H/L/C/V inside window", "sum of valid-bar volume == 0"],
+      "range": "[-1, 1]"
+    },
+    "NSV20": {
+      "role": "PRIMARY candidate component",
+      "formula": "(sum V_t on C_t>C_{t-1} - sum V_t on C_t<C_{t-1}) / sum V_t, over the last 20 sessions t (each needs C_{t-1} inside the same segment); flat close contributes 0 to numerator, its volume stays in denominator",
+      "window": 20,
+      "unavailable_if": ["fewer than 21 closes in segment up to T", "any NaN in C/V inside window", "denominator == 0"],
+      "range": "[-1, 1]"
+    },
+    "MFI14": {
+      "role": "RESEARCH ONLY (H6 redundancy test). Never part of PVFS.",
+      "formula": "TP=(H+L+C)/3; RMF=TP*V; positive flow if TP_t>TP_{t-1}, negative if TP_t<TP_{t-1}, equal -> neither; MFI=100*PF/(PF+NF) over last 14 sessions",
+      "window": 14,
+      "unavailable_if": ["fewer than 15 sessions in segment up to T", "any NaN inside window", "PF+NF == 0"],
+      "range": "[0, 100]"
+    },
+    "RV20": {
+      "role": "RESEARCH ONLY",
+      "formula": "existing app.engines.technical.relative_volume.relative_volume_series(volume, 20) = V_T / rolling_median(V, 20); analysed as log(RV20)",
+      "unavailable_if": ["median == 0", "RV20 <= 0 for the log transform"]
+    },
+    "median_turnover_20": {
+      "role": "RESEARCH ONLY: liquidity descriptor, not a signal",
+      "formula": "median over 20 sessions of Close*Volume (TRY, APPROXIMATE because Close is dividend back-adjusted)",
+      "low_liquidity_definition": "bottom cross-sectional quintile of median_turnover_20 on date T"
+    },
+    "ROC20_price": {
+      "role": "RESEARCH ONLY, used by H4/H5 conditions",
+      "formula": "C_T / C_{T-20} - 1 (within segment)"
+    },
+    "PVFS": {
+      "role": "PRIMARY candidate composite. RESEARCH ONLY scales/weights, fixed ex ante, never calibrated in this study.",
+      "formula": "100 * weighted mean of available components {c_cmf = clamp(CMF20/0.25, -1, 1), c_nsv = NSV20} with weights {0.5, 0.5}; follows the technical/scoring.py AVAILABLE/UNAVAILABLE contract (unavailable component removed from numerator and denominator)",
+      "cmf_scale": 0.25,
+      "weights": {"cmf": 0.5, "nsv": 0.5},
+      "label": "RESEARCH ONLY"
+    },
+    "not_added": {
+      "AD_line": "DO NOT ADD (duplicate of CMF information)",
+      "raw_OBV_level": "DO NOT ADD (level meaningless; NSV20 is the normalized slope)",
+      "volume_momentum": "DO NOT ADD (near-duplicate of existing relative volume)",
+      "flow_confidence": "NOT IMPLEMENTED in FLOW 1B"
+    }
+  },
+
+  "technical_baseline": {
+    "function": "app.engines.backtest.engine.technical_score_series (vectorized form of the live 7-component, 3-family score)",
+    "weights_source": "app/research/resources/technical_v1_freeze_manifest.json (technical_indicator_weights + technical_family_weights)",
+    "freeze_manifest_sha256": "6556f7a9c9b9eedcc4b789c861cc2e1b5b2d4a13be1be75605162f0e578bdc97",
+    "scoring_config_hash": "90ba569cf09eb771e6a40de7e5c8a75e3ac97629315c4d59b2607e53a88d9850",
+    "engine_version": "1.14.0",
+    "no_tuning_rule": "Technical is never tuned, re-weighted or re-thresholded in this study.",
+    "positive_bucket": "technical_score >= 15.0 (existing scoring.TECHNICAL_DIRECTION_POSITIVE_THRESHOLD), called 'Technical positive / BUY-like'",
+    "control_components_for_correlation": ["technical_score", "rsi component (RSI14)", "momentum component", "roc component"]
+  },
+
+  "targets": {
+    "primary_return": "INFORMATION target: Close(T) -> Close(T+h) where T+h is the h-th session after T in the same contiguous segment. Not necessarily a tradable price.",
+    "primary_excess": "stock return minus XU100 return over exactly the same two dates; XU100 must have valid bars on both dates.",
+    "raw_return": "reported as secondary context only for Flow quintiles",
+    "execution_variant": "SECONDARY, reported separately, never mixed: Open(E1) -> Close(E_h), E1 = first session after T, stock minus XU100 over the same E1..E_h dates.",
+    "benchmark_processing": "XU100 goes through the same completed-bar, calendar normalization and integrity steps; missing benchmark dates make the observation unavailable (never interpolated).",
+    "dividend_note": "Stock closes are dividend back-adjusted while XU100 is a price index; excess returns carry a dividend-yield offset. Cross-sectional rank statistics are largely unaffected."
+  },
+
+  "horizons": {
+    "primary_horizon_sessions": 10,
+    "secondary_horizon_sessions": [1, 5, 20],
+    "override_rule": "Secondary horizons never replace or override the T+10 primary conclusion."
+  },
+
+  "cross_section_rules": {
+    "min_assets_for_ic": 20,
+    "min_assets_for_quintiles": 50,
+    "quintile_assignment": "per date, rank feature (average ties), pd.qcut of the rank into 5 equal-count bins",
+    "min_obs_per_group_for_conditional_delta": 2
+  },
+
+  "statistics": {
+    "rank_ic": "per eligible date: Pearson correlation of average-rank-transformed feature and average-rank-transformed forward excess return (= Spearman).",
+    "partial_ic_method": "per eligible date: r_f = rank(feature), r_t = rank(technical_score) (and rank(RSI14) for H6); OLS r_f ~ 1 + controls; residual e; partial IC = Pearson(e, rank(forward excess return)). This is a rank semi-partial correlation: only the feature is residualized, so it measures information in the feature that is orthogonal to Technical. Technical's own relation to returns is never computed.",
+    "dates_not_independent": "Stock-date rows are never treated as independent; inference is on the per-date statistic series.",
+    "uncertainty_primary": "circular block bootstrap over the ordered series of eligible dates; block length 20 sessions (for the non-overlapping every-10th-date rebalance series: 2 steps = 20 sessions); 10000 replicates; seed 12001; two-sided 95% percentile CI (2.5, 97.5). Circular (wrap-around) instead of plain moving blocks because plain moving blocks under-sample series ends and produced a CI excluding the sample mean on a SYNTHETIC smoke run; changed before any real outcome was computed.",
+    "uncertainty_secondary": "Newey-West HAC t-statistic of the mean (Bartlett kernel, lag = horizon h).",
+    "bootstrap_p_value": "two-sided: 2*min(share of replicate means <= 0, share >= 0), floored at 1/B",
+    "multiple_testing": "ONE primary hypothesis (P1). All other tests are secondary; Holm-adjusted p-values are reported across the full secondary family; no secondary result can establish the gate."
+  },
+
+  "hypotheses": {
+    "P1_primary": "mean T+10 partial IC of PVFS controlling technical_score > 0. SUPPORTED iff bootstrap CI_low > 0; EVIDENCE_OPPOSITE_DIRECTION iff CI_high < 0; otherwise NOT_ESTABLISHED.",
+    "S_cmf_partial": "mean partial IC of CMF20 controlling technical_score, all horizons",
+    "S_nsv_partial": "mean partial IC of NSV20 controlling technical_score, all horizons",
+    "S_pvfs_partial_secondary_horizons": "mean partial IC of PVFS at T+1, T+5, T+20",
+    "H1": "Within Technical positive (score>=15) on date d: mean excess(T+10) of PVFS>=+20 group minus mean excess of the whole Technical-positive group, averaged over dates. SUPPORTED iff CI_low > 0.",
+    "H2": "Within Technical positive: mean excess(T+10) of PVFS<=-20 group minus the whole Technical-positive group. SUPPORTED iff CI_high < 0.",
+    "H1_H2_spread": "Within Technical positive: PVFS>=+20 group minus PVFS<=-20 group (descriptive).",
+    "flow_groups": "positive: PVFS >= +20; neutral: -20 < PVFS < +20; negative: PVFS <= -20 (RESEARCH ONLY, fixed ex ante)",
+    "H4": "Flat price |ROC20| <= 0.03 AND NSV20 >= +0.20 versus flat price AND NSV20 < +0.20; date-balanced delta of T+10 excess return. SUPPORTED iff CI_low > 0.",
+    "H5": "Rising price ROC20 >= +0.10 AND NSV20 <= 0 versus rising price AND NSV20 > 0; date-balanced delta of T+10 excess return. SUPPORTED iff CI_high < 0.",
+    "H6": "MFI14 is redundant: mean T+10 partial IC of MFI14 controlling rank(RSI14) and rank(technical_score). 'MFI adds information' iff CI_low > 0; otherwise MFI stays out of any future FlowScore.",
+    "hit_rate_deltas": "For H1/H2/H4/H5 the same date-balanced delta is also reported for hit rate (share of excess return > 0), as percentage points."
+  },
+
+  "portfolio_cost_sensitivity": {
+    "applies_to": "quintile long-short (Q5-Q1) and long-only Q5-minus-XU100 at T+10, for PVFS and for Technical-residualized PVFS",
+    "rebalance": "non-overlapping: every 10th eligible date starting from the first eligible date",
+    "turnover": "per leg: 1 - |names(t) intersect names(t-1)| / |names(t)|",
+    "costs_round_trip_bps": [10, 20, 40],
+    "net_rule": "net = gross - cost * turnover (each leg charged separately); no cost is subtracted from IC statistics"
+  },
+
+  "stability": {
+    "by_calendar_year": "mean T+10 partial IC (PVFS, CMF, NSV) per calendar year of T, with date counts",
+    "by_market_regime": "regime at T = sign of XU100 trailing 20-session return (up if > 0, else down); mean T+10 partial IC of PVFS per regime",
+    "liquidity_robustness": "P1 statistic recomputed excluding the bottom median_turnover_20 quintile (secondary)"
+  },
+
+  "correlations": {
+    "features": ["CMF20", "NSV20", "PVFS", "MFI14", "log_RV20", "technical_score", "rsi14", "momentum_component", "roc_component", "ROC20_price"],
+    "primary_method": "mean over dates of the cross-sectional Spearman correlation",
+    "secondary_method": "pooled Spearman over all eligible observations"
+  },
+
+  "calibration": {
+    "calibration_performed": false,
+    "statement": "No parameter is calibrated. All windows, scales, weights and thresholds are fixed research defaults declared here before any outcome is computed. Therefore no calibration/evaluation split is needed; stability is assessed by calendar year and regime.",
+    "no_post_hoc_rule": "Primary horizon, PVFS definition, thresholds and gate rules may not change after results are seen. Any change creates FLOW_V1_OFFLINE_PROTOCOL_V2 and must be reported as such."
+  },
+
+  "research_gate": {
+    "min_meaningful_partial_ic": 0.02,
+    "DEVAM": "P1 SUPPORTED AND the yearly T+10 PVFS partial-IC point estimate is positive in at least 2/3 of calendar years having >= 100 eligible dates AND the Technical-residualized PVFS Q5-Q1 net-of-20bps mean is > 0.",
+    "DUR": "P1 EVIDENCE_OPPOSITE_DIRECTION, OR P1 CI_high < min_meaningful_partial_ic (a meaningful positive effect can be excluded).",
+    "BELIRSIZ": "Every other case (e.g. CI contains 0 but also contains meaningful values, or P1 supported but year-stability or cost condition fails)."
+  }
+}
