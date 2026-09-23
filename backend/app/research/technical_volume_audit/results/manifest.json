@@ -1,0 +1,25 @@
+{
+  "audit_uncommitted_changes": "?? ../technical_volume_audit/data/",
+  "code_head": "216f24473f9d2b91c8127b395d7153191a62f62a",
+  "commands": [
+    "python -m app.research.technical_volume_audit.states",
+    "python -m app.research.technical_volume_audit.study"
+  ],
+  "external_symbols_sha256": "a98aa034fc8d4912ff67ca2ff69f1bc1940e8086e7800d3b3c509c81ec79a409",
+  "flow_1c_dataset_sha256": "2dddfc3d8525abc0fb05cd2047f972db878ddec67f5dac5b6edd3af930a934b1",
+  "numpy_version": "2.5.2",
+  "pandas_version": "3.0.5",
+  "production_states_content_sha256": "8c7c824dc7a2a4963ddcac4ca22aa259de6ccb0b563d7337e022411787d923a0",
+  "protocol_sha256": "ce177dcfeccb3a8f2e549f0d9e4aa8c235c44d5480a8c7ed8e70214635aa0bb6",
+  "protocol_version": "TECH_VOL_1A_AUDIT_PROTOCOL_V2",
+  "python_version": "3.13.15",
+  "run_timestamp_utc": "2026-09-23T13:23:51.362308+00:00",
+  "technical_baseline": {
+    "current_engine_version": "1.14.0",
+    "freeze_manifest_sha256": "6556f7a9c9b9eedcc4b789c861cc2e1b5b2d4a13be1be75605162f0e578bdc97",
+    "manifest_engine_version": "1.14.0",
+    "methodology_git_commit": "c1f0d439d40a709d55007bd8ff34b4a8b2347f95",
+    "score_function": "app.engines.backtest.engine.technical_score_series",
+    "scoring_config_hash": "90ba569cf09eb771e6a40de7e5c8a75e3ac97629315c4d59b2607e53a88d9850"
+  }
+}

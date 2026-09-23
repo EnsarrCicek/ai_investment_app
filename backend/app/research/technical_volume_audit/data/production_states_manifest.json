@@ -1,0 +1,3398 @@
+{
+  "artifact": "TECH_VOL_1A_PRODUCTION_STATES",
+  "external_symbols_sha256": "a98aa034fc8d4912ff67ca2ff69f1bc1940e8086e7800d3b3c509c81ec79a409",
+  "method": "compute_technical_analysis on 6-month production window per (symbol, T); SignalInputs captured by a worker-local runtime wrapper (process isolation)",
+  "per_symbol": {
+    "A1CAP": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 688,
+      "windows_evaluated": 688
+    },
+    "A1YEN": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 1170,
+      "windows_evaluated": 1170
+    },
+    "AAGYO": {
+      "compute_error": 0,
+      "ineligible_window": 111,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "ACSEL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ADEL": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ADESE": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ADGYO": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "AFYON": {
+      "compute_error": 0,
+      "ineligible_window": 376,
+      "score_unavailable": 0,
+      "state_rows": 1050,
+      "windows_evaluated": 1050
+    },
+    "AGESA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AGHOL": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "AGROT": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 582,
+      "windows_evaluated": 582
+    },
+    "AGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AHGAZ": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 684,
+      "windows_evaluated": 684
+    },
+    "AHSGY": {
+      "compute_error": 0,
+      "ineligible_window": 129,
+      "score_unavailable": 0,
+      "state_rows": 388,
+      "windows_evaluated": 388
+    },
+    "AKCNS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AKENR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AKFGY": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AKFIS": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 285,
+      "windows_evaluated": 285
+    },
+    "AKFYE": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 755,
+      "windows_evaluated": 755
+    },
+    "AKGRT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AKHAN": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 32,
+      "windows_evaluated": 32
+    },
+    "AKMGY": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AKSGY": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "AKSUE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AKYHO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ALBRK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ALBTN": {
+      "compute_error": 0,
+      "ineligible_window": 39,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "ALCAR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ALCTL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ALFAS": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 712,
+      "windows_evaluated": 712
+    },
+    "ALGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ALKA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ALKIM": {
+      "compute_error": 0,
+      "ineligible_window": 208,
+      "score_unavailable": 0,
+      "state_rows": 1220,
+      "windows_evaluated": 1220
+    },
+    "ALKLC": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 449,
+      "windows_evaluated": 449
+    },
+    "ANELE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ANGEN": {
+      "compute_error": 0,
+      "ineligible_window": 255,
+      "score_unavailable": 0,
+      "state_rows": 975,
+      "windows_evaluated": 975
+    },
+    "ANHYT": {
+      "compute_error": 0,
+      "ineligible_window": 374,
+      "score_unavailable": 0,
+      "state_rows": 1053,
+      "windows_evaluated": 1053
+    },
+    "ARASE": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 1090,
+      "windows_evaluated": 1090
+    },
+    "ARDYZ": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ARENA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ARFYE": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 55,
+      "windows_evaluated": 55
+    },
+    "ARMGD": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 306,
+      "windows_evaluated": 306
+    },
+    "ARSAN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ARTMS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 472,
+      "windows_evaluated": 472
+    },
+    "ARZUM": {
+      "compute_error": 0,
+      "ineligible_window": 249,
+      "score_unavailable": 0,
+      "state_rows": 1179,
+      "windows_evaluated": 1179
+    },
+    "ASGYO": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "ASUZU": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ATAGY": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ATAKP": {
+      "compute_error": 0,
+      "ineligible_window": 256,
+      "score_unavailable": 0,
+      "state_rows": 531,
+      "windows_evaluated": 531
+    },
+    "ATATP": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 1070,
+      "windows_evaluated": 1070
+    },
+    "ATATR": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 21,
+      "windows_evaluated": 21
+    },
+    "AVGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AVHOL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AVOD": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AVPGY": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "AVTUR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AYCES": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "AYDEM": {
+      "compute_error": 0,
+      "ineligible_window": 246,
+      "score_unavailable": 0,
+      "state_rows": 1099,
+      "windows_evaluated": 1099
+    },
+    "AYEN": {
+      "compute_error": 0,
+      "ineligible_window": 627,
+      "score_unavailable": 0,
+      "state_rows": 798,
+      "windows_evaluated": 798
+    },
+    "AYGAZ": {
+      "compute_error": 0,
+      "ineligible_window": 291,
+      "score_unavailable": 0,
+      "state_rows": 1133,
+      "windows_evaluated": 1133
+    },
+    "AZTEK": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 898,
+      "windows_evaluated": 898
+    },
+    "BAGFS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BAHKM": {
+      "compute_error": 0,
+      "ineligible_window": 130,
+      "score_unavailable": 0,
+      "state_rows": 399,
+      "windows_evaluated": 399
+    },
+    "BAKAB": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BANVT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BASGZ": {
+      "compute_error": 0,
+      "ineligible_window": 627,
+      "score_unavailable": 0,
+      "state_rows": 686,
+      "windows_evaluated": 686
+    },
+    "BAYRK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "BEGYO": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "BESLR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BESTE": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 29,
+      "windows_evaluated": 29
+    },
+    "BETAE": {
+      "compute_error": 0,
+      "ineligible_window": 58,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "BEYAZ": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BFREN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BIENY": {
+      "compute_error": 0,
+      "ineligible_window": 252,
+      "score_unavailable": 0,
+      "state_rows": 584,
+      "windows_evaluated": 584
+    },
+    "BIGCH": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "BIGEN": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 284,
+      "windows_evaluated": 284
+    },
+    "BIGTK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BINBN": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 360,
+      "windows_evaluated": 360
+    },
+    "BINHO": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "BIOEN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1096,
+      "windows_evaluated": 1096
+    },
+    "BIZIM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BJKAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BKRGY": {
+      "compute_error": 0,
+      "ineligible_window": 14,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "BLCYT": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "BLUME": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "BMSCH": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 1195,
+      "windows_evaluated": 1195
+    },
+    "BMSTL": {
+      "compute_error": 0,
+      "ineligible_window": 167,
+      "score_unavailable": 0,
+      "state_rows": 930,
+      "windows_evaluated": 930
+    },
+    "BNTAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BOBET": {
+      "compute_error": 0,
+      "ineligible_window": 356,
+      "score_unavailable": 0,
+      "state_rows": 966,
+      "windows_evaluated": 966
+    },
+    "BORLS": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "BORSK": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 526,
+      "windows_evaluated": 526
+    },
+    "BOSSA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "BRISA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BRKSN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "BRKVY": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 817,
+      "windows_evaluated": 817
+    },
+    "BRLSM": {
+      "compute_error": 0,
+      "ineligible_window": 254,
+      "score_unavailable": 0,
+      "state_rows": 1019,
+      "windows_evaluated": 1019
+    },
+    "BUCIM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BULGS": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 272,
+      "windows_evaluated": 272
+    },
+    "BURCE": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "BURVA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "BVSAN": {
+      "compute_error": 0,
+      "ineligible_window": 244,
+      "score_unavailable": 0,
+      "state_rows": 657,
+      "windows_evaluated": 657
+    },
+    "BYDNR": {
+      "compute_error": 0,
+      "ineligible_window": 256,
+      "score_unavailable": 0,
+      "state_rows": 516,
+      "windows_evaluated": 516
+    },
+    "CATES": {
+      "compute_error": 0,
+      "ineligible_window": 212,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "CELHA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CEMAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CEMTS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CEMZY": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 382,
+      "windows_evaluated": 382
+    },
+    "CEOEM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CGCAM": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 314,
+      "windows_evaluated": 314
+    },
+    "CITAS": {
+      "compute_error": 0,
+      "ineligible_window": 25,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "CLEBI": {
+      "compute_error": 0,
+      "ineligible_window": 500,
+      "score_unavailable": 0,
+      "state_rows": 926,
+      "windows_evaluated": 926
+    },
+    "CMBTN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CONSE": {
+      "compute_error": 0,
+      "ineligible_window": 124,
+      "score_unavailable": 0,
+      "state_rows": 979,
+      "windows_evaluated": 979
+    },
+    "COSMO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CRDFA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "CRFSA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "CUSAN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DAGI": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "DARDL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DCTTR": {
+      "compute_error": 0,
+      "ineligible_window": 130,
+      "score_unavailable": 0,
+      "state_rows": 408,
+      "windows_evaluated": 408
+    },
+    "DENGE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DERHL": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "DERIM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DESA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "DESPC": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DEVA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DGATE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DGGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DGNMO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DITAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DMRGD": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "DMSAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DNISI": {
+      "compute_error": 0,
+      "ineligible_window": 377,
+      "score_unavailable": 0,
+      "state_rows": 1050,
+      "windows_evaluated": 1050
+    },
+    "DOCO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DOFER": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "DOFRB": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 129,
+      "windows_evaluated": 129
+    },
+    "DOGUB": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DOKTA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DUNYH": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "DURDO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "DURKN": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 376,
+      "windows_evaluated": 376
+    },
+    "DYOBY": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "DZGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "EBEBK": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "ECOGR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 96,
+      "windows_evaluated": 96
+    },
+    "ECZYT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "EDATA": {
+      "compute_error": 0,
+      "ineligible_window": 254,
+      "score_unavailable": 0,
+      "state_rows": 1048,
+      "windows_evaluated": 1048
+    },
+    "EDIP": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "EGEEN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "EGEGY": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 299,
+      "windows_evaluated": 299
+    },
+    "EGEPO": {
+      "compute_error": 0,
+      "ineligible_window": 257,
+      "score_unavailable": 0,
+      "state_rows": 1009,
+      "windows_evaluated": 1009
+    },
+    "EGGUB": {
+      "compute_error": 0,
+      "ineligible_window": 375,
+      "score_unavailable": 0,
+      "state_rows": 1052,
+      "windows_evaluated": 1052
+    },
+    "EGPRO": {
+      "compute_error": 0,
+      "ineligible_window": 249,
+      "score_unavailable": 0,
+      "state_rows": 1179,
+      "windows_evaluated": 1179
+    },
+    "EGSER": {
+      "compute_error": 0,
+      "ineligible_window": 294,
+      "score_unavailable": 0,
+      "state_rows": 1133,
+      "windows_evaluated": 1133
+    },
+    "EKDMR": {
+      "compute_error": 0,
+      "ineligible_window": 83,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "EKIM": {
+      "compute_error": 0,
+      "ineligible_window": 52,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "EKOS": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "EKSUN": {
+      "compute_error": 0,
+      "ineligible_window": 124,
+      "score_unavailable": 0,
+      "state_rows": 750,
+      "windows_evaluated": 750
+    },
+    "ELITE": {
+      "compute_error": 0,
+      "ineligible_window": 380,
+      "score_unavailable": 0,
+      "state_rows": 833,
+      "windows_evaluated": 833
+    },
+    "EMKEL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "EMPAE": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 18,
+      "windows_evaluated": 18
+    },
+    "ENDAE": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 277,
+      "windows_evaluated": 277
+    },
+    "ENSRI": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 999,
+      "windows_evaluated": 999
+    },
+    "ENTRA": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 491,
+      "windows_evaluated": 491
+    },
+    "EPLAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ERBOS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ERCB": {
+      "compute_error": 0,
+      "ineligible_window": 366,
+      "score_unavailable": 0,
+      "state_rows": 804,
+      "windows_evaluated": 804
+    },
+    "ERSU": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ESCAR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1171,
+      "windows_evaluated": 1171
+    },
+    "ESCOM": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ETILR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "EYGYO": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "FADE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "FLAP": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "FMIZP": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "FONET": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "FORMT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "FORTE": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "FRIGO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "FRMPL": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 48,
+      "windows_evaluated": 48
+    },
+    "FZLGY": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "GARFA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GEDIK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GEDZA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "GENKM": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 8,
+      "windows_evaluated": 8
+    },
+    "GENTS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GEREL": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GIPTA": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "GLBMD": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GLCVY": {
+      "compute_error": 0,
+      "ineligible_window": 255,
+      "score_unavailable": 0,
+      "state_rows": 975,
+      "windows_evaluated": 975
+    },
+    "GLRYH": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GLYHO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GMTAS": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 1089,
+      "windows_evaluated": 1089
+    },
+    "GOKNR": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 634,
+      "windows_evaluated": 634
+    },
+    "GOLDA": {
+      "compute_error": 0,
+      "ineligible_window": 53,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "GOLTS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "GOODY": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "GOZDE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "GSDDE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "GSDHO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "GUNDG": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 368,
+      "windows_evaluated": 368
+    },
+    "GWIND": {
+      "compute_error": 0,
+      "ineligible_window": 387,
+      "score_unavailable": 0,
+      "state_rows": 961,
+      "windows_evaluated": 961
+    },
+    "GZNMI": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 883,
+      "windows_evaluated": 883
+    },
+    "HATEK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "HATSN": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "HDFGS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "HEDEF": {
+      "compute_error": 0,
+      "ineligible_window": 130,
+      "score_unavailable": 0,
+      "state_rows": 1100,
+      "windows_evaluated": 1100
+    },
+    "HKTM": {
+      "compute_error": 0,
+      "ineligible_window": 202,
+      "score_unavailable": 0,
+      "state_rows": 821,
+      "windows_evaluated": 821
+    },
+    "HLGYO": {
+      "compute_error": 0,
+      "ineligible_window": 381,
+      "score_unavailable": 0,
+      "state_rows": 1046,
+      "windows_evaluated": 1046
+    },
+    "HOROZ": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 447,
+      "windows_evaluated": 447
+    },
+    "HRKET": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 457,
+      "windows_evaluated": 457
+    },
+    "HTTBT": {
+      "compute_error": 0,
+      "ineligible_window": 124,
+      "score_unavailable": 0,
+      "state_rows": 1013,
+      "windows_evaluated": 1013
+    },
+    "HUBVC": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "HUNER": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 1022,
+      "windows_evaluated": 1022
+    },
+    "HURGZ": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ICBCT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ICUGS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "IDGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IHAAS": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 1095,
+      "windows_evaluated": 1095
+    },
+    "IHEVA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IHGZT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IHLAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IHLGM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IHYAY": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IMASM": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 973,
+      "windows_evaluated": 973
+    },
+    "INDES": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "INFO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "INGRM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "INTEM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "INTET": {
+      "compute_error": 0,
+      "ineligible_window": 15,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "INVEO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "INVES": {
+      "compute_error": 0,
+      "ineligible_window": 146,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "ISATR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ISBTR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ISDMR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ISFIN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ISGSY": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1304,
+      "windows_evaluated": 1304
+    },
+    "ISGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ISKPL": {
+      "compute_error": 0,
+      "ineligible_window": 121,
+      "score_unavailable": 0,
+      "state_rows": 1290,
+      "windows_evaluated": 1290
+    },
+    "ISSEN": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 1085,
+      "windows_evaluated": 1085
+    },
+    "ISVEA": {
+      "compute_error": 0,
+      "ineligible_window": 51,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "IZFAS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "IZINV": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "IZMDC": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "JANTS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "KAPLM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KARCL": {
+      "compute_error": 0,
+      "ineligible_window": 37,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "KAREL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KARSN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KARTN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KATMR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KAYSE": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 710,
+      "windows_evaluated": 710
+    },
+    "KBORU": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "KCAER": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 928,
+      "windows_evaluated": 928
+    },
+    "KFEIN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "KGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "KIMMR": {
+      "compute_error": 0,
+      "ineligible_window": 129,
+      "score_unavailable": 0,
+      "state_rows": 1123,
+      "windows_evaluated": 1123
+    },
+    "KLGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KLKIM": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 1085,
+      "windows_evaluated": 1085
+    },
+    "KLMSN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KLSER": {
+      "compute_error": 0,
+      "ineligible_window": 256,
+      "score_unavailable": 0,
+      "state_rows": 531,
+      "windows_evaluated": 531
+    },
+    "KLSYN": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 887,
+      "windows_evaluated": 887
+    },
+    "KLYPV": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 236,
+      "windows_evaluated": 236
+    },
+    "KMPUR": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 848,
+      "windows_evaluated": 848
+    },
+    "KNFRT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KOCMT": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 462,
+      "windows_evaluated": 462
+    },
+    "KONKA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1080,
+      "windows_evaluated": 1080
+    },
+    "KONYA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KOPOL": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 735,
+      "windows_evaluated": 735
+    },
+    "KORDS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "KOTON": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 467,
+      "windows_evaluated": 467
+    },
+    "KPEKS": {
+      "compute_error": 0,
+      "ineligible_window": 21,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "KRDMA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KRDMB": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KRGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "KRONT": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "KRPLS": {
+      "compute_error": 0,
+      "ineligible_window": 321,
+      "score_unavailable": 0,
+      "state_rows": 716,
+      "windows_evaluated": 716
+    },
+    "KRSTL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KRTEK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KRVGD": {
+      "compute_error": 0,
+      "ineligible_window": 249,
+      "score_unavailable": 0,
+      "state_rows": 1179,
+      "windows_evaluated": 1179
+    },
+    "KTSKR": {
+      "compute_error": 0,
+      "ineligible_window": 264,
+      "score_unavailable": 0,
+      "state_rows": 1034,
+      "windows_evaluated": 1034
+    },
+    "KUTPO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "KUVVA": {
+      "compute_error": 0,
+      "ineligible_window": 378,
+      "score_unavailable": 0,
+      "state_rows": 1049,
+      "windows_evaluated": 1049
+    },
+    "KZBGY": {
+      "compute_error": 0,
+      "ineligible_window": 130,
+      "score_unavailable": 0,
+      "state_rows": 1150,
+      "windows_evaluated": 1150
+    },
+    "KZGYO": {
+      "compute_error": 0,
+      "ineligible_window": 350,
+      "score_unavailable": 0,
+      "state_rows": 413,
+      "windows_evaluated": 413
+    },
+    "LIDER": {
+      "compute_error": 0,
+      "ineligible_window": 124,
+      "score_unavailable": 0,
+      "state_rows": 991,
+      "windows_evaluated": 991
+    },
+    "LIDFA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "LILAK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 467,
+      "windows_evaluated": 467
+    },
+    "LINK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "LKMNH": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 1180,
+      "windows_evaluated": 1180
+    },
+    "LMKDC": {
+      "compute_error": 0,
+      "ineligible_window": 157,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "LOGO": {
+      "compute_error": 0,
+      "ineligible_window": 369,
+      "score_unavailable": 0,
+      "state_rows": 1057,
+      "windows_evaluated": 1057
+    },
+    "LRSHO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "LUKSK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "LXGYO": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 7,
+      "windows_evaluated": 7
+    },
+    "LYDHO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "LYDYE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MAALT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MACKO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 656,
+      "windows_evaluated": 656
+    },
+    "MAKIM": {
+      "compute_error": 0,
+      "ineligible_window": 252,
+      "score_unavailable": 0,
+      "state_rows": 812,
+      "windows_evaluated": 812
+    },
+    "MAKTK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MANAS": {
+      "compute_error": 0,
+      "ineligible_window": 259,
+      "score_unavailable": 0,
+      "state_rows": 1032,
+      "windows_evaluated": 1032
+    },
+    "MARBL": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 593,
+      "windows_evaluated": 593
+    },
+    "MARMR": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 124,
+      "windows_evaluated": 124
+    },
+    "MARTI": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MASFN": {
+      "compute_error": 0,
+      "ineligible_window": 38,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "MCARD": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 6,
+      "windows_evaluated": 6
+    },
+    "MEDTR": {
+      "compute_error": 0,
+      "ineligible_window": 249,
+      "score_unavailable": 0,
+      "state_rows": 1054,
+      "windows_evaluated": 1054
+    },
+    "MEGMT": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 566,
+      "windows_evaluated": 566
+    },
+    "MEKAG": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 607,
+      "windows_evaluated": 607
+    },
+    "MEPET": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MERCN": {
+      "compute_error": 0,
+      "ineligible_window": 378,
+      "score_unavailable": 0,
+      "state_rows": 950,
+      "windows_evaluated": 950
+    },
+    "MERIT": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "MERKO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "METEN": {
+      "compute_error": 0,
+      "ineligible_window": 39,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "METRO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MEYSU": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 49,
+      "windows_evaluated": 49
+    },
+    "MHRGY": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 501,
+      "windows_evaluated": 501
+    },
+    "MNDRS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MNDTR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MOBTL": {
+      "compute_error": 0,
+      "ineligible_window": 254,
+      "score_unavailable": 0,
+      "state_rows": 952,
+      "windows_evaluated": 952
+    },
+    "MOGAN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 472,
+      "windows_evaluated": 472
+    },
+    "MOPAS": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 281,
+      "windows_evaluated": 281
+    },
+    "MRGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "MRSHL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "MSGYO": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 1180,
+      "windows_evaluated": 1180
+    },
+    "MTRKS": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 1112,
+      "windows_evaluated": 1112
+    },
+    "MZHLD": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "NATEN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "NETAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "NETCD": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 33,
+      "windows_evaluated": 33
+    },
+    "NETGL": {
+      "compute_error": 0,
+      "ineligible_window": 2,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "NIBAS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "NTGAZ": {
+      "compute_error": 0,
+      "ineligible_window": 581,
+      "score_unavailable": 0,
+      "state_rows": 777,
+      "windows_evaluated": 777
+    },
+    "NTHOL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "NUGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "NUHCM": {
+      "compute_error": 0,
+      "ineligible_window": 376,
+      "score_unavailable": 0,
+      "state_rows": 1051,
+      "windows_evaluated": 1051
+    },
+    "OBASE": {
+      "compute_error": 0,
+      "ineligible_window": 132,
+      "score_unavailable": 0,
+      "state_rows": 903,
+      "windows_evaluated": 903
+    },
+    "OFSYM": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "ONCSM": {
+      "compute_error": 0,
+      "ineligible_window": 244,
+      "score_unavailable": 0,
+      "state_rows": 681,
+      "windows_evaluated": 681
+    },
+    "ONRYT": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 453,
+      "windows_evaluated": 453
+    },
+    "ORCAY": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 751,
+      "windows_evaluated": 751
+    },
+    "ORGE": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ORZAX": {
+      "compute_error": 0,
+      "ineligible_window": 54,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "OSMEN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "OSTIM": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "OTTO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "OYLUM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "OYYAT": {
+      "compute_error": 0,
+      "ineligible_window": 378,
+      "score_unavailable": 0,
+      "state_rows": 940,
+      "windows_evaluated": 940
+    },
+    "OZATD": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 385,
+      "windows_evaluated": 385
+    },
+    "OZGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "OZKGY": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "OZRDN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "OZSUB": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 830,
+      "windows_evaluated": 830
+    },
+    "OZYSR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 449,
+      "windows_evaluated": 449
+    },
+    "PAGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PAMEL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PAPIL": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "PARSN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PCILT": {
+      "compute_error": 0,
+      "ineligible_window": 576,
+      "score_unavailable": 0,
+      "state_rows": 623,
+      "windows_evaluated": 623
+    },
+    "PEKGY": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "PENGD": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PENTA": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 1086,
+      "windows_evaluated": 1086
+    },
+    "PETUN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "PINSU": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "PKART": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PKENT": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PLTUR": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 692,
+      "windows_evaluated": 692
+    },
+    "PNLSN": {
+      "compute_error": 0,
+      "ineligible_window": 248,
+      "score_unavailable": 0,
+      "state_rows": 897,
+      "windows_evaluated": 897
+    },
+    "PNSUT": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "POLHO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "POLTK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PRDGS": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 939,
+      "windows_evaluated": 939
+    },
+    "PRKAB": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PRKME": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "PRZMA": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "PSDTC": {
+      "compute_error": 0,
+      "ineligible_window": 273,
+      "score_unavailable": 0,
+      "state_rows": 1154,
+      "windows_evaluated": 1154
+    },
+    "QUICK": {
+      "compute_error": 0,
+      "ineligible_window": 33,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "RAYSG": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "RGYAS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 472,
+      "windows_evaluated": 472
+    },
+    "RNPOL": {
+      "compute_error": 0,
+      "ineligible_window": 127,
+      "score_unavailable": 0,
+      "state_rows": 1073,
+      "windows_evaluated": 1073
+    },
+    "RODRG": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "RTALB": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "RUBNS": {
+      "compute_error": 0,
+      "ineligible_window": 253,
+      "score_unavailable": 0,
+      "state_rows": 797,
+      "windows_evaluated": 797
+    },
+    "RUZYE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "RYGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "RYSAS": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SAFKR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SAMAT": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SANEL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SANFM": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SANKO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SARAE": {
+      "compute_error": 0,
+      "ineligible_window": 47,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "SAYAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SDTTR": {
+      "compute_error": 0,
+      "ineligible_window": 119,
+      "score_unavailable": 0,
+      "state_rows": 807,
+      "windows_evaluated": 807
+    },
+    "SEGMN": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 428,
+      "windows_evaluated": 428
+    },
+    "SEGYO": {
+      "compute_error": 0,
+      "ineligible_window": 128,
+      "score_unavailable": 0,
+      "state_rows": 945,
+      "windows_evaluated": 945
+    },
+    "SEKFK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SEKUR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SELEC": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SELVA": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 1183,
+      "windows_evaluated": 1183
+    },
+    "SERNT": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 285,
+      "windows_evaluated": 285
+    },
+    "SEYKM": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SILVR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SKTAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SKYLP": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SKYMD": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "SMART": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SMRTG": {
+      "compute_error": 0,
+      "ineligible_window": 124,
+      "score_unavailable": 0,
+      "state_rows": 998,
+      "windows_evaluated": 998
+    },
+    "SMRVA": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 314,
+      "windows_evaluated": 314
+    },
+    "SNGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SNICA": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 833,
+      "windows_evaluated": 833
+    },
+    "SOHOE": {
+      "compute_error": 0,
+      "ineligible_window": 55,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "SOKE": {
+      "compute_error": 0,
+      "ineligible_window": 119,
+      "score_unavailable": 0,
+      "state_rows": 801,
+      "windows_evaluated": 801
+    },
+    "SONME": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "SRVGY": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "SSAAT": {
+      "compute_error": 0,
+      "ineligible_window": 48,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "SUNTK": {
+      "compute_error": 0,
+      "ineligible_window": 252,
+      "score_unavailable": 0,
+      "state_rows": 832,
+      "windows_evaluated": 832
+    },
+    "SURGY": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "SUWEN": {
+      "compute_error": 0,
+      "ineligible_window": 124,
+      "score_unavailable": 0,
+      "state_rows": 978,
+      "windows_evaluated": 978
+    },
+    "SVGYO": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 11,
+      "windows_evaluated": 11
+    },
+    "TABGD": {
+      "compute_error": 0,
+      "ineligible_window": 242,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "TARKM": {
+      "compute_error": 0,
+      "ineligible_window": 138,
+      "score_unavailable": 0,
+      "state_rows": 484,
+      "windows_evaluated": 484
+    },
+    "TATEN": {
+      "compute_error": 0,
+      "ineligible_window": 130,
+      "score_unavailable": 0,
+      "state_rows": 646,
+      "windows_evaluated": 646
+    },
+    "TATGD": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TBORG": {
+      "compute_error": 0,
+      "ineligible_window": 907,
+      "score_unavailable": 0,
+      "state_rows": 492,
+      "windows_evaluated": 492
+    },
+    "TCKRC": {
+      "compute_error": 0,
+      "ineligible_window": 130,
+      "score_unavailable": 0,
+      "state_rows": 390,
+      "windows_evaluated": 390
+    },
+    "TDGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TEHOL": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "TEKTU": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TERA": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 810,
+      "windows_evaluated": 810
+    },
+    "TEZOL": {
+      "compute_error": 0,
+      "ineligible_window": 129,
+      "score_unavailable": 0,
+      "state_rows": 1128,
+      "windows_evaluated": 1128
+    },
+    "TGSAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TKNKA": {
+      "compute_error": 0,
+      "ineligible_window": 23,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "TKNSA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TLMAN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TMPOL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TMSN": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TNZTP": {
+      "compute_error": 0,
+      "ineligible_window": 119,
+      "score_unavailable": 0,
+      "state_rows": 802,
+      "windows_evaluated": 802
+    },
+    "TRCAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TRGYO": {
+      "compute_error": 0,
+      "ineligible_window": 377,
+      "score_unavailable": 0,
+      "state_rows": 1050,
+      "windows_evaluated": 1050
+    },
+    "TRHOL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TSGYO": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TSPOR": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TTRAK": {
+      "compute_error": 0,
+      "ineligible_window": 526,
+      "score_unavailable": 0,
+      "state_rows": 899,
+      "windows_evaluated": 899
+    },
+    "TUCLK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "TUREX": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 1239,
+      "windows_evaluated": 1239
+    },
+    "TURGG": {
+      "compute_error": 0,
+      "ineligible_window": 250,
+      "score_unavailable": 0,
+      "state_rows": 1178,
+      "windows_evaluated": 1178
+    },
+    "UCAYM": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 43,
+      "windows_evaluated": 43
+    },
+    "UFUK": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ULAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ULUFA": {
+      "compute_error": 0,
+      "ineligible_window": 380,
+      "score_unavailable": 0,
+      "state_rows": 834,
+      "windows_evaluated": 834
+    },
+    "ULUSE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "ULUUN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "UNLU": {
+      "compute_error": 0,
+      "ineligible_window": 377,
+      "score_unavailable": 0,
+      "state_rows": 944,
+      "windows_evaluated": 944
+    },
+    "USAK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "USHOL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "VAKFA": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 84,
+      "windows_evaluated": 84
+    },
+    "VAKFN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "VAKKO": {
+      "compute_error": 0,
+      "ineligible_window": 375,
+      "score_unavailable": 0,
+      "state_rows": 1052,
+      "windows_evaluated": 1052
+    },
+    "VANGD": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "VBTYZ": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1046,
+      "windows_evaluated": 1046
+    },
+    "VERTU": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "VERUS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "VESBE": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "VEYAS": {
+      "compute_error": 0,
+      "ineligible_window": 23,
+      "score_unavailable": 0,
+      "state_rows": 0,
+      "windows_evaluated": 0
+    },
+    "VKGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "VKING": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "VRGYO": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 600,
+      "windows_evaluated": 600
+    },
+    "VSNMD": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 280,
+      "windows_evaluated": 280
+    },
+    "YAPRK": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "YATAS": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "YAYLA": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "YEOTK": {
+      "compute_error": 0,
+      "ineligible_window": 129,
+      "score_unavailable": 0,
+      "state_rows": 1136,
+      "windows_evaluated": 1136
+    },
+    "YESIL": {
+      "compute_error": 0,
+      "ineligible_window": 251,
+      "score_unavailable": 0,
+      "state_rows": 1177,
+      "windows_evaluated": 1177
+    },
+    "YGGYO": {
+      "compute_error": 0,
+      "ineligible_window": 525,
+      "score_unavailable": 0,
+      "state_rows": 900,
+      "windows_evaluated": 900
+    },
+    "YIGIT": {
+      "compute_error": 0,
+      "ineligible_window": 125,
+      "score_unavailable": 0,
+      "state_rows": 447,
+      "windows_evaluated": 447
+    },
+    "YKSLN": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "YUNSA": {
+      "compute_error": 0,
+      "ineligible_window": 164,
+      "score_unavailable": 0,
+      "state_rows": 1264,
+      "windows_evaluated": 1264
+    },
+    "YYLGD": {
+      "compute_error": 0,
+      "ineligible_window": 252,
+      "score_unavailable": 0,
+      "state_rows": 832,
+      "windows_evaluated": 832
+    },
+    "ZEDUR": {
+      "compute_error": 0,
+      "ineligible_window": 126,
+      "score_unavailable": 0,
+      "state_rows": 1303,
+      "windows_evaluated": 1303
+    },
+    "ZERGY": {
+      "compute_error": 0,
+      "ineligible_window": 123,
+      "score_unavailable": 0,
+      "state_rows": 66,
+      "windows_evaluated": 66
+    },
+    "ZGYO": {
+      "compute_error": 0,
+      "ineligible_window": 122,
+      "score_unavailable": 0,
+      "state_rows": 47,
+      "windows_evaluated": 47
+    },
+    "ZRGYO": {
+      "compute_error": 0,
+      "ineligible_window": 247,
+      "score_unavailable": 0,
+      "state_rows": 1094,
+      "windows_evaluated": 1094
+    }
+  },
+  "rows": 455011,
+  "source_dataset_sha256": "2dddfc3d8525abc0fb05cd2047f972db878ddec67f5dac5b6edd3af930a934b1",
+  "states_content_sha256": "8c7c824dc7a2a4963ddcac4ca22aa259de6ccb0b563d7337e022411787d923a0"
+}
