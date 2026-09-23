@@ -1,0 +1,128 @@
+{
+  "protocol_schema_version": "1.0.0",
+  "protocol_version": "TECH_VOL_1A_AUDIT_PROTOCOL_V2",
+  "ticket": "TECH-VOL 1A",
+  "study_label": "POST-HOC ASSUMPTION AUDIT (not pre-registered discovery research)",
+  "trigger": "FLOW 1B exploratory (NOT pre-registered) finding: log(RV20) had negative T+10 partial IC controlling Technical (-0.034 [-0.047, -0.022]) in the discovery 100. Exploratory findings alone cannot justify a methodology change; this audit tests the specific production assumption on the external universe.",
+  "production_assumption_under_audit": {
+    "definition": "relative_volume_series(volume, 20) = V_T / rolling_median(V, 20) with the window INCLUDING session T (app/engines/technical/relative_volume.py); single-session ratio at T.",
+    "classes": "LOW < 0.5 <= NORMAL < 1.5 <= HIGH < 2.5 <= VERY_HIGH; NaN -> UNKNOWN (classify_relative_volume, DEFAULT_THRESHOLDS)",
+    "high_volume_flag": "relative_volume_class in {HIGH, VERY_HIGH}  <=>  RV20 >= 1.5 (signal_classifier.classify_signal)",
+    "only_behavioral_use": "classify_signal: STRONG_BULLISH_INITIATION requires score>=40 AND UPTREND AND confirmed not-broken BULLISH breakout AND high_volume AND MTF aligned UP. Without high volume the same state becomes BULLISH_CONFIRMED. Downstream: fcm_sender new-opportunity push notification requires STRONG_BULLISH_INITIATION; horizon_classifier maps STRONG to KISA_VADELI (horizon hidden in UI since HATA 8C).",
+    "not_used_by": [
+      "technical_score",
+      "confidence (disconnected in HATA 5C3A)",
+      "breakout detection/confirmation",
+      "DecisionEngine",
+      "bearish classes"
+    ]
+  },
+  "technical_blinding": {
+    "mode": "TECHNICAL_BLIND (carried over)",
+    "never_exposed": [
+      "Technical-only IC",
+      "Technical-only / signal-class-only hit rate",
+      "Technical-only average or XU100-relative return",
+      "Technical strategy P&L",
+      "absolute return level of any Technical or signal-class group"
+    ],
+    "allowed": [
+      "high-volume minus not-high-volume deltas within the SAME Technical state",
+      "hit-rate deltas",
+      "relative-volume partial IC controlling Technical",
+      "selected-minus-all deltas",
+      "counts"
+    ]
+  },
+  "data": {
+    "universe": "FLOW 1C external universe (484 symbols; flow_v1c_universe.json sha a98aa034...; zero overlap with FLOW 1B 100; verified by FLOW 1C-R1)",
+    "dataset": "existing local FLOW 1C frozen snapshot, dataset_sha256 2dddfc3d8525abc0fb05cd2047f972db878ddec67f5dac5b6edd3af930a934b1; no new fetch",
+    "limitations": "Yahoo back-adjusted data (not point-in-time); current-listing survivorship; same calendar period as discovery."
+  },
+  "production_exact_state_reconstruction": {
+    "method": "For every (symbol, completed session T): df = contiguous-segment bars with date >= T - 6 calendar months (production ANALYSIS_WINDOW_MONTHS), ending at T; app.engines.technical.engine.compute_technical_analysis(df, ..., frozen V1 weights, benchmark_close_series = frozen XU100, now = T 18:45 Europe/Istanbul). The SignalInputs passed to classify_signal are captured in the research process (runtime wrapper, production code untouched).",
+    "eligibility": "the segment must contain at least one bar dated before T - 6 months (production VERIFIED_PRE_WINDOW analogue; leading-edge / new-listing windows excluded) and len(df) >= MIN_HISTORY_DAYS (60). No fill; gaps split segments.",
+    "derived_fields": {
+      "technical_score_prod": "production-window technical_score (control / bucket variable only)",
+      "rv20": "production relative volume ratio at T",
+      "high_volume": "rv20 >= 1.5; not_high: rv20 < 1.5; rv20 NaN -> excluded",
+      "bullish_confirmed_breakout": "captured breakout_event is BULLISH and confirmed is True",
+      "strong_preconditions_without_volume": "classify_signal(captured inputs with relative_volume_class forced to HIGH) == STRONG_BULLISH_INITIATION, evaluated with the UNWRAPPED production classify_signal. Equivalent to: score>=40 AND UPTREND AND BULLISH breakout confirmed AND retest not failed AND MTF aligned UP. high_volume is NOT part of the predicate (invariant to the input relative_volume_class)."
+    },
+    "capture_isolation": "ProcessPoolExecutor worker processes (no threads); the wrapper is installed only in each worker's initializer; each worker runs tasks sequentially and clears its own capture dict before every call; the main process is never patched. Per-symbol checkpoints make the build resumable; content is order-independent (rows sorted by date, symbol).",
+    "semantic_verification": "Fail-fast before analysis: every row with strong_preconditions_without_volume=TRUE has final class STRONG_BULLISH_INITIATION iff rv20>=1.5 and BULLISH_CONFIRMED otherwise (rv20 NaN -> BULLISH_CONFIRMED); every STRONG_BULLISH_INITIATION row has the predicate TRUE and rv20>=1.5."
+  },
+  "targets": {
+    "return": "Close(T)->Close(T+h) minus XU100 over the same dates (FLOW panel ex_h; information target, not tradable price)",
+    "primary_horizon": 10,
+    "secondary_horizons": [
+      1,
+      5,
+      20
+    ]
+  },
+  "definitions": {
+    "technical_positive": "technical_score_prod >= 15",
+    "technical_negative": "technical_score_prod <= -15",
+    "technical_neutral": "-15 < technical_score_prod < 15",
+    "price_direction_T": "r_T = Close_T / Close_{T-1} - 1 (one-session change, same semantics as market_data/changes '1d'); up if r_T > +0.005, down if r_T < -0.005, flat otherwise",
+    "spike_vs_sustained": "among high-volume T: SPIKE if none of T-4..T-1 is high-volume; SUSTAINED if at least 2 of T-4..T-1 are high-volume (production-identical rv20 per session)",
+    "limit_locked": "session T with High == Low",
+    "low_liquidity": "bottom cross-sectional quintile of median 20-session Close*Volume on date T",
+    "min_group": "per date >= 2 observations in each compared group",
+    "date_balanced_delta": "delta_d = mean(target | group) - mean(target | comparison) on date d; statistic = mean over dates"
+  },
+  "primary": {
+    "name": "PRIMARY",
+    "statement": "Among states with strong_preconditions_without_volume = TRUE (and rv20 available): A = high_volume TRUE (final STRONG_BULLISH_INITIATION) minus B = high_volume FALSE (final BULLISH_CONFIRMED), T+10 XU100-relative return, date-balanced (>= 2 per group per date).",
+    "conditioning_rule": "Conditioning uses ONLY the volume-independent predicate. Final signal_class is never a conditioning or matching variable.",
+    "also_reported": "hit-rate delta (pp), observations per group, date count",
+    "uncertainty": "circular block bootstrap over dates, block 20, 10000 replicates, seed 12001, two-sided 95% CI; Newey-West t (lag 10)"
+  },
+  "key_diagnostic": {
+    "name": "KEY_DIAGNOSTIC",
+    "statement": "Mean over dates of cross-sectional rank semi-partial IC of log(rv20) controlling rank(technical_score_prod), T+10, min 20 assets per date (FLOW method). Diagnostic, not a strategy.",
+    "uncertainty": "same bootstrap, 95% CI"
+  },
+  "secondary_family": {
+    "correction": "Holm across the whole secondary family; no secondary result enters the classification except where explicitly named below",
+    "members": [
+      "PRIMARY (STRONG A/B) at T+1, T+5, T+20",
+      "TECHNICAL_POSITIVE_CONTEXT: within technical_score_prod >= 15, high minus not-high, T+10 (the V1 primary, demoted)",
+      "KEY_DIAGNOSTIC at T+1, T+5, T+20",
+      "BEARISH: within Technical-negative, high minus not-high, T+10",
+      "NEUTRAL: within Technical-neutral, high minus not-high, T+10",
+      "BREAKOUT_CONTEXT: among bullish_confirmed_breakout states (any score), high minus not-high, T+10",
+      "DIRECTION A-B / C-D / E-F (unchanged from V1)",
+      "SPIKE / SUSTAINED: within the PRIMARY context, spike-high (resp. sustained-high) minus not-high",
+      "LIQUIDITY: PRIMARY and TECHNICAL_POSITIVE_CONTEXT within the lowest-liquidity quintile and within the remaining 80%",
+      "LIMIT_LOCKED: PRIMARY and TECHNICAL_POSITIVE_CONTEXT excluding H==L sessions"
+    ]
+  },
+  "stability": "PRIMARY delta by calendar year and by market regime (XU100 trailing 20-session return > 0 vs <= 0). Descriptive.",
+  "ten_offset": {
+    "applies_to": [
+      "PRIMARY context: selected = high-volume (STRONG) vs all strong_preconditions_without_volume states",
+      "TECHNICAL_POSITIVE_CONTEXT: selected = high-volume vs all Technical-positive"
+    ],
+    "rule": "offsets 0..9 of the eligible-date sequence, every 10th date, T+10; each offset reported; mean, median, min, max, number with the same sign as the all-dates overlapping estimate; no offset selected",
+    "costs": "net = (mean(selected) - c*turnover_selected) - (mean(all) - c*turnover_all), c in {10, 20, 40} bps round-trip"
+  },
+  "classification_rule": {
+    "HARMFUL": "PRIMARY 95% CI_high < 0",
+    "DIRECTION-CONDITIONAL": "PRIMARY 95% CI_low > 0 AND BEARISH delta Holm-adjusted p < 0.05 with negative sign",
+    "SUPPORTED": "PRIMARY 95% CI_low > 0 and not DIRECTION-CONDITIONAL",
+    "REDUNDANT": "PRIMARY 95% CI within [-0.0025, +0.0025] AND KEY_DIAGNOSTIC 95% CI within [-0.01, +0.01]",
+    "INCONCLUSIVE": "otherwise",
+    "production_change_indicated": "HARMFUL or DIRECTION-CONDITIONAL -> EVET (recommend separate fix ticket; NO change here); SUPPORTED or REDUNDANT -> HAYIR; INCONCLUSIVE -> BELIRSIZ. PRODUCTION_STRONG_CONTEXT is reported alongside because it is the exact production use, but it cannot override the classification."
+  },
+  "no_production_change": "TechnicalAnalysisEngine, signal_classifier, weights, confidence, breakout logic, notifications and DecisionEngine are NOT modified in this ticket regardless of outcome.",
+  "no_post_hoc_rule": "Definitions, thresholds, horizons, groups, correction and classification rule may not change after outcomes are seen; any change creates TECH_VOL_1A_AUDIT_PROTOCOL_V3.",
+  "supersedes": {
+    "protocol_version": "TECH_VOL_1A_AUDIT_PROTOCOL_V1",
+    "v1_content_sha256": "b6ca947e6d59a86235e667cb4056489945341f22fc34a677b37ee263aa029362",
+    "v1_commit": "e853479",
+    "reason": "User decision before ANY outcome was computed (the V1 state build crashed with BrokenProcessPool and produced no data): the PRIMARY must test the exact production use of the flag — within states that satisfy every STRONG_BULLISH_INITIATION condition except high_volume, compare high_volume=True (final STRONG_BULLISH_INITIATION) with high_volume=False (final BULLISH_CONFIRMED). Final signal_class is never used as a conditioning/matching variable (it is deterministically changed by high_volume; conditioning on it would be collider/selection bias). Thresholds, definitions, horizons, correction and classification rule are unchanged; only primary/secondary roles moved.",
+    "outcomes_seen_before_change": false
+  }
+}

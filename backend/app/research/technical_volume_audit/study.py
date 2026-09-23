@@ -30,7 +30,7 @@ from app.research.technical_volume_audit.states import (
     spike_or_sustained,
 )
 
-PROTOCOL_FILE_NAME = "tech_vol_1a_protocol_v1.json"
+PROTOCOL_FILE_NAME = "tech_vol_1a_protocol_v2.json"
 PRIMARY_H = 10
 SECONDARY_H = (1, 5, 20)
 TECH_POS, TECH_NEG = 15.0, -15.0
@@ -160,6 +160,29 @@ def classify(primary: dict, key_diag: dict, bearish_holm_p: float | None, bearis
     return "INCONCLUSIVE"
 
 
+class StateSemanticsError(AssertionError):
+    pass
+
+
+def verify_state_semantics(states: pd.DataFrame) -> dict:
+    """V2 fail-fast: predicate TRUE satırlarında final sınıf yalnızca hacme
+    göre STRONG/BULLISH_CONFIRMED arasında değişmeli; STRONG satırları
+    predicate TRUE ve yüksek hacimli olmalı. İhlal -> analiz YAPILMAZ."""
+    pred = states["strong_preconditions_without_volume"].astype(bool)
+    high = states["rv20"].map(lambda v: bool(pd.notna(v) and v >= HIGH_VOLUME_RATIO))
+    cls = states["signal_class"]
+    expected = np.where(high, "STRONG_BULLISH_INITIATION", "BULLISH_CONFIRMED")
+    bad_pred = pred & (cls != pd.Series(expected, index=states.index))
+    strong = cls == "STRONG_BULLISH_INITIATION"
+    bad_strong = strong & ~(pred & high)
+    out = {"predicate_true_rows": int(pred.sum()), "predicate_true_high_rows": int((pred & high).sum()),
+           "predicate_true_not_high_rows": int((pred & ~high).sum()), "strong_rows": int(strong.sum()),
+           "violations_predicate_rows": int(bad_pred.sum()), "violations_strong_rows": int(bad_strong.sum())}
+    if out["violations_predicate_rows"] or out["violations_strong_rows"]:
+        raise StateSemanticsError(f"durum semantiği ihlali: {out}")
+    return out
+
+
 def _strip(d: dict) -> dict:
     return {k: v for k, v in d.items() if not k.startswith("_")}
 
@@ -175,6 +198,7 @@ def run_study() -> dict:
     if set(states["symbol"]) & set(discovery) or not set(states["symbol"]) <= set(symbols):
         raise ValueError("durum tablosu dış evren dışı sembol içeriyor")
 
+    semantics = verify_state_semantics(states)
     keep = ["date", "symbol", "turnover20", "bench_roc20", *[f"ex_{h}" for h in (1, 5, 10, 20)]]
     df = states.merge(panel[keep], on=["date", "symbol"], how="inner")
     df["high"] = df["rv20"].map(lambda v: None if pd.isna(v) else bool(v >= HIGH_VOLUME_RATIO))
@@ -197,6 +221,7 @@ def run_study() -> dict:
         "dataset_sha256": manifest["dataset_sha256"], "external_symbols_sha256": universe["external_symbols_sha256"],
         "technical_baseline": {k: v for k, v in baseline.items() if k not in ("weights", "family_weights")},
         "technical_blinding": "TECHNICAL_BLIND",
+        "state_semantics_verification": semantics,
         "sample": {
             "state_rows": int(len(states)), "merged_rows": int(len(df)),
             "symbols": int(df["symbol"].nunique()), "dates": int(df["date"].nunique()),
@@ -204,16 +229,18 @@ def run_study() -> dict:
             "rv_unavailable_rows": int((~has_rv).sum()), "high_volume_rows": int(high.sum()),
             "high_volume_share": float(high.sum() / has_rv.sum()),
             "technical_positive_rows": int(tp.sum()), "technical_negative_rows": int(tn.sum()),
-            "strong_precondition_rows": int((df["strong_precondition"] & has_rv).sum()),
-            "strong_precondition_high_rows": int((df["strong_precondition"] & high).sum()),
+            "strong_preconditions_without_volume_rows": int((df["strong_preconditions_without_volume"] & has_rv).sum()),
+            "strong_preconditions_without_volume_high_rows": int((df["strong_preconditions_without_volume"] & high).sum()),
             "bullish_confirmed_breakout_rows": int((df["bullish_confirmed_breakout"] & has_rv).sum()),
             "high_equals_low_rows": int(df["high_equals_low"].sum()),
             "high_equals_low_high_volume_rows": int((df["high_equals_low"] & high).sum()),
         },
     }
 
-    # PRIMARY + KEY DIAGNOSTIC
-    prim = group_delta(df, tp & high, tp & not_high, target, PRIMARY_H)
+    # PRIMARY (V2): hacimden bağımsız STRONG ön-koşul predicate'i içinde A/B.
+    # Final signal_class hiçbir yerde koşullama değişkeni DEĞİLDİR.
+    sp = df["strong_preconditions_without_volume"].astype(bool) & has_rv
+    prim = group_delta(df, sp & high, sp & not_high, target, PRIMARY_H)
     r["PRIMARY"] = _strip(prim)
     kd = st.summarize_series(daily_partial_ic(df, "log_rv20", ["technical_score_prod"], target, MIN_IC), PRIMARY_H)
     r["KEY_DIAGNOSTIC"] = kd
@@ -221,25 +248,25 @@ def run_study() -> dict:
     # İKİNCİL aile
     sec: dict = {}
     for h in SECONDARY_H:
-        sec[f"PRIMARY_T{h}"] = _strip(group_delta(df, tp & high, tp & not_high, f"ex_{h}", h))
+        sec[f"PRIMARY_T{h}"] = _strip(group_delta(df, sp & high, sp & not_high, f"ex_{h}", h))
         sec[f"KEY_DIAGNOSTIC_T{h}"] = {"return_delta": st.summarize_series(
             daily_partial_ic(df, "log_rv20", ["technical_score_prod"], f"ex_{h}", MIN_IC), h)}
     sec["BEARISH"] = _strip(group_delta(df, tn & high, tn & not_high, target, PRIMARY_H))
     sec["NEUTRAL"] = _strip(group_delta(df, tneu & high, tneu & not_high, target, PRIMARY_H))
-    sp = df["strong_precondition"] & has_rv
-    sec["PRODUCTION_STRONG_CONTEXT"] = _strip(group_delta(df, sp & high, sp & not_high, target, PRIMARY_H))
+    sec["TECHNICAL_POSITIVE_CONTEXT"] = _strip(group_delta(df, tp & high, tp & not_high, target, PRIMARY_H))
     bc = df["bullish_confirmed_breakout"] & has_rv
     sec["BREAKOUT_CONTEXT"] = _strip(group_delta(df, bc & high, bc & not_high, target, PRIMARY_H))
     for label, direction in (("DIRECTION_UP_A_minus_B", "UP"), ("DIRECTION_DOWN_C_minus_D", "DOWN"),
                              ("DIRECTION_FLAT_E_minus_F", "FLAT")):
         sec[label] = _strip(direction_delta(df, direction, target, PRIMARY_H))
-    sec["SPIKE"] = _strip(group_delta(df, tp & high & (df["volume_shape"] == "SPIKE"), tp & not_high, target, PRIMARY_H))
-    sec["SUSTAINED"] = _strip(group_delta(df, tp & high & (df["volume_shape"] == "SUSTAINED"), tp & not_high, target, PRIMARY_H))
+    sec["SPIKE"] = _strip(group_delta(df, sp & high & (df["volume_shape"] == "SPIKE"), sp & not_high, target, PRIMARY_H))
+    sec["SUSTAINED"] = _strip(group_delta(df, sp & high & (df["volume_shape"] == "SUSTAINED"), sp & not_high, target, PRIMARY_H))
     low = df["low_liquidity"]
-    sec["LIQUIDITY_LOWEST_QUINTILE"] = _strip(group_delta(df, tp & high & low, tp & not_high & low, target, PRIMARY_H))
-    sec["LIQUIDITY_REMAINING_80"] = _strip(group_delta(df, tp & high & ~low, tp & not_high & ~low, target, PRIMARY_H))
     hl = df["high_equals_low"]
-    sec["LIMIT_LOCKED_EXCLUDED"] = _strip(group_delta(df, tp & high & ~hl, tp & not_high & ~hl, target, PRIMARY_H))
+    for name, ctx in (("PRIMARY", sp), ("TECHNICAL_POSITIVE", tp)):
+        sec[f"LIQUIDITY_LOWEST_QUINTILE_{name}"] = _strip(group_delta(df, ctx & high & low, ctx & not_high & low, target, PRIMARY_H))
+        sec[f"LIQUIDITY_REMAINING_80_{name}"] = _strip(group_delta(df, ctx & high & ~low, ctx & not_high & ~low, target, PRIMARY_H))
+        sec[f"LIMIT_LOCKED_EXCLUDED_{name}"] = _strip(group_delta(df, ctx & high & ~hl, ctx & not_high & ~hl, target, PRIMARY_H))
     r["secondary"] = sec
     pvals = {k: v["return_delta"]["p_boot"] for k, v in sec.items()}
     holm = st.holm_adjust(pvals)
@@ -257,8 +284,8 @@ def run_study() -> dict:
 
     # 10 OFFSET
     r["offsets"] = {
+        "primary_strong_selection": selection_offsets(df, sp, high, target),
         "technical_positive_high_volume_selection": selection_offsets(df, tp, high, target),
-        "production_strong_selection": selection_offsets(df, sp, high, target),
     }
 
     bear = sec["BEARISH"]["return_delta"]

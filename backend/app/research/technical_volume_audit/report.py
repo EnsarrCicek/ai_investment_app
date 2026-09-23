@@ -70,7 +70,8 @@ def render(r: dict, m: dict) -> str:
     add("\n## Örneklem\n")
     for k, v in r["sample"].items():
         add(f"- {k}: {v}")
-    add("\n## PRIMARY (Technical-pozitif içinde yüksek − yüksek-olmayan hacim, T+10) ve KEY DIAGNOSTIC\n")
+    add(f"- Durum semantiği doğrulaması (fail-fast): {r['state_semantics_verification']}")
+    add("\n## PRIMARY (V2: hacim hariç STRONG ön-koşulları TRUE iken yüksek hacim [→ STRONG] − yüksek-olmayan [→ BULLISH_CONFIRMED], T+10) ve KEY DIAGNOSTIC\n")
     p = r["PRIMARY"]
     add(f"- Getiri farkı: {_ci(p['return_delta'])}")
     add(f"- Hit-rate farkı: {_ci(p['hit_rate_delta_pp'], 1.0, 2, ' pp')}")

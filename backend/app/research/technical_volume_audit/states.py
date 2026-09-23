@@ -41,7 +41,7 @@ ANALYSIS_WINDOW_MONTHS = 6  # app/engines/technical/history_window.py ile aynı
 MIN_HISTORY_DAYS = 60  # app/engines/technical/engine.py ile aynı
 HIGH_VOLUME_RATIO = 1.5  # relative_volume.DEFAULT_THRESHOLDS["high"]
 DIRECTION_BAND = 0.005
-STATE_COLUMNS = ["date", "symbol", "technical_score_prod", "rv20", "signal_class", "strong_precondition",
+STATE_COLUMNS = ["date", "symbol", "technical_score_prod", "rv20", "signal_class", "strong_preconditions_without_volume",
                  "bullish_confirmed_breakout", "r_1d", "high_equals_low", "prior4_high_count"]
 IST = ZoneInfo("Europe/Istanbul")
 
@@ -94,8 +94,12 @@ def spike_or_sustained(prior4_high_count: int | None) -> str | None:
     return "INTERMEDIATE"
 
 
-def strong_precondition(inputs, classify) -> bool:
-    """Hacim HIGH'a zorlandığında durum STRONG_BULLISH_INITIATION olur mu?"""
+def strong_preconditions_without_volume(inputs, classify) -> bool:
+    """STRONG_BULLISH_INITIATION'ın high_volume DIŞINDAKİ tüm üretim koşulları
+    sağlanıyor mu? Hacim HIGH'a zorlanarak ÜRETİM `classify_signal`'ı ile
+    değerlendirilir: koşullar ayrıca kopyalanmaz (formül ikizi yok). Girdinin
+    kendi `relative_volume_class`'ı sonuca ETKİ ETMEZ — predicate hacimden
+    bağımsızdır; A/B (yüksek/yüksek-olmayan) bu predicate TRUE iken ayrılır."""
     forced = dataclasses.replace(inputs, relative_volume_class="HIGH")
     return classify(forced) == "STRONG_BULLISH_INITIATION"
 
@@ -103,6 +107,23 @@ def strong_precondition(inputs, classify) -> bool:
 # ------------------------------------------------------------------ worker
 
 _W: dict = {}
+
+
+def install_capture(engine_module) -> tuple:
+    """`engine_module.classify_signal`'ı, girdiyi yakalayıp ÜRETİM sonucunu
+    aynen döndüren bir sarmalayıcıyla değiştirir. YALNIZCA işçi süreçlerinin
+    initializer'ında çağrılır: ProcessPoolExecutor her işçiyi AYRI bir süreçte
+    çalıştırır (thread yok), her süreç görevleri sırayla işler ve kendi
+    `captured` sözlüğünü tutar; ana süreçteki modül ASLA yamanmaz."""
+    original = engine_module.classify_signal
+    captured: dict = {}
+
+    def capturing(inputs):
+        captured["inputs"] = inputs
+        return original(inputs)
+
+    engine_module.classify_signal = capturing
+    return original, captured
 
 
 def _init_worker() -> None:
@@ -117,14 +138,7 @@ def _init_worker() -> None:
     bench_segments, _ = preprocess_symbol("XU100", frames["XU100"], freeze_now)
     bench = pd.concat([s["Close"] for s in bench_segments])
     bench.index = [ts.date() for ts in bench.index]
-    original = eng.classify_signal
-    captured: dict = {}
-
-    def capturing(inputs):
-        captured["inputs"] = inputs
-        return original(inputs)
-
-    eng.classify_signal = capturing  # yalnızca bu araştırma sürecinde
+    original, captured = install_capture(eng)
     _W.update(frames=frames, freeze_now=freeze_now, bench=bench, baseline=load_technical_baseline(),
               eng=eng, original=original, captured=captured, preprocess=preprocess_symbol)
 
@@ -168,36 +182,57 @@ def _symbol_states(symbol: str) -> tuple[str, list[list], dict]:
             be = inputs.breakout_event
             rows.append([
                 T.date().isoformat(), symbol, float(analysis.technical_score), rv, analysis.signal_class,
-                strong_precondition(inputs, w["original"]),
+                strong_preconditions_without_volume(inputs, w["original"]),
                 bool(be is not None and be.direction == "BULLISH" and be.confirmed is True),
                 r1, bool(df["High"].iloc[-1] == df["Low"].iloc[-1]), prior4,
             ])
     return symbol, rows, counts
 
 
-def build_states(workers: int | None = None) -> dict:
+def _cache_file(symbol: str) -> Path:
+    return DATA_DIR / f"state_cache_{symbol}.json.gz"
+
+
+def _write_gz_json(path: Path, obj) -> None:
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0, compresslevel=9) as gz:
+        gz.write(json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    path.write_bytes(buf.getvalue())
+
+
+def build_states(workers: int = 4, max_tasks_per_child: int = 20) -> dict:
+    """Sembol başına kontrol noktası (checkpoint) yazar; çökme sonrası yeniden
+    çalıştırma tamamlanmış sembolleri atlar. Nihai içerik iş sırasından
+    bağımsızdır (satırlar (tarih, sembol) sıralı)."""
     from app.research.flow_v1c.dataset import load_external_dataset
     from app.research.flow_v1c.universe import load_external_universe
 
     symbols, universe = load_external_universe()
     _, manifest = load_external_dataset()
     available = [s for s in symbols if manifest["symbols"][s]["status"] == "OK"]
-    workers = workers or max(1, (os.cpu_count() or 2) - 1)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    pending = [s for s in available if not _cache_file(s).exists()]
+    print(f"[states] cached={len(available) - len(pending)} pending={len(pending)}", file=sys.stderr, flush=True)
+    if pending:
+        from concurrent.futures import as_completed
+
+        with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
+                                 max_tasks_per_child=max_tasks_per_child) as pool:
+            futures = [pool.submit(_symbol_states, s) for s in pending]
+            for i, fut in enumerate(as_completed(futures)):
+                symbol, rows, counts = fut.result()
+                _write_gz_json(_cache_file(symbol), {"symbol": symbol, "rows": rows, "counts": counts})
+                if i % 25 == 0:
+                    print(f"[states] {i + 1}/{len(pending)} {symbol}", file=sys.stderr, flush=True)
     all_rows: list[list] = []
     per_symbol: dict[str, dict] = {}
-    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker) as pool:
-        for i, (symbol, rows, counts) in enumerate(pool.map(_symbol_states, available, chunksize=4)):
-            all_rows.extend(rows)
-            per_symbol[symbol] = {**counts, "state_rows": len(rows)}
-            if i % 25 == 0:
-                print(f"[states] {i + 1}/{len(available)} {symbol}", file=sys.stderr, flush=True)
+    for s in available:
+        cached = json.loads(gzip.decompress(_cache_file(s).read_bytes()).decode("utf-8"))
+        all_rows.extend(cached["rows"])
+        per_symbol[s] = {**cached["counts"], "state_rows": len(cached["rows"])}
     all_rows.sort(key=lambda r: (r[0], r[1]))
     payload = {"columns": STATE_COLUMNS, "rows": all_rows}
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    buf = io.BytesIO()
-    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0, compresslevel=9) as gz:
-        gz.write(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
-    STATES_FILE.write_bytes(buf.getvalue())
+    _write_gz_json(STATES_FILE, payload)
     states_manifest = {
         "artifact": "TECH_VOL_1A_PRODUCTION_STATES",
         "source_dataset_sha256": manifest["dataset_sha256"],
@@ -205,7 +240,7 @@ def build_states(workers: int | None = None) -> dict:
         "rows": len(all_rows),
         "states_content_sha256": content_sha256(payload),
         "per_symbol": per_symbol,
-        "method": "compute_technical_analysis on 6-month production window per (symbol, T); SignalInputs captured by runtime wrapper",
+        "method": "compute_technical_analysis on 6-month production window per (symbol, T); SignalInputs captured by a worker-local runtime wrapper (process isolation)",
     }
     STATES_MANIFEST_FILE.write_text(json.dumps(states_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return states_manifest
@@ -228,4 +263,5 @@ def load_verified_states() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    print(json.dumps({k: v for k, v in build_states().items() if k != "per_symbol"}))
+    _workers = int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 4
+    print(json.dumps({k: v for k, v in build_states(workers=_workers).items() if k != "per_symbol"}))

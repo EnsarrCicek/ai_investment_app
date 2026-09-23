@@ -47,12 +47,73 @@ def test_production_window_requires_pre_window_bar_and_min_history():
     assert len(df) >= S.MIN_HISTORY_DAYS
 
 
-def test_strong_precondition_uses_forced_high_volume():
-    bull = BreakoutEvent(index=1, direction="BULLISH", zone=_ZONE, breakout_atr=1.0, confirmed=True)
-    state = SignalInputs(technical_score=50.0, market_structure="UPTREND", breakout_event=bull,
-                         relative_volume_class="LOW", mtf_aligned=True, mtf_consensus="UP")
-    assert S.strong_precondition(state, classify_signal) is True
-    assert S.strong_precondition(dataclasses.replace(state, technical_score=30.0), classify_signal) is False
+def _pre_volume_strong_state(rv_class: str) -> SignalInputs:
+    bull = BreakoutEvent(index=1, direction="BULLISH", zone=_ZONE, breakout_atr=1.0, confirmed=True, retest_held=None)
+    return SignalInputs(technical_score=50.0, market_structure="UPTREND", breakout_event=bull,
+                        relative_volume_class=rv_class, mtf_aligned=True, mtf_consensus="UP")
+
+
+def test_ab_pair_differs_only_by_high_volume_and_both_satisfy_primary_predicate():
+    a = _pre_volume_strong_state("HIGH")    # high_volume = True
+    b = _pre_volume_strong_state("NORMAL")  # high_volume = False
+    assert dataclasses.replace(a, relative_volume_class="X") == dataclasses.replace(b, relative_volume_class="X")
+    assert classify_signal(a) == "STRONG_BULLISH_INITIATION"
+    assert classify_signal(b) == "BULLISH_CONFIRMED"
+    assert S.strong_preconditions_without_volume(a, classify_signal) is True
+    assert S.strong_preconditions_without_volume(b, classify_signal) is True
+
+
+def _explicit_non_volume_strong(i: SignalInputs) -> bool:
+    be = i.breakout_event
+    bull = bool(be and be.direction == "BULLISH")
+    return (i.technical_score >= 40 and i.market_structure == "UPTREND" and bull and be.confirmed is True
+            and be.retest_held is not False and i.mtf_aligned and i.mtf_consensus == "UP")
+
+
+def test_predicate_equals_all_non_volume_strong_conditions_and_ignores_volume():
+    import itertools
+
+    events = [None] + [BreakoutEvent(index=1, direction=d, zone=_ZONE, breakout_atr=1.0, confirmed=c, retest_held=r)
+                       for d in ("BULLISH", "BEARISH") for c in (True, False, None) for r in (True, False, None)]
+    n = 0
+    for score, structure, be, aligned, cons, rv in itertools.product(
+        (39.99, 40.0, 60.0, 15.0, -20.0), ("UPTREND", "RANGE", "DOWNTREND"), events, (True, False),
+        ("UP", "DOWN", "UNKNOWN"), ("LOW", "NORMAL", "HIGH", "VERY_HIGH", "UNKNOWN"),
+    ):
+        state = SignalInputs(technical_score=score, market_structure=structure, breakout_event=be,
+                             relative_volume_class=rv, mtf_aligned=aligned, mtf_consensus=cons)
+        pred = S.strong_preconditions_without_volume(state, classify_signal)
+        assert pred == _explicit_non_volume_strong(state)
+        if pred:  # A/B tek sınıflandırma farkı hacim
+            expected = "STRONG_BULLISH_INITIATION" if rv in ("HIGH", "VERY_HIGH") else "BULLISH_CONFIRMED"
+            assert classify_signal(state) == expected
+        n += 1
+    assert n > 5000
+
+
+def test_capture_wrapper_is_transparent_and_process_local():
+    import types
+
+    import app.engines.technical.engine as eng
+    from app.engines.technical import signal_classifier
+
+    assert eng.classify_signal is signal_classifier.classify_signal  # ana süreç yamanmamış
+    fake = types.SimpleNamespace(classify_signal=signal_classifier.classify_signal)
+    original, captured = S.install_capture(fake)
+    state = _pre_volume_strong_state("HIGH")
+    assert fake.classify_signal(state) == original(state) == "STRONG_BULLISH_INITIATION"
+    assert captured["inputs"] is state
+    assert eng.classify_signal is signal_classifier.classify_signal  # gerçek modül hâlâ dokunulmamış
+
+
+def test_state_semantics_verification_rejects_inconsistent_rows():
+    ok = pd.DataFrame({"strong_preconditions_without_volume": [True, True, False],
+                       "rv20": [2.0, 1.0, 3.0],
+                       "signal_class": ["STRONG_BULLISH_INITIATION", "BULLISH_CONFIRMED", "BULLISH_CONFIRMED"]})
+    assert T.verify_state_semantics(ok)["violations_predicate_rows"] == 0
+    bad = ok.assign(signal_class=["BULLISH_CONFIRMED", "BULLISH_CONFIRMED", "STRONG_BULLISH_INITIATION"])
+    with pytest.raises(T.StateSemanticsError):
+        T.verify_state_semantics(bad)
 
 
 def test_group_delta_is_date_balanced_and_requires_min_group():
