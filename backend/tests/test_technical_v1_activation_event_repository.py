@@ -27,6 +27,9 @@ from app.research.activation_event import (
 from app.research.canonical_hash import content_sha256
 from app.research.evidence_models import EvidenceIntegrityError, ProvenanceConflictError
 
+# TECHNICAL V2-R1: V1 olay depolama mekaniği V1 metodolojisiyle eşleşen motor altında test edilir.
+pytestmark = pytest.mark.usefixtures("v1_era_engine_version")
+
 # ---------------------------------------------------------------------------
 # Sahte (fake) Firestore harness -- activation-lock repository testiyle AYNI
 # desen.

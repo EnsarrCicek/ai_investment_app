@@ -20,7 +20,10 @@ import pytest
 from google.api_core.exceptions import AlreadyExists
 
 from app.repositories import technical_v1_attempt_repository as attempt_repo_module
-from app.repositories.technical_v1_activation_event_repository import TechnicalV1ActivationEventRepository
+from app.repositories.technical_v1_activation_event_repository import (
+    COLLECTION as ACTIVATION_EVENTS_COLLECTION,
+    TechnicalV1ActivationEventRepository,
+)
 from app.repositories.technical_v1_activation_lock_repository import TechnicalV1ActivationLockRepository
 from app.repositories.technical_v1_attempt_repository import TechnicalV1AttemptRepository
 from app.repositories.technical_v1_evaluation_repository import (
@@ -143,16 +146,28 @@ class _FakeCollection:
         return _FakeDocRef(self._store, doc_id, self._create_times)
 
 
+class _ActivationEventCollection(_FakeCollection):
+    def document(self, doc_id):
+        self._create_times.setdefault(doc_id, _ACTIVATION_EVENT_CREATE_TIME)
+        return _FakeDocRef(self._store, doc_id, self._create_times)
+
+
+_ACTIVATION_EVENT_CREATE_TIME = datetime(2026, 8, 21, 5, 0, tzinfo=timezone.utc)
+
+
 class _FakeFirestoreClient:
     def __init__(self):
         self._collections: dict[str, dict] = {}
         self._create_times: dict[str, dict] = {}
 
     def collection(self, name):
-        return _FakeCollection(
-            self._collections.setdefault(name, {}),
-            self._create_times.setdefault(name, {}),
-        )
+        create_times = self._create_times.setdefault(name, {})
+        if name == ACTIVATION_EVENTS_COLLECTION:
+        # Holdout kuralı: T_SESSION_DATE (2026-08-24) formal-holdout'a girmeli ->
+        # INITIAL aktivasyon olayı ilk uygun seansın açılışından (2026-08-21 10:00
+        # Europe/Istanbul) ÖNCE yazılmış sayılır.
+            return _ActivationEventCollection(self._collections.setdefault(name, {}), create_times)
+        return _FakeCollection(self._collections.setdefault(name, {}), create_times)
 
     def transaction(self):
         return _FakeTransaction()

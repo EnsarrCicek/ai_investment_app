@@ -181,6 +181,17 @@ class TechnicalV1ActivationEventRepository:
         olan doküman KÖRÜKÖRÜNE idempotent SAYILMAZ -- `_verify_and_
         reconstruct()` ile TAM doğrulanıp candidate'in KENDİ (her zaman
         doğru, çünkü türetilmiş bir property olan) hash'iyle karşılaştırılır."""
+        # TECHNICAL V2-R1: kilit repository'sindeki guard ile AYNI sözleşme --
+        # olayın sürümü protocol_version'ından çözülür ve çalışan motor o
+        # sürümün engine_version'ıyla eşleşmeli (engine 1.15.0 altında YENİ V1
+        # olayı reddedilir); bilinmeyen/karışık protocol_version da reddedilir.
+        # Firestore'a hiçbir erişim olmadan fail-fast.
+        from app.research.technical_versions import (
+            assert_identity_matches_running_engine,
+            identity_for_protocol_version,
+        )
+
+        assert_identity_matches_running_engine(identity_for_protocol_version(event.protocol_version))
         doc_ref = self._db.collection(COLLECTION).document(event.activation_event_id)
         candidate_fields = event.to_document_fields()
         candidate_hash = candidate_fields["record_content_sha256"]

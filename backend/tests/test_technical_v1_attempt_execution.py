@@ -7,8 +7,9 @@ sözleşme-uyumlu bir sahteyle değiştirilir; `FakeEvidenceObjectStore`
 (HATA 12N1, üretim kodunun KENDİSİ) GCS'in yerini alır; provider hiçbir
 zaman gerçek ağa gitmez."""
 
+import dataclasses
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -18,12 +19,15 @@ from google.api_core.exceptions import AlreadyExists
 
 from app.engines.technical.data_quality import TradingCalendarUnsupportedError
 from app.repositories import technical_v1_attempt_repository as attempt_repo_module
-from app.repositories.technical_v1_activation_event_repository import TechnicalV1ActivationEventRepository
+from app.repositories.technical_v1_activation_event_repository import (
+    COLLECTION as ACTIVATION_EVENTS_COLLECTION,
+    TechnicalV1ActivationEventRepository,
+)
 from app.repositories.technical_v1_activation_lock_repository import TechnicalV1ActivationLockRepository
 from app.repositories.technical_v1_attempt_repository import TechnicalV1AttemptRepository
 from app.research import technical_v1_attempt_execution as execution_module
 from app.research import technical_v1_runtime_identity as runtime_identity_module
-from app.research.activation_event import build_initial_activation_event
+from app.research.activation_event import build_initial_activation_event, build_lock_authorized_event
 from app.research.activation_lock import TechnicalV1ActivationLock, compute_activation_lock_id
 from app.research.attempt_models import AttemptResultClassification, ClaimOutcome, GateCheckResult, PublishOutcome
 from app.research.attempt_reason_codes import (
@@ -120,7 +124,7 @@ class _FakeDocRef:
         if self._key in self._store:
             raise AlreadyExists(f"document already exists: {self._key}")
         self._store[self._key] = dict(data)
-        self._create_times[self._key] = datetime(2026, 9, 18, 6, 0, tzinfo=TZ)
+        self._create_times.setdefault(self._key, datetime(2026, 9, 18, 6, 0, tzinfo=TZ))
 
 
 class _FakeTransaction:
@@ -137,16 +141,28 @@ class _FakeCollection:
         return _FakeDocRef(self._store, doc_id, self._create_times)
 
 
+class _ActivationEventCollection(_FakeCollection):
+    def document(self, doc_id):
+        self._create_times.setdefault(doc_id, _ACTIVATION_EVENT_CREATE_TIME)
+        return _FakeDocRef(self._store, doc_id, self._create_times)
+
+
+_ACTIVATION_EVENT_CREATE_TIME = datetime(2026, 8, 21, 5, 0, tzinfo=timezone.utc)
+
+
 class _FakeFirestoreClient:
     def __init__(self):
         self._collections: dict[str, dict] = {}
         self._create_times: dict[str, dict] = {}
 
     def collection(self, name):
-        return _FakeCollection(
-            self._collections.setdefault(name, {}),
-            self._create_times.setdefault(name, {}),
-        )
+        create_times = self._create_times.setdefault(name, {})
+        if name == ACTIVATION_EVENTS_COLLECTION:
+        # Holdout kuralı: T_SESSION_DATE (2026-08-24) formal-holdout'a girmeli ->
+        # INITIAL aktivasyon olayı ilk uygun seansın açılışından (2026-08-21 10:00
+        # Europe/Istanbul) ÖNCE yazılmış sayılır.
+            return _ActivationEventCollection(self._collections.setdefault(name, {}), create_times)
+        return _FakeCollection(self._collections.setdefault(name, {}), create_times)
 
     def transaction(self):
         return _FakeTransaction()
@@ -890,3 +906,90 @@ def test_claim_outcome_is_claimed_on_first_success(fake_db, authorized_setup, mo
     _execute(service, lock)
 
     assert recorded["outcome"] == ClaimOutcome.CLAIMED
+
+
+# ---------------------------------------------------------------------------
+# Holdout başlangıcı (dondurulmuş protokol `activation_note`) -- claim'den ÖNCE
+# ---------------------------------------------------------------------------
+
+
+def _seed_initial_event_at(fake_db, lock, create_time):
+    fake_db._create_times.setdefault(ACTIVATION_EVENTS_COLLECTION, {})[
+        build_initial_activation_event(
+            protocol_version=LOCKED_PROTOCOL_VERSION, activation_lock_id=lock.activation_lock_id
+        ).activation_event_id
+    ] = create_time
+
+
+@pytest.mark.parametrize(
+    "activation_time_utc",
+    [
+        datetime(2026, 8, 24, 7, 0, tzinfo=timezone.utc),  # T'nin açılışı TAM 10:00 IST -> strictly-after değil
+        datetime(2026, 8, 24, 7, 30, tzinfo=timezone.utc),  # T'nin açılışından sonra
+    ],
+)
+def test_session_before_effective_holdout_start_is_pre_activation_without_claim(
+    fake_db, runtime_env, real_methodology_fingerprint, activation_time_utc
+):
+    lock = _make_lock(real_methodology_fingerprint)
+    TechnicalV1ActivationLockRepository(db=fake_db).create(lock)
+    _seed_initial_event_at(fake_db, lock, activation_time_utc)
+    TechnicalV1ActivationEventRepository(db=fake_db).create(
+        build_initial_activation_event(protocol_version=LOCKED_PROTOCOL_VERSION, activation_lock_id=lock.activation_lock_id)
+    )
+
+    provider = _FakeProvider(_bday_df("2025-09-01", "2026-08-24"))
+    report = _execute(_make_service(fake_db, provider), lock)
+
+    assert report.outcome == AttemptExecutionOutcome.PRE_ACTIVATION
+    assert fake_db.raw_store("technical_v1_attempt_claims") == {}
+    assert fake_db.raw_store("technical_v1_attempt_results") == {}
+    assert provider.calls == []
+
+
+def test_lock_authorized_replacement_does_not_shift_holdout_start(fake_db, authorized_setup, monkeypatch):
+    """Revision yeniden yetkilendirmesi (LOCK_AUTHORIZED) T'den SONRA yazılmış
+    olsa bile başlangıç INITIAL olaydan türetilir -> T (2026-08-24) hâlâ holdout
+    içinde; attempt claim'e ilerler (burada runtime kapısı yeni kilide göre)."""
+    new_revision = "ai-investment-backend-00099-new"
+    monkeypatch.setenv("K_REVISION", new_revision)
+    fp = authorized_setup.authorized_methodology_source_fingerprint
+    new_lock_id = compute_activation_lock_id(
+        protocol_version=LOCKED_PROTOCOL_VERSION,
+        authorized_methodology_source_fingerprint=fp,
+        authorized_project_id=_PROJECT_ID,
+        authorized_runtime_service=_RUNTIME_SERVICE,
+        authorized_runtime_revision=new_revision,
+    )
+    new_lock = dataclasses.replace(
+        authorized_setup,
+        activation_lock_id=new_lock_id,
+        authorized_runtime_revision=new_revision,
+    )
+    TechnicalV1ActivationLockRepository(db=fake_db).create(new_lock)
+    la = build_lock_authorized_event(protocol_version=LOCKED_PROTOCOL_VERSION, activation_lock_id=new_lock_id)
+    fake_db._create_times.setdefault(ACTIVATION_EVENTS_COLLECTION, {})[la.activation_event_id] = datetime(
+        2026, 8, 26, 12, 0, tzinfo=timezone.utc
+    )
+    TechnicalV1ActivationEventRepository(db=fake_db).create(la)
+
+    report = _execute(_make_service(fake_db, _FakeProvider(_bday_df("2025-09-01", "2026-08-24"))), new_lock)
+
+    assert report.outcome == AttemptExecutionOutcome.RESULT_PUBLISHED
+    assert report.result.activation_lock_id == new_lock_id
+
+
+def test_initial_event_outside_calendar_fails_closed_before_claim(fake_db, runtime_env, real_methodology_fingerprint):
+    from app.research.technical_holdout import HoldoutStartUndeterminableError
+
+    lock = _make_lock(real_methodology_fingerprint)
+    TechnicalV1ActivationLockRepository(db=fake_db).create(lock)
+    _seed_initial_event_at(fake_db, lock, datetime(2026, 12, 31, 12, 0, tzinfo=timezone.utc))
+    TechnicalV1ActivationEventRepository(db=fake_db).create(
+        build_initial_activation_event(protocol_version=LOCKED_PROTOCOL_VERSION, activation_lock_id=lock.activation_lock_id)
+    )
+    provider = _FakeProvider(_bday_df("2025-09-01", "2026-08-24"))
+    with pytest.raises(HoldoutStartUndeterminableError):
+        _execute(_make_service(fake_db, provider), lock)
+    assert fake_db.raw_store("technical_v1_attempt_claims") == {}
+    assert provider.calls == []

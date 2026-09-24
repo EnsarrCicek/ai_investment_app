@@ -96,6 +96,7 @@ from app.research.technical_v1_methodology_observation import observe_methodolog
 from app.research.technical_v1_protocol import load_verified_technical_v1_protocol
 from app.research.technical_v1_runtime_identity import observe_runtime_fingerprint
 from app.research.technical_v1_scoring_config_values import load_verified_scoring_config_hash
+from app.research.technical_holdout import compute_effective_holdout_start, session_is_in_holdout
 from app.research.technical_versions import (
     assert_identity_matches_running_engine,
     identity_for_protocol_version,
@@ -287,6 +288,21 @@ class TechnicalV1AttemptExecutionService:
             return AttemptExecutionReport(outcome=AttemptExecutionOutcome.PRE_ACTIVATION)
         if authorization.status == PreClaimStatus.OUTSIDE_FROZEN_UNIVERSE:
             return AttemptExecutionReport(outcome=AttemptExecutionOutcome.OUTSIDE_FROZEN_UNIVERSE)
+
+        # ---- 4b) holdout başlangıcı (dondurulmuş protokol kuralı) -- claim'den
+        #          ÖNCE. Başlangıç HER ZAMAN INITIAL olayın create_time'ından
+        #          türetilir (LOCK_AUTHORIZED onu değiştirmez); başlangıçtan önceki
+        #          bir T seansı aktivasyon öncesidir -> PRE_ACTIVATION, claim YOK.
+        initial_envelope = self._activation_event_repo.get_verified(
+            compute_initial_activation_event_id(protocol_version=activation_lock.protocol_version)
+        )
+        if initial_envelope is None:
+            raise ProvenanceConflictError(
+                "yetkilendirilmiş kilit var ama protocol_version için INITIAL aktivasyon olayı yok"
+            )
+        effective_holdout_start = compute_effective_holdout_start(initial_envelope.create_time)
+        if not session_is_in_holdout(T_session_date, effective_holdout_start):
+            return AttemptExecutionReport(outcome=AttemptExecutionOutcome.PRE_ACTIVATION)
         # Buraya ulaşıldıysa authorization.status == AUTHORIZED (kapalı,
         # üç-üyeli enum -- section 21/28).
 
