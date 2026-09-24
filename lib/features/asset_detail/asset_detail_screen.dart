@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../widgets/gradient_app_bar.dart';
@@ -147,8 +149,10 @@ const int assetDetailAnalystsTabIndex = 3;
 class AssetDetailScreen extends StatelessWidget {
   final String symbol;
   final int initialTabIndex;
+  // Yalnızca Fiyat sekmesine aktarılır; testlerde sahte veri kaynağı için.
+  final MarketDataApi? marketDataApi;
 
-  const AssetDetailScreen({super.key, required this.symbol, this.initialTabIndex = 0});
+  const AssetDetailScreen({super.key, required this.symbol, this.initialTabIndex = 0, this.marketDataApi});
 
   @override
   Widget build(BuildContext context) {
@@ -172,7 +176,7 @@ class AssetDetailScreen extends StatelessWidget {
         ),
         body: TabBarView(
           children: [
-            _PriceTab(symbol: symbol),
+            _PriceTab(symbol: symbol, api: marketDataApi),
             _TechnicalTab(symbol: symbol),
             _NewsTab(symbol: symbol),
             _AnalystsTab(symbol: symbol),
@@ -1701,38 +1705,178 @@ class _TradeCard extends StatelessWidget {
 
 class _PriceTab extends StatefulWidget {
   final String symbol;
-  const _PriceTab({required this.symbol});
+  final MarketDataApi? api;
+  const _PriceTab({required this.symbol, this.api});
 
   @override
   State<_PriceTab> createState() => _PriceTabState();
 }
 
-class _PriceTabState extends State<_PriceTab> {
-  late Future<PriceQuote> _quoteFuture;
-  late Future<Map<String, double?>> _changesFuture;
+// Fiyat sekmesinin TabBarView içindeki sırası (bkz. AssetDetailScreen).
+const int _priceTabIndex = 0;
+const Duration _priceAutoRefreshInterval = Duration(seconds: 60);
+
+class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
+  late final MarketDataApi _api = widget.api ?? MarketDataApi();
   late Future<List<PriceBar>> _historyFuture;
   String _selectedPeriod = '1A';
+
+  // Fiyat + yüzde değişim açık state olarak tutulur: otomatik yenilemede son
+  // başarılı veri ekranda kalır; yükleme göstergesi yalnızca açılışta/elle
+  // yenilemede gösterilir. Grafik geçmişi otomatik yenilenmez.
+  PriceQuote? _quote;
+  Object? _quoteError;
+  Map<String, double?>? _changes;
+  Object? _changesError;
+  bool _pricesLoading = true;
+  bool _autoRefreshFailed = false;
+  Future<void>? _pricesInFlight;
+  int _generation = 0;
+
+  // Otomatik yenileme yalnızca Fiyat sekmesi seçili, ekranın rotası en üstte
+  // ve uygulama ön plandayken çalışır (mounted olmak görünür olmak demek değil).
+  // Sağlayıcı gecikmesini gidermez; yalnızca aynı gecikmeli veriyi taze tutar.
+  TabController? _tabController;
+  bool _routeIsCurrent = true;
+  bool _appInForeground = true;
+  Timer? _autoRefreshTimer;
+  // Son başarılı yenilemeden 60 sn sonra dolar: geri dönüşte tek yenileme kararı.
+  Timer? _freshnessTimer;
+  bool _pricesStale = true;
 
   @override
   void initState() {
     super.initState();
-    _quoteFuture = MarketDataApi().fetchQuote(widget.symbol);
-    _changesFuture = MarketDataApi().fetchChanges(widget.symbol);
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _appInForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _fetchPrices(background: false);
     _historyFuture = _fetchHistory();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = DefaultTabController.maybeOf(context);
+    if (!identical(controller, _tabController)) {
+      _tabController?.removeListener(_syncAutoRefresh);
+      _tabController = controller?..addListener(_syncAutoRefresh);
+    }
+    _routeIsCurrent = ModalRoute.isCurrentOf(context) ?? true;
+    _syncAutoRefresh();
+  }
+
+  @override
+  void didUpdateWidget(_PriceTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.symbol == widget.symbol) return;
+    // Farklı varlık: eski varlığın bekleyen yanıtı artık uygulanmaz.
+    _generation++;
+    _pricesInFlight = null;
+    _quote = null;
+    _quoteError = null;
+    _changes = null;
+    _changesError = null;
+    _pricesLoading = true;
+    _autoRefreshFailed = false;
+    _freshnessTimer?.cancel();
+    _pricesStale = true;
+    _fetchPrices(background: false);
+    _historyFuture = _fetchHistory();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appInForeground = state == AppLifecycleState.resumed;
+    _syncAutoRefresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _tabController?.removeListener(_syncAutoRefresh);
+    _autoRefreshTimer?.cancel();
+    _freshnessTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get _autoRefreshActive =>
+      _appInForeground && _routeIsCurrent && (_tabController?.index ?? _priceTabIndex) == _priceTabIndex;
+
+  void _syncAutoRefresh() {
+    if (!_autoRefreshActive) {
+      _autoRefreshTimer?.cancel();
+      _autoRefreshTimer = null;
+      return;
+    }
+    if (_autoRefreshTimer != null) return;
+    _autoRefreshTimer = Timer.periodic(_priceAutoRefreshInterval, (_) => _fetchPrices(background: true));
+    if (_pricesStale) _fetchPrices(background: true);
+  }
+
+  /// Fiyat + değişim verisini çeker. Bekleyen bir istek varsa yenisini
+  /// başlatmaz, onu döner (otomatik ve elle yenileme çakışmaz).
+  Future<void> _fetchPrices({required bool background}) {
+    final pending = _pricesInFlight;
+    if (pending != null) return pending;
+    if (!background && !_pricesLoading) {
+      setState(() => _pricesLoading = true);
+    }
+    final request = _loadPrices(widget.symbol, _generation, background: background);
+    _pricesInFlight = request;
+    return request;
+  }
+
+  Future<void> _loadPrices(String symbol, int generation, {required bool background}) async {
+    final quoteResult = _settle(_api.fetchQuote(symbol));
+    final changesResult = _settle(_api.fetchChanges(symbol));
+    final (quote, quoteError) = await quoteResult;
+    final (changes, changesError) = await changesResult;
+    if (generation == _generation) _pricesInFlight = null;
+    if (!mounted || generation != _generation) return;
+    setState(() {
+      _pricesLoading = false;
+      if (quoteError == null) {
+        _quote = quote;
+        _quoteError = null;
+      } else if (!background || _quote == null) {
+        _quote = null;
+        _quoteError = quoteError;
+      }
+      if (changesError == null) {
+        _changes = changes;
+        _changesError = null;
+      } else if (!background || _changes == null) {
+        _changes = null;
+        _changesError = changesError;
+      }
+      _autoRefreshFailed = background && (quoteError != null || changesError != null);
+    });
+    if (quoteError == null && changesError == null) {
+      _pricesStale = false;
+      _freshnessTimer?.cancel();
+      _freshnessTimer = Timer(_priceAutoRefreshInterval, () => _pricesStale = true);
+    }
+  }
+
+  static Future<(T?, Object?)> _settle<T>(Future<T> future) async {
+    try {
+      return (await future, null);
+    } catch (e) {
+      return (null, e);
+    }
   }
 
   Future<List<PriceBar>> _fetchHistory() {
     final opt = _chartPeriods[_selectedPeriod]!;
-    return MarketDataApi().fetchHistory(widget.symbol, period: opt.period, interval: opt.interval);
+    return _api.fetchHistory(widget.symbol, period: opt.period, interval: opt.interval);
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _quoteFuture = MarketDataApi().fetchQuote(widget.symbol);
-      _changesFuture = MarketDataApi().fetchChanges(widget.symbol);
       _historyFuture = _fetchHistory();
     });
-    await Future.wait([_quoteFuture, _changesFuture, _historyFuture]);
+    await Future.wait([_fetchPrices(background: false), _historyFuture]);
   }
 
   void _selectPeriod(String period) {
@@ -1835,19 +1979,18 @@ class _PriceTabState extends State<_PriceTab> {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: FutureBuilder<PriceQuote>(
-        future: _quoteFuture,
-        builder: (context, quoteSnapshot) {
-          if (quoteSnapshot.connectionState != ConnectionState.done) {
+      child: Builder(
+        builder: (context) {
+          if (_pricesLoading) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (quoteSnapshot.hasError) {
+          final quote = _quote;
+          if (quote == null) {
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              children: [Center(child: Text('Hata: ${quoteSnapshot.error}'))],
+              children: [Center(child: Text('Hata: $_quoteError'))],
             );
           }
-          final quote = quoteSnapshot.data!;
           final color = quote.change >= 0 ? Colors.green : Colors.red;
 
           return ListView(
@@ -1880,6 +2023,11 @@ class _PriceTabState extends State<_PriceTab> {
                         '(Yahoo Finance, hafif gecikmeli olabilir)',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
                       ),
+                      if (_autoRefreshFailed)
+                        Text(
+                          'Otomatik yenileme başarısız; son başarılı veri gösteriliyor.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange),
+                        ),
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
@@ -1963,19 +2111,12 @@ class _PriceTabState extends State<_PriceTab> {
               const SizedBox(height: 16),
               const Text('Yüzde Değişim', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              FutureBuilder<Map<String, double?>>(
-                future: _changesFuture,
-                builder: (context, changesSnapshot) {
-                  if (changesSnapshot.connectionState != ConnectionState.done) {
-                    return const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
+              Builder(
+                builder: (context) {
+                  final changes = _changes;
+                  if (changes == null) {
+                    return Text('Hata: $_changesError');
                   }
-                  if (changesSnapshot.hasError) {
-                    return Text('Hata: ${changesSnapshot.error}');
-                  }
-                  final changes = changesSnapshot.data!;
                   return Wrap(
                     spacing: 8,
                     runSpacing: 8,
