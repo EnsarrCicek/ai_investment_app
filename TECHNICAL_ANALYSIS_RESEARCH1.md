@@ -2864,3 +2864,169 @@ olduğundan ve tüm gerekli senaryolar engine-seviyesinde kilitlendiğinden,
 bu ticket'ta yeni bir API-test altyapısı kurulmadı.
 
 No deployment performed.
+
+# TECHNICAL V2-R1 — AKTİVASYON SÖZLEŞMESİ YEREL KAPANIŞ (24.09.2026)
+
+Durum: YEREL OLARAK TAMAMLANDI, COMMIT EDİLMEDİ. Canlı işlem yok.
+
+Yerelde tamamlananlar:
+- Read-only, fail-closed V2 pre-activation readiness kapısı + CLI
+  (`technical_v2_readiness.py`; LOCAL/PRODUCTION modları).
+- Aktivasyon orkestrasyonu (`technical_v2_activation.py`): create-only
+  kilit + INITIAL olay; aynı isteğin tekrarı (ALREADY_ACTIVATED, yalnızca
+  mevcut kaydı bildirir), kısmi kurtarma (tam eşleşen aday kilit + taze
+  readiness), yarışı kaybeden kilidin silinmemesi ve yetki vermemesi.
+- Revision geçişi: mevcut `LOCK_AUTHORIZED` sözleşmesiyle, INITIAL kilitten
+  yalnızca runtime revision'ı farklı kilit; INITIAL ve holdout başlangıcı
+  değişmez. Eski kilidin yetkisini geri alma sözleşmede tanımsız.
+- Holdout başlangıcı tek yerde (`technical_holdout.py`): protokol
+  `holdout_status.activation_note` kuralı -- INITIAL olayın Firestore
+  create_time'ından KESİNLİKLE sonra market open'ı (10:00 Europe/Istanbul)
+  olan ilk BIST seansı. Attempt execution claim'den önce uygular.
+  Gerçek create_time takvim dışındaysa ACTIVATED_HOLDOUT_START_UNDETERMINABLE
+  (başarı değil; kayıt silinmez, başlangıç kaymaz).
+- Proje kimliği: açık FIREBASE_PROJECT_ID == beklenen == Firestore
+  istemcisinin projesi; aksi halde hiçbir okuma/yazma yok.
+
+Son bildirilen doğrulama: tam backend regresyonu 2587 passed, 0 failed.
+Sahte veritabanı testleri gerçek Firestore eşzamanlılığının kanıtı değildir.
+
+Commit edilmemiş dosyalar (backend/):
+- değişen: app/repositories/technical_v1_activation_event_repository.py,
+  app/research/technical_v1_attempt_execution.py,
+  app/research/technical_v2_readiness.py,
+  tests/test_technical_v1_activation_event_repository.py,
+  tests/test_technical_v1_attempt_execution.py,
+  tests/test_technical_v1_finalization_orchestration.py,
+  tests/test_technical_v2_readiness.py
+- yeni: app/research/technical_holdout.py,
+  app/research/technical_v2_activation.py, tests/test_technical_holdout.py,
+  tests/test_technical_v2_activation.py
+
+Canlı kontroller NOT RUN: production readiness, Firestore projesi, runtime
+kimliği, canlı scoring config, Docker imaj fingerprint'i, gerçek create_time
+ve Firestore eşzamanlılığı.
+
+Bekleyen kararlar:
+1. BEKLEYEN MADDE — 2027 BIST takvimi / protokol-manifest geçişi
+   (projenin geri kalanını durdurmaz):
+   - `trading_calendar.py` metodoloji fingerprint kapsamında; 2027'yi
+     eklemek fingerprint'i, dolayısıyla manifest ve protokol bağını değiştirir.
+   - Resmi 2027 Pay Piyasası Tatil Tablosu 24.09.2026 tarihli aramada
+     BULUNAMADI (resmi tatiller sayfası 2012-2026'yı listeliyor; tahmin
+     edilen tek bir PDF URL'si 404 verdi). Bu, yayımlanmadığının kesin
+     kanıtı DEĞİLDİR.
+   - "TECHNICAL_V2_PROTOCOL_V2 + manifest r2" yalnızca ÖNERİDİR; protokol/
+     manifest değişikliği ONAYLANMADI.
+   - AÇIK TASARIM KARARI: 2027'yi eklemek mevcut 6 aylık pencereye yardımcı
+     olabilir, ancak üst bitiş tarihi olmayan bir deneyde ileriki her yıllık
+     takvim güncellemesi aynı fingerprint/sürüm sorununu yeniden doğurur.
+     Kalıcı çözüm bu turda tasarlanmadı/uygulanmadı.
+   - Farklı protokollerin kanıtları BİRLEŞTİRİLMEZ.
+   - TECHNICAL_V2_PROTOCOL_V1 bu turda aktive EDİLMEDİ.
+2. Çağrı yolu: internal router'daki "aktivasyon uç noktası yok" sınırının
+   kaldırılıp kaldırılmayacağı (öneri: ayrı secret'lı internal route,
+   revision tag URL'i üzerinden tek seferlik manuel çağrı).
+3. PROD-3: deploy/billing onayı (DEFERRED — BILLING REQUIRED).
+
+evidence_capture_ready = false
+prospective_holdout_started = false
+effective_holdout_start = null
+
+# EVENT INTELLIGENCE — MERKEZİ OPENAI BÜTÇE KONTROLÜ YEREL KAPANIŞ (24.09.2026)
+
+Durum: YEREL OLARAK TAMAMLANDI, COMMIT EDİLMEDİ, DEPLOY EDİLMEDİ.
+
+- Merkezi rezervasyon/uzlaştırma (`app/engines/event_intelligence/budget.py`,
+  `app/repositories/event_intelligence_budget_repository.py`): her OpenAI
+  çağrısından hemen önce Firestore transaction'ıyla ihtiyatlı rezervasyon,
+  sonra gerçek `usage` ile uzlaştırma (kullanım kaydı rezervasyon kimliğiyle,
+  tek sefer). Günlük job ve `POST /news/{symbol}/analyze` aynı kapıdan geçer.
+  Bütçe anlamı değişmedi: tüm zamanlar toplamı; defter ilk kullanımda mevcut
+  `token_usage_logs` toplamıyla BİR KEZ tohumlanır.
+- Belirsiz çağrılar (timeout/hata/usage yok) ve çöken süreçlerin rezervasyonları
+  serbest bırakılmaz; tekrar deneme yeni rezervasyon açar.
+- OpenAI SDK otomatik tekrarları kapatıldı (`max_retries=0`); kurulu openai
+  3.2.0'ın varsayılanı tek rezervasyon altında 3 HTTP denemesiydi.
+- İstekte `max_completion_tokens=4096` gönderiliyor (rezervasyon sınırı için).
+
+Son bildirilen doğrulama: tam backend regresyonu 2609 passed, 0 failed.
+Sahte Firestore testleri gerçek Firestore eşzamanlılığının kanıtı değildir.
+
+Sınır: rezervasyon YEREL bir tahmindir (UTF-8 bayt + 256 girdi varsayımı,
+4096 çıktı sınırı, yerel fiyat tablosu) — gerçek sağlayıcı faturasının üst
+sınırı DEĞİLDİR. Güvence yalnızca ortak defteri kullanan çağrılar içindir;
+eski revision, yerel geliştirme backend'i veya aynı OpenAI anahtarını
+kullanan başka herhangi bir çağrı defter dışında kalır.
+
+Bekleyen: operasyonel geçiş (eski ücretli yolların kapatılması, eski anahtarın
+iptali, sağlayıcı kullanımıyla mutabakat, defterin ilk oluşumu) ve açılış
+mutabakatı için eksik mekanizma kararı. Billing kapalı; deploy yok.
+
+## Ek (24.09.2026): Bütçe mutabakat düzeltmesi CLI'ı + düzeltilmiş geçiş planı
+
+Yerel olarak eklendi (commit/deploy yok): `app/engines/event_intelligence/budget_adjustment.py`
+(yalnızca `python -m` ile çalışan operatör CLI'ı, endpoint yok). Varsayılan dry-run; yazma
+yalnızca `--apply` ile. Pozitif, en fazla 6 ondalıklı tutarı (mikro-USD) `committed_usd`'ye
+ekler; düzeltme kaydı ve defter güncellemesi tek transaction'dadır; aynı kimlik+içerik tekrar
+eklenmez, aynı kimlik+farklı içerik reddedilir. Defter yoksa ortak tohumlama mantığıyla
+geçmiş `token_usage_logs` toplamı bir kez eklenir. Tutar otomatik türetilmez (bkz. modül
+docstring'i); bu kesin fatura eşitliği değildir. Son doğrulama: 2628 passed.
+
+Geçiş planı (UYGULANMADI). Eski anahtarın iptali gelecekteki çağrıların KABULÜNÜ engeller;
+kabul edilmiş çağrıların tamamlandığını veya sağlayıcı kullanım raporlarının kesinleştiğini
+KANITLAMAZ. Instance sayısı ve kullanım raporları destekleyici kanıttır, mutlak tamamlanma
+kanıtı değildir; geç kesinleşen kullanım sonradan yeni kimlikli ek bir pozitif düzeltmeyle
+işlenir.
+
+1. Önkoşul: kararlar alındı, kod commit'lendi. İşlem: billing KAPALIYKEN eski OpenAI anahtarını
+   OpenAI tarafında iptal et (eski revision, yerel .env ve bilinmeyen girişler için kabul
+   penceresini kapatır). Doğrulama: anahtar listesinde iptal görünür. Başarısızsa: dur, billing açma.
+2. Önkoşul: 1. İşlem: yeni anahtar oluştur (henüz hiçbir yere bağlanmaz). Başarısızsa: dur.
+3. Önkoşul: 1-2. İşlem: billing'i aç. Doğrulama: billingEnabled=true. Eski revision ücretli
+   çağrı yapmaya çalışırsa iptal edilmiş anahtarla reddedilir. Başarısızsa: dur (billing'i
+   otomatik kapatma adımı önerilmez).
+4. İşlem: scheduler'ı duraklat. Doğrulama: PAUSED. Başarısızsa: dur.
+5. İşlem: bekleme payı + 00029 instance sayısı 0 + iptal sonrası eski anahtarda kullanım
+   görülmemesi (destekleyici kanıt). Başarısızsa: bekle.
+6. İşlem: sağlayıcı kullanımı ile defterde sayılacak tutarı (log toplamı + tutulan
+   rezervasyonlar) aynı dönem/kapsam için karşılaştır; fark varsa CLI'ı önce dry-run, sonra
+   --apply ile çalıştır. Doğrulama: çıktı APPLIED/ALREADY_APPLIED. Başarısızsa: dur.
+7. İşlem: yeni anahtarı yeni secret sürümü olarak ekle; yeni kodu bu sürüme sabitleyerek
+   --no-traffic deploy et; tag URL'de yalnızca /health. Başarısızsa: trafik 00029'da kalır
+   (anahtarı iptal edilmiş; ücretli çağrı kabul edilmez).
+8. İşlem: trafiği açıkça yeni revision'a geçir. Doğrulama: defter mevcut, değerler dry-run
+   özetiyle tutarlı. Başarısızsa: aşağıdaki rollback.
+9. İşlem: scheduler'ı yeniden aç. Doğrulama: job çıktısında news_analysis_stop_reason.
+
+Rollback: eski imajı anahtarsız çalıştırmak (diğer işlevler açık, ücretli yollar kapalı)
+DOĞRULAMA BEKLİYOR — anahtarsız eski imajın diğer işlevleri çalıştırdığı ve imajda .env
+olmadığı henüz doğrulanmadı. Defter silinmez/sıfırlanmaz; açık/belirsiz rezervasyonlar
+korunur. Eski sürümde ücretli çağrı gerçekleşirse yeniden geçiş öncesi ayrıca mutabakat
+(CLI ile ek düzeltme) gerekir.
+
+Geçiş planı açıklamaları (24.09.2026):
+- Eski OpenAI anahtarının iptali AYRICA onay gerektirir; anahtarın başka
+  uygulamalarda kullanılıp kullanılmadığı bilinmeden uygulanmaz.
+- Anahtarsız eski imaj doğrulanmış bir rollback hedefi DEĞİLDİR.
+- Yeni secret sürümü yayımlanırken eski revision'ın `latest` referansı
+  üzerinden yeni anahtarı alması önlenmelidir (00029 şu an
+  `openai-api-key:latest` referansı taşıyor); sürüm bağları canlıda
+  doğrulanmadan geçiş yapılmaz.
+- Bu plan henüz uygulanmış veya tamamen doğrulanmış DEĞİLDİR.
+
+# GÜNCEL DURUM ÖZETİ (24.09.2026) — commit edilmemiş yerel çalışmalar
+
+Önceki bölümlerdeki test sayıları kendi tarihlerindeki sonuçlardır; son durum:
+- Backend: son bildirilen tam regresyon 2628 passed, 0 failed.
+- Flutter: son bildirilen 99 passed, `flutter analyze` temiz.
+- Gerçek cihaz kontrolü, gerçek Firestore eşzamanlılığı ve canlı geçiş: NOT RUN.
+- Billing: son salt-okunur kontrolde (24.09.2026) bağlı hesap var, billingEnabled=false.
+- Hiçbir yeni çalışma deploy edilmedi; canlı trafik ai-investment-backend-00029-bmf'de.
+- Technical V2 aktivasyonu, 2027 takvim/protokol kararı ve çağrı yolu kararı bekliyor.
+
+Yerel commit aşaması (24.09.2026): yukarıdaki "commit edilmedi" ifadeleri o anki
+tarihsel durumdur. Çalışmalar master üzerinde yalnızca YEREL olarak commit edildi:
+`8c0ee31` (Technical V2-R1), `f9d7a1c` (fiyat sekmesi yenileme), `b26fd00`
+(EventIntelligence bütçe + mutabakat CLI'ı); bu günlük notları ayrı bir belge
+commit'indedir. Push yapılmadı. Deploy ve canlı doğrulama durumları değişmedi.

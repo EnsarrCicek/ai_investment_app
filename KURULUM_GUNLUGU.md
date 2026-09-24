@@ -2151,3 +2151,19 @@ Kullanıcı: "Tüm hisseler için günde 1 kez analiz yapmanı istiyorum ki gün
 
 **Tarih / Not:**
 24.08.2026 — Günde 1 kez, kullanıcı etkileşimi olmadan TÜM BIST100'ü teknik+haber+makro ile analiz edip karar üreten Google Cloud Scheduler job'ı eklendi (08:00 Europe/Istanbul), 407/407 backend test yeşil (12 yeni), canlıda tetiklenip doğrulandı.
+
+## Fiyat Sekmesi Otomatik Yenileme (24.09.2026) — YEREL DOĞRULAMA, COMMIT EDİLMEDİ
+
+Varlık Detayı → Fiyat sekmesi (`lib/features/asset_detail/asset_detail_screen.dart`, `_PriceTab`):
+
+- Her 60 saniyede YALNIZCA fiyat (`/market-data/{symbol}/quote`) ve yüzde değişim (`/changes`) yenileniyor; grafik geçmişi periyodik yenilenmiyor (açılış, elle yenileme ve periyot seçimi eskisi gibi).
+- Yalnızca Fiyat sekmesi seçili, ekranın rotası en üstte ve uygulama ön plandayken çalışıyor; geri dönüşte son başarılı yenileme 60 sn'den eskiyse tek yenileme.
+- Çakışan fiyat istekleri engelleniyor (otomatik + elle); otomatik yenileme hatasında son başarılı veri korunuyor, snackbar yok, tek satırlık uyarı.
+- Sağlayıcı gecikmesi (~20 dk) giderilmiyor; arayüzde "gerçek zamanlı" iddiası yok. Seans saati/tatil kısıtı yok.
+- Sekme yeniden oluşturulursa (ör. başka sekmeye geçip dönünce) fiyat ve grafik ilk açılıştaki gibi yükleniyor; 60 saniyelik geri dönüş kuralı yalnızca state korunmuşsa (arka plan / üstte başka sayfa) geçerli.
+- Yeni test: `test/features/asset_detail/price_tab_auto_refresh_test.dart` (7).
+
+Son bildirilen doğrulama: 99 Flutter testi başarılı, `flutter analyze` temiz.
+Gerçek cihaz kontrolü: NOT RUN.
+Değişiklikler commit edilmedi; release APK güncellenmedi.
+Güncel durum (24.09.2026): backend son bildirilen 2628 passed; hiçbir yeni çalışma deploy edilmedi; billing son salt-okunur kontrolde kapalı (ayrıntı: `TECHNICAL_ANALYSIS_RESEARCH1.md` → "GÜNCEL DURUM ÖZETİ").
