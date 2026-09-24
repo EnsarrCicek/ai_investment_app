@@ -22,6 +22,12 @@ hash/activation_lock_id/session_date/sembol İCAT EDİLMEZ."""
 from __future__ import annotations
 
 from app.core.config import TECHNICAL_V1_EVIDENCE_BUCKET
+from app.research.technical_versions import (
+    TECHNICAL_VERSION_SPECS,
+    TechnicalVersionMismatchError,
+    assert_identity_matches_running_engine,
+    load_evaluation_identity,
+)
 from app.core.firebase import get_firestore_client
 from app.repositories.benchmark_cache_repository import BenchmarkCacheRepository
 from app.repositories.system_config_repository import SystemConfigRepository
@@ -57,7 +63,9 @@ def _require_evidence_bucket() -> str:
     return TECHNICAL_V1_EVIDENCE_BUCKET
 
 
-def build_session_controller(*, protocol_sha256: str) -> TechnicalV1SessionController:
+def build_session_controller(
+    *, protocol_sha256: str, technical_version: str = "TECHNICAL_V1"
+) -> TechnicalV1SessionController:
     """HATA 12/13'te kilitlenen TÜM production bileşenlerini COMPOSE eder.
 
     `protocol_sha256` çağıran tarafın (internal endpoint) isteğinden AÇIKÇA
@@ -70,10 +78,25 @@ def build_session_controller(*, protocol_sha256: str) -> TechnicalV1SessionContr
     ATLAMAZ/YERİNE GEÇMEZ, sadece kontrolcü seviyesindeki (frozen evren/
     manifest) kullanım için ayrıca yüklenir.
     """
+    # TECHNICAL V2: kontrolcü TEK bir sürüm kimliğine bağlanır. İstenen
+    # protocol_sha256 o sürümün paketlenmiş protokolüyle TAM eşleşmeli ve
+    # çalışan motor sürümün engine_version'ıyla eşleşmeli (engine 1.15.0
+    # altında V1 kontrolcüsü kurulamaz). Hiçbir Firestore/GCS client'ı bu
+    # kontroller geçmeden OLUŞTURULMAZ.
+    spec = TECHNICAL_VERSION_SPECS.get(technical_version)
+    if spec is None:
+        raise TechnicalVersionMismatchError(f"bilinmeyen technical_version: {technical_version!r}")
+    evaluation_identity = load_evaluation_identity(spec)
+    if protocol_sha256 != evaluation_identity.protocol_sha256:
+        raise TechnicalVersionMismatchError(
+            f"protocol_sha256 {technical_version} protokolüyle eşleşmiyor ({protocol_sha256!r})"
+        )
+    assert_identity_matches_running_engine(evaluation_identity)
+
     evidence_bucket = _require_evidence_bucket()
 
     db = get_firestore_client()
-    trusted_protocol = load_verified_technical_v1_protocol(protocol_sha256)
+    trusted_protocol = load_verified_technical_v1_protocol(protocol_sha256, spec.protocol_path)
 
     provider = BistProvider()
     config_repo = SystemConfigRepository()
@@ -103,4 +126,5 @@ def build_session_controller(*, protocol_sha256: str) -> TechnicalV1SessionContr
         session_run_repo=TechnicalV1SessionRunRepository(db=db),
         session_manifest_repo=TechnicalV1SessionManifestRepository(db=db),
         evaluation_repo=evaluation_repo,
+        evaluation_identity=evaluation_identity,
     )

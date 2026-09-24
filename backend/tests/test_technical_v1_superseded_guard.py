@@ -45,9 +45,12 @@ def test_activation_lock_create_fails_before_any_firestore_write():
         def collection(self, *_a, **_k):
             raise AssertionError("Firestore'a dokunulmamalı")
 
+    from types import SimpleNamespace
+
     repo = TechnicalV1ActivationLockRepository(db=_ExplodingDb())
+    v1_lock = SimpleNamespace(protocol_version="TECHNICAL_V1_PROTOCOL_V1")
     with pytest.raises(TechnicalV1MethodologySupersededError):
-        repo.create(lock=object())  # guard, kilit içeriğine bakılmadan önce çalışır
+        repo.create(lock=v1_lock)  # guard, Firestore'a dokunmadan önce çalışır
 
 
 def test_guard_passes_when_manifest_matches_running_engine():

@@ -18,9 +18,11 @@ from __future__ import annotations
 from app.research.methodology_fingerprint import compute_methodology_source_fingerprint
 
 
-def observe_methodology_source_fingerprint() -> str:
+def observe_methodology_source_fingerprint(normalize_newlines: bool = False) -> str:
     """Şu an deploy edilmiş 27-dosya metodoloji kaynağının parmak-izini
     döner -- `methodology_fingerprint.py`'nin KENDİ, TEK implementasyonunu
     (dosya listesi + hash algoritması) DOĞRUDAN çağırır, ikinci bir kopya
     İCAT ETMEZ (section 12/31)."""
-    return compute_methodology_source_fingerprint()
+    # TECHNICAL V2: satır-sonu normalize edilmiş algoritma (V1 ham algoritması
+    # varsayılan olarak DEĞİŞMEDİ) -- bkz. methodology_fingerprint.py.
+    return compute_methodology_source_fingerprint(normalize_newlines=normalize_newlines)

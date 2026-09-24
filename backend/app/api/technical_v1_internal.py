@@ -38,8 +38,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.core.config import TECHNICAL_V1_JOB_SECRET
 from app.research.evidence_identity import compute_evaluation_id, compute_session_id
+from app.research.evidence_models import ProvenanceConflictError
 from app.research.technical_v1_production import TechnicalV1ConfigurationError, build_session_controller
 from app.research.technical_v1_session_controller import SessionScientificFacts, TechnicalV1SessionController
+from app.research.technical_versions import TECHNICAL_V1_SPEC, TECHNICAL_V2_SPEC, TechnicalVersionSpec
 from app.schemas.technical_v1_internal import (
     Attempt1Request,
     Attempt2Request,
@@ -74,11 +76,23 @@ def _require_session_id(protocol_version: str, T_session_date: str) -> str:
         raise HTTPException(status_code=400, detail=f"Geçersiz T_session_date: {exc}") from exc
 
 
-def _build_controller(protocol_sha256: str) -> TechnicalV1SessionController:
+def _build_controller_for(protocol_sha256: str, technical_version: str) -> TechnicalV1SessionController:
     try:
-        return build_session_controller(protocol_sha256=protocol_sha256)
+        return build_session_controller(protocol_sha256=protocol_sha256, technical_version=technical_version)
     except TechnicalV1ConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ProvenanceConflictError as exc:
+        # TECHNICAL V2: sürüm uyuşmazlığı / superseded metodoloji (ör. engine
+        # 1.15.0 altında V1) -- hiçbir Firestore/GCS client'ı oluşturulmadan 409.
+        raise HTTPException(status_code=409, detail=type(exc).__name__) from exc
+
+
+def _build_controller(protocol_sha256: str) -> TechnicalV1SessionController:
+    return _build_controller_for(protocol_sha256, TECHNICAL_V1_SPEC.technical_version)
+
+
+def _build_v2_controller(protocol_sha256: str) -> TechnicalV1SessionController:
+    return _build_controller_for(protocol_sha256, TECHNICAL_V2_SPEC.technical_version)
 
 
 def get_controller_factory():
@@ -87,6 +101,23 @@ def get_controller_factory():
     HİÇ dokunmadan, sahte bir controller döndüren bir factory ile
     değiştirebilir (section 28/38)."""
     return _build_controller
+
+
+def get_v2_controller_factory():
+    """TECHNICAL V2 rotaları için AYRI `Depends()` dolaylaması -- V1 ile V2
+    kontrolcü fabrikaları hiçbir zaman karışmaz; testler bunu da bağımsız
+    olarak override edebilir."""
+    return _build_v2_controller
+
+
+def _require_route_version(protocol_version: str, spec: TechnicalVersionSpec) -> None:
+    """Bir rota yalnızca KENDİ sürümünün protokolünü çalıştırır -- hiçbir
+    uç nokta metodoloji kimliği hakkında yanıltıcı olamaz."""
+    if not isinstance(protocol_version, str) or not protocol_version.startswith(spec.protocol_version_prefix):
+        raise HTTPException(
+            status_code=422,
+            detail=f"protocol_version bu rotanın sürümüne ({spec.technical_version}) ait değil",
+        )
 
 
 def _log_json(level: int, **fields: object) -> None:
@@ -153,13 +184,9 @@ def _log_phase_report(
     return counts
 
 
-@router.post("/attempt1", response_model=PhaseSummaryResponse)
-def attempt1_phase(
-    request: Attempt1Request,
-    x_job_secret: str | None = Header(default=None),
-    controller_factory=Depends(get_controller_factory),
-):
+def _attempt1_impl(request: Attempt1Request, x_job_secret: str | None, controller_factory, spec: TechnicalVersionSpec):
     _check_auth(x_job_secret)
+    _require_route_version(request.protocol_version, spec)
     session_id = _require_session_id(request.protocol_version, request.T_session_date)
     controller = controller_factory(request.protocol_sha256)
 
@@ -190,13 +217,9 @@ def attempt1_phase(
     )
 
 
-@router.post("/attempt2", response_model=PhaseSummaryResponse)
-def attempt2_phase(
-    request: Attempt2Request,
-    x_job_secret: str | None = Header(default=None),
-    controller_factory=Depends(get_controller_factory),
-):
+def _attempt2_impl(request: Attempt2Request, x_job_secret: str | None, controller_factory, spec: TechnicalVersionSpec):
     _check_auth(x_job_secret)
+    _require_route_version(request.protocol_version, spec)
     session_id = _require_session_id(request.protocol_version, request.T_session_date)
     controller = controller_factory(request.protocol_sha256)
 
@@ -236,13 +259,9 @@ def attempt2_phase(
     )
 
 
-@router.post("/finalize", response_model=PhaseSummaryResponse)
-def finalization_phase(
-    request: FinalizationRequest,
-    x_job_secret: str | None = Header(default=None),
-    controller_factory=Depends(get_controller_factory),
-):
+def _finalize_impl(request: FinalizationRequest, x_job_secret: str | None, controller_factory, spec: TechnicalVersionSpec):
     _check_auth(x_job_secret)
+    _require_route_version(request.protocol_version, spec)
     session_id = _require_session_id(request.protocol_version, request.T_session_date)
     controller = controller_factory(request.protocol_sha256)
 
@@ -280,13 +299,9 @@ def finalization_phase(
     )
 
 
-@router.post("/manifest", response_model=ManifestSummaryResponse)
-def manifest_phase(
-    request: ManifestRequest,
-    x_job_secret: str | None = Header(default=None),
-    controller_factory=Depends(get_controller_factory),
-):
+def _manifest_impl(request: ManifestRequest, x_job_secret: str | None, controller_factory, spec: TechnicalVersionSpec):
     _check_auth(x_job_secret)
+    _require_route_version(request.protocol_version, spec)
     session_id = _require_session_id(request.protocol_version, request.T_session_date)
     controller = controller_factory(request.protocol_sha256)
 
@@ -330,3 +345,85 @@ def manifest_phase(
         manifest_persisted=result.manifest is not None,
         create_outcome=result.create_outcome.value if result.create_outcome is not None else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Rotalar. TECHNICAL V1 rotaları AYNEN korunur (engine 1.15.0 altında V1
+# kontrolcüsü kurulamaz -> 409). TECHNICAL V2 rotaları AYRI bir prefix ve AYRI
+# bir kontrolcü fabrikasıyla çalışır; hiçbir aktivasyon uç noktası YOKTUR.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/attempt1", response_model=PhaseSummaryResponse)
+def attempt1_phase(
+    request: Attempt1Request,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_controller_factory),
+):
+    return _attempt1_impl(request, x_job_secret, controller_factory, TECHNICAL_V1_SPEC)
+
+
+@router.post("/attempt2", response_model=PhaseSummaryResponse)
+def attempt2_phase(
+    request: Attempt2Request,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_controller_factory),
+):
+    return _attempt2_impl(request, x_job_secret, controller_factory, TECHNICAL_V1_SPEC)
+
+
+@router.post("/finalize", response_model=PhaseSummaryResponse)
+def finalization_phase(
+    request: FinalizationRequest,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_controller_factory),
+):
+    return _finalize_impl(request, x_job_secret, controller_factory, TECHNICAL_V1_SPEC)
+
+
+@router.post("/manifest", response_model=ManifestSummaryResponse)
+def manifest_phase(
+    request: ManifestRequest,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_controller_factory),
+):
+    return _manifest_impl(request, x_job_secret, controller_factory, TECHNICAL_V1_SPEC)
+
+
+router_v2 = APIRouter(prefix="/internal/technical-v2", tags=["technical-v2-internal"])
+
+
+@router_v2.post("/attempt1", response_model=PhaseSummaryResponse)
+def attempt1_phase_v2(
+    request: Attempt1Request,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_v2_controller_factory),
+):
+    return _attempt1_impl(request, x_job_secret, controller_factory, TECHNICAL_V2_SPEC)
+
+
+@router_v2.post("/attempt2", response_model=PhaseSummaryResponse)
+def attempt2_phase_v2(
+    request: Attempt2Request,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_v2_controller_factory),
+):
+    return _attempt2_impl(request, x_job_secret, controller_factory, TECHNICAL_V2_SPEC)
+
+
+@router_v2.post("/finalize", response_model=PhaseSummaryResponse)
+def finalization_phase_v2(
+    request: FinalizationRequest,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_v2_controller_factory),
+):
+    return _finalize_impl(request, x_job_secret, controller_factory, TECHNICAL_V2_SPEC)
+
+
+@router_v2.post("/manifest", response_model=ManifestSummaryResponse)
+def manifest_phase_v2(
+    request: ManifestRequest,
+    x_job_secret: str | None = Header(default=None),
+    controller_factory=Depends(get_v2_controller_factory),
+):
+    return _manifest_impl(request, x_job_secret, controller_factory, TECHNICAL_V2_SPEC)

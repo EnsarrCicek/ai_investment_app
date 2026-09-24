@@ -13,8 +13,13 @@ from app.research.technical_v1_methodology_observation import (
 
 
 def test_delegates_directly_to_compute_methodology_source_fingerprint(monkeypatch):
-    monkeypatch.setattr(module, "compute_methodology_source_fingerprint", lambda: "f" * 64)
+    # TECHNICAL V2: normalize_newlines bayrağı değişmeden iletilir (V1 varsayılanı False).
+    monkeypatch.setattr(
+        module, "compute_methodology_source_fingerprint",
+        lambda normalize_newlines=False: ("e" if normalize_newlines else "f") * 64,
+    )
     assert observe_methodology_source_fingerprint() == "f" * 64
+    assert observe_methodology_source_fingerprint(normalize_newlines=True) == "e" * 64
 
 
 def test_does_not_duplicate_the_27_file_list_or_hashing_algorithm():

@@ -37,6 +37,7 @@ app.include_router(analysts.router)
 app.include_router(ipo.router)
 app.include_router(jobs.router)
 app.include_router(technical_v1_internal.router)
+app.include_router(technical_v1_internal.router_v2)
 
 
 @app.get("/health")

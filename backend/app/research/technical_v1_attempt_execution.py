@@ -68,7 +68,7 @@ from app.research.attempt_models import (
 )
 from app.research.attempt_reason_codes import PROVIDER_DATA_UNAVAILABLE
 from app.research.evidence_identity import compute_attempt_id, compute_evaluation_id
-from app.research.evidence_models import EvidenceObjectKind
+from app.research.evidence_models import EvidenceObjectKind, ProvenanceConflictError
 from app.research.evidence_object_store import EvidenceObjectStore
 from app.research.evidence_serialization import (
     asset_input_sha256,
@@ -96,6 +96,11 @@ from app.research.technical_v1_methodology_observation import observe_methodolog
 from app.research.technical_v1_protocol import load_verified_technical_v1_protocol
 from app.research.technical_v1_runtime_identity import observe_runtime_fingerprint
 from app.research.technical_v1_scoring_config_values import load_verified_scoring_config_hash
+from app.research.technical_versions import (
+    assert_identity_matches_running_engine,
+    identity_for_protocol_version,
+    validate_lock_identity,
+)
 from app.services.market_data.base import MarketDataProvider
 from app.services.market_data.benchmark_service import get_benchmark_close_series
 from app.services.market_data.completed_bars import filter_completed_daily_bars
@@ -247,11 +252,28 @@ class TechnicalV1AttemptExecutionService:
             return AttemptExecutionReport(outcome=AttemptExecutionOutcome.ACTIVATION_LOCK_NOT_FOUND)
         activation_lock = persisted_lock.lock
 
+        # ---- 1b) TECHNICAL V2: sürümlü kimlik -- claim'den ÖNCE, fail-fast.
+        # Sürüm kilidin protocol_version'ından çözülür; çağıranın
+        # protocol_version'ı kilitle AYNI olmalı (evaluation/attempt ID'leri
+        # ondan türetilir), kilit sürümün güvenilen kimliğini TAM taşımalı ve
+        # çalışan motor sürümün engine_version'ıyla eşleşmeli (engine 1.15.0
+        # altında YENİ V1 attempt'i burada, hiçbir claim/yazma olmadan reddedilir).
+        if protocol_version != activation_lock.protocol_version:
+            raise ProvenanceConflictError(
+                f"istek protocol_version ({protocol_version!r}) activation_lock.protocol_version "
+                f"({activation_lock.protocol_version!r}) ile eşleşmiyor"
+            )
+        evaluation_identity = identity_for_protocol_version(activation_lock.protocol_version)
+        assert_identity_matches_running_engine(evaluation_identity)
+        validate_lock_identity(activation_lock, evaluation_identity)
+
         # ---- 2) verified authorizing event (section 8/9/10) -------------
         activation_event = self._find_authorizing_event(activation_lock)
 
         # ---- 3) verified protocol (section 11) ---------------------------
-        trusted_protocol = load_verified_technical_v1_protocol(activation_lock.protocol_sha256)
+        trusted_protocol = load_verified_technical_v1_protocol(
+            activation_lock.protocol_sha256, evaluation_identity.spec.protocol_path
+        )
 
         # ---- 4) pre-claim authorization -- HEMEN claim_attempt()'ten ÖNCE
         #         (section 12/13, HATA 13B -> 13C kritik kablolaması) ------
@@ -295,10 +317,14 @@ class TechnicalV1AttemptExecutionService:
         weights = resolve_indicator_weights(self._config_repo.get_raw("technical_indicator_weights"))
         family_weights = resolve_family_weights(self._config_repo.get_raw("technical_family_weights"))
         observed_scoring_config_hash = compute_scoring_config_hash(weights, family_weights)
-        expected_scoring_config_hash = load_verified_scoring_config_hash(activation_lock.freeze_manifest_sha256)
+        expected_scoring_config_hash = load_verified_scoring_config_hash(
+            activation_lock.freeze_manifest_sha256, evaluation_identity.spec.freeze_manifest_path
+        )
         config_result = evaluate_config_gate(expected_scoring_config_hash, observed_scoring_config_hash)
 
-        observed_methodology_fingerprint = observe_methodology_source_fingerprint()
+        observed_methodology_fingerprint = observe_methodology_source_fingerprint(
+            normalize_newlines=evaluation_identity.normalized_fingerprint
+        )
         methodology_result = evaluate_methodology_gate(
             activation_lock.authorized_methodology_source_fingerprint, observed_methodology_fingerprint
         )

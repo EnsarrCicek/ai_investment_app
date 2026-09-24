@@ -31,6 +31,9 @@ from app.research.technical_v1_finalization import FinalizationOutcome, Finaliza
 from app.research.technical_v1_protocol import load_verified_technical_v1_protocol
 from app.research.technical_v1_session_controller import TechnicalV1SessionController
 
+# TECH-VOL 1B / TECHNICAL V2: V1 route + factory mekaniği V1 metodolojisiyle eşleşen motor altında test edilir.
+pytestmark = pytest.mark.usefixtures("v1_era_engine_version")
+
 LOCKED_PROTOCOL_SHA256 = "ee13afdde2a251bd86fc684e0786f01a9d0b12f7a52ebb2b7771693cb1d38f79"
 LOCKED_PROTOCOL_VERSION = "TECHNICAL_V1_PROTOCOL_V1"
 _T_SESSION_DATE = "2026-08-24"

@@ -71,6 +71,11 @@ from app.research.technical_v1_attempt_execution import TechnicalV1AttemptExecut
 from app.research.technical_v1_attempt_schedule import attempt2_decision_time_utc, formal_cutoff_utc
 from app.research.technical_v1_finalization import TechnicalV1Finalizer
 from app.research.technical_v1_protocol import TrustedTechnicalV1Protocol
+from app.research.technical_versions import (
+    TechnicalEvaluationIdentity,
+    TechnicalVersionMismatchError,
+    validate_scientific_facts,
+)
 
 
 @dataclass(frozen=True)
@@ -146,7 +151,21 @@ class TechnicalV1SessionController:
         session_run_repo: TechnicalV1SessionRunRepository,
         session_manifest_repo: TechnicalV1SessionManifestRepository,
         evaluation_repo: TechnicalV1EvaluationRepository,
+        evaluation_identity: TechnicalEvaluationIdentity | None = None,
     ) -> None:
+        # TECHNICAL V2: production factory kontrolcüyü TEK bir sürüm kimliğine
+        # bağlar; bağlıysa her fazda protocol_version ve çağıranın bilimsel
+        # olguları bu kimliğe karşı doğrulanır (V1/V2 karışımı fail-fast,
+        # hiçbir sembol işlenmeden). `None` yalnızca kimliği enjekte etmeyen
+        # doğrudan birim testleri içindir.
+        if evaluation_identity is not None and (
+            trusted_protocol.protocol_sha256 != evaluation_identity.protocol_sha256
+            or trusted_protocol.protocol_version != evaluation_identity.protocol_version
+        ):
+            raise TechnicalVersionMismatchError(
+                "trusted_protocol, kontrolcünün bağlı olduğu Technical sürüm kimliğiyle eşleşmiyor"
+            )
+        self._evaluation_identity = evaluation_identity
         self._trusted_protocol = trusted_protocol
         self._attempt_execution_service = attempt_execution_service
         self._attempt2_orchestrator = attempt2_orchestrator
@@ -158,6 +177,18 @@ class TechnicalV1SessionController:
     # -----------------------------------------------------------------
     # Ortak yardımcı -- HİÇBİR faz metodunun DIŞINA sızmaz.
     # -----------------------------------------------------------------
+
+    def _require_version(self, protocol_version: str, facts: SessionScientificFacts | None = None) -> None:
+        identity = self._evaluation_identity
+        if identity is None:
+            return
+        if protocol_version != identity.protocol_version:
+            raise TechnicalVersionMismatchError(
+                f"istek protocol_version ({protocol_version!r}) kontrolcünün {identity.technical_version} "
+                f"kimliğiyle ({identity.protocol_version!r}) eşleşmiyor"
+            )
+        if facts is not None:
+            validate_scientific_facts(facts, identity)
 
     def _build_context(
         self, *, protocol_version: str, T_session_date: str, symbol: str, facts: SessionScientificFacts
@@ -184,6 +215,7 @@ class TechnicalV1SessionController:
     def run_attempt1_phase(
         self, *, activation_lock_id: str, protocol_version: str, T_session_date: str, now: datetime
     ) -> PhaseReport:
+        self._require_version(protocol_version)
         outcomes: list[SymbolPhaseOutcome] = []
         for symbol in self._trusted_protocol.frozen_symbol_list:
             try:
@@ -215,6 +247,7 @@ class TechnicalV1SessionController:
         facts: SessionScientificFacts,
         now: datetime,
     ) -> PhaseReport:
+        self._require_version(protocol_version, facts)
         outcomes: list[SymbolPhaseOutcome] = []
         for symbol in self._trusted_protocol.frozen_symbol_list:
             context = self._build_context(
@@ -243,6 +276,7 @@ class TechnicalV1SessionController:
         `TechnicalV1SessionRunSnapshot`'a TAM DEĞİŞTİRME (full-replace)
         olarak yazar -- bu, `session_run.py`'nin KENDİ, dokümante ettiği
         "her geçişte SIFIRDAN yeniden inşa edilir" sözleşmesidir."""
+        self._require_version(protocol_version, facts)
         outcomes: list[SymbolPhaseOutcome] = []
         retry_pending: list[str] = []
         provenance_blocked: list[str] = []
@@ -293,6 +327,7 @@ class TechnicalV1SessionController:
         DEĞİLSE HİÇ ÇAĞRILMAZ (o fonksiyon ZATEN 100'den az/çok kayıt
         verilirse `ValueError` fırlatır -- bu KASITLI OLARAK ÖNCEDEN,
         AÇIK bir muhasebe adımıyla ÖNLENİR, section 41/43)."""
+        self._require_version(protocol_version, facts)
         frozen_symbols = self._trusted_protocol.frozen_symbol_list
         expected_ids = derive_expected_evaluation_ids(protocol_version, T_session_date, frozen_symbols)
 

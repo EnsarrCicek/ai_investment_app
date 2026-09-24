@@ -178,12 +178,20 @@ class TechnicalV1ActivationLockRepository:
         yapısal olarak zaten kendi-kendine-tutarlı olduğundan (kendi
         `__post_init__`'i garanti eder), burada AYRICA bir "adayın kendi
         kimliği tutarlı mı" ön-kontrolü YOKTUR -- section 8."""
-        # TECH-VOL 1B: çalışan motor V1 freeze manifest'iyle eşleşmiyorsa (V1
-        # metodolojisi superseded) YENİ bir V1 aktivasyon kilidi OLUŞTURULMAZ --
-        # Firestore'a hiçbir yazma denenmeden önce fail-fast.
-        from app.research.technical_v1_scoring_config_values import assert_v1_methodology_matches_running_engine
+        # TECH-VOL 1B / TECHNICAL V2: kilidin sürümü protocol_version'ından
+        # çözülür ve çalışan motor o sürümün engine_version'ıyla eşleşmeli
+        # (engine 1.15.0 altında YENİ V1 kilidi reddedilir) -- Firestore'a
+        # hiçbir yazma denenmeden önce fail-fast. Tam kilit-kimlik doğrulaması
+        # (protokol/manifest hash'leri, V2 parmak izi) depolama katmanında
+        # DEĞİL, kilidin tüketildiği yerde yapılır (technical_versions.
+        # validate_lock_identity, attempt execution) -- bu repository saf
+        # create-only depolama sözleşmesini korur.
+        from app.research.technical_versions import (
+            assert_identity_matches_running_engine,
+            identity_for_protocol_version,
+        )
 
-        assert_v1_methodology_matches_running_engine()
+        assert_identity_matches_running_engine(identity_for_protocol_version(lock.protocol_version))
         doc_ref = self._db.collection(COLLECTION).document(lock.activation_lock_id)
         candidate_fields = lock.to_document_fields()
         # `record_content_sha256` her zaman türetilmiş bir property'dir --
