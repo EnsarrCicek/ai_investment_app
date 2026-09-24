@@ -30,11 +30,15 @@ class _FakeDecisionEngine:
 
 
 class _FakeEventEngine:
-    def __init__(self):
+    def __init__(self, raise_from_call: int | None = None, error: Exception | None = None):
         self.calls: list[str] = []
+        self._raise_from_call = raise_from_call
+        self._error = error
 
     def analyze_recent_for_asset(self, symbol):
         self.calls.append(symbol)
+        if self._raise_from_call is not None and len(self.calls) > self._raise_from_call:
+            raise self._error
         return []
 
 
@@ -53,14 +57,6 @@ class _FakePortfolioRepo:
     def get_position_for_asset(self, user_id, asset):
         quantity = self._holdings.get((user_id, asset))
         return None if quantity is None else SimpleNamespace(quantity=quantity)
-
-
-class _FakeUsageRepo:
-    def __init__(self, logs=None):
-        self._logs = logs or []
-
-    def list_all(self):
-        return self._logs
 
 
 class _FakeNewsRawRepo:
@@ -87,7 +83,6 @@ def _run(
     user_ids=(),
     holdings=None,
     decision_raise_for=None,
-    usage_logs=None,
     foreks_items=None,
     foreks_raises=False,
     event_engine=None,
@@ -99,7 +94,6 @@ def _run(
         event_engine=event_engine if event_engine is not None else _FakeEventEngine(),
         token_repo=_FakeTokenRepo(list(user_ids)),
         portfolio_repo=_FakePortfolioRepo(holdings or {}),
-        usage_repo=_FakeUsageRepo(usage_logs),
         news_raw_repo=_FakeNewsRawRepo(),
         foreks_provider=_FakeForeksProvider(foreks_items, raise_error=foreks_raises),
         fetch_news=lambda symbol, limit: [],
@@ -124,35 +118,40 @@ def test_one_asset_error_does_not_abort_the_rest():
     assert decision_engine.calls == ["THYAO", "BROKEN", "TUPRS"]
 
 
-def test_skips_news_analysis_when_budget_exhausted():
-    from app.models.token_usage import TokenUsageLog
-    from datetime import datetime, timezone
+def test_budget_exhaustion_stops_news_analysis_but_decisions_continue():
+    from app.engines.event_intelligence.budget import BudgetExhaustedError
 
-    exhausted_log = TokenUsageLog(
-        news_id="n",
-        asset="THYAO",
-        model_used="gpt-5.6-luna",
-        prompt_tokens=1,
-        completion_tokens=1,
-        total_tokens=2,
-        cost_usd=999.0,
-        created_at=datetime.now(timezone.utc),
-    )
-    event_engine = _FakeEventEngine()
+    event_engine = _FakeEventEngine(raise_from_call=1, error=BudgetExhaustedError("yetersiz"))
 
-    result, _ = _run(symbols=("THYAO",), usage_logs=[exhausted_log], event_engine=event_engine)
+    result, decision_engine = _run(symbols=("THYAO", "GARAN", "TUPRS"), event_engine=event_engine)
 
-    assert event_engine.calls == []
-    assert result["news_analysis_skipped_budget"] == ["THYAO"]
+    assert event_engine.calls == ["THYAO", "GARAN"]  # tükendikten sonra motor bir daha çağrılmaz
+    assert result["news_analysis_skipped_budget"] == ["GARAN", "TUPRS"]
+    assert result["news_analysis_stop_reason"] == "BUDGET_EXHAUSTED"
+    assert decision_engine.calls == ["THYAO", "GARAN", "TUPRS"]
+    assert result["errors"] == []
+
+
+def test_unreadable_budget_state_stops_news_analysis_with_explicit_reason():
+    from app.engines.event_intelligence.budget import BudgetUnavailableError
+
+    event_engine = _FakeEventEngine(raise_from_call=0, error=BudgetUnavailableError("okunamadı"))
+
+    result, _ = _run(symbols=("THYAO", "GARAN"), event_engine=event_engine)
+
+    assert event_engine.calls == ["THYAO"]
+    assert result["news_analysis_stop_reason"] == "BUDGET_STATE_UNAVAILABLE"
+    assert result["news_analysis_skipped_budget"] == ["THYAO", "GARAN"]
 
 
 def test_analyzes_news_when_budget_available():
     event_engine = _FakeEventEngine()
 
-    result, _ = _run(symbols=("THYAO", "GARAN"), usage_logs=[], event_engine=event_engine)
+    result, _ = _run(symbols=("THYAO", "GARAN"), event_engine=event_engine)
 
     assert event_engine.calls == ["THYAO", "GARAN"]
     assert result["news_analysis_skipped_budget"] == []
+    assert result["news_analysis_stop_reason"] is None
 
 
 def test_notifies_holding_user_as_strong_decision_and_non_holder_as_new_opportunity(monkeypatch):
@@ -199,7 +198,6 @@ def test_foreks_market_news_fetched_once_and_upserted():
         event_engine=_FakeEventEngine(),
         token_repo=_FakeTokenRepo([]),
         portfolio_repo=_FakePortfolioRepo({}),
-        usage_repo=_FakeUsageRepo([]),
         news_raw_repo=news_raw_repo,
         foreks_provider=_FakeForeksProvider([item]),
         fetch_news=lambda symbol, limit: [],

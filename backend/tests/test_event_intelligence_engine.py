@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.event_budget_fakes import FakeFirestore, any_model_test_budget, make_test_budget
 from app.engines.event_intelligence import engine as engine_module
 from app.engines.event_intelligence.engine import (
     HIGH_IMPORTANCE_THRESHOLD,
@@ -64,14 +65,6 @@ class _FakeNewsRepo:
         return self._items[:limit]
 
 
-class _FakeUsageRepo:
-    def __init__(self):
-        self.added: list = []
-
-    def add(self, log):
-        self.added.append(log)
-        return "fake-usage-id"
-
 
 def _news_item(external_id="n1", title="Şirket rekor kâr açıkladı"):
     now = datetime.now(timezone.utc)
@@ -104,7 +97,7 @@ def test_analyze_item_uses_configured_model_not_hardcoded():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="some-other-model-from-env",
     )
 
@@ -120,7 +113,7 @@ def test_analyze_item_returns_validated_news_analysis():
         client=client,
         analysis_repo=repo,
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="gpt-5.6-luna",
     )
 
@@ -143,7 +136,7 @@ def test_analyze_item_omits_empty_summary_line():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
     news = _news_item()
@@ -162,7 +155,7 @@ def test_analyze_item_includes_summary_when_present():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -183,7 +176,7 @@ def test_analyze_item_includes_fetched_article_text_when_available(monkeypatch):
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -199,7 +192,7 @@ def test_analyze_item_omits_article_text_line_when_fetch_returns_empty():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -215,7 +208,7 @@ def test_analyze_item_requests_structured_json_schema():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -229,24 +222,25 @@ def test_analyze_item_requests_structured_json_schema():
 def test_analyze_item_logs_token_usage_with_cost():
     usage = SimpleNamespace(prompt_tokens=1_000_000, completion_tokens=1_000_000, total_tokens=2_000_000)
     client = _FakeOpenAIClient(_VALID_RESPONSE, usage=usage)
-    usage_repo = _FakeUsageRepo()
+    db = FakeFirestore()
     engine = EventIntelligenceEngine(
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=usage_repo,
+        budget=make_test_budget(db=db),
         primary_model="gpt-5.6-luna",
     )
 
     engine.analyze_item(_news_item(external_id="n7"), "THYAO")
 
-    assert len(usage_repo.added) == 1
-    log = usage_repo.added[0]
-    assert log.news_id == "n7"
-    assert log.prompt_tokens == 1_000_000
-    assert log.completion_tokens == 1_000_000
+    logs = list(db.collection_docs("token_usage_logs").values())
+    assert len(logs) == 1
+    log = logs[0]
+    assert log["news_id"] == "n7"
+    assert log["prompt_tokens"] == 1_000_000
+    assert log["completion_tokens"] == 1_000_000
     # Luna: $0.20/1M girdi + $1.20/1M çıktı = $1.40
-    assert log.cost_usd == pytest.approx(1.40)
+    assert log["cost_usd"] == pytest.approx(1.40)
 
 
 def test_analyze_recent_for_asset_skips_already_analyzed():
@@ -267,7 +261,7 @@ def test_analyze_recent_for_asset_skips_already_analyzed():
         client=client,
         analysis_repo=_FakeAnalysisRepo(existing={"already-done": existing_analysis}),
         news_repo=_FakeNewsRepo([news]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -284,7 +278,7 @@ def test_analyze_recent_for_asset_analyzes_new_items():
         client=client,
         analysis_repo=repo,
         news_repo=_FakeNewsRepo([_news_item(external_id="new1")]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 

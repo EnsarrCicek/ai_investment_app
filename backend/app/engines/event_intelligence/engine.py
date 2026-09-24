@@ -25,7 +25,9 @@ katmanı) — hiçbir zaman serbest metin olarak saklanmaz.
 
 Maliyet takibi (AŞAMA 39): her gerçek çağrının response.usage'ı (prompt/
 completion token sayısı) usage.py'deki fiyat tarifesiyle çarpılıp
-TokenUsageLog olarak kaydedilir — bkz. GET /usage.
+TokenUsageLog olarak kaydedilir — bkz. GET /usage. Bütçe kontrolü: her model
+çağrısı budget.py'deki merkezi rezervasyon/uzlaştırma kapısından geçer (günlük
+job ve manuel analiz dahil) — bkz. o modülün docstring'i.
 
 Reproducibility/provenance (HATA 15D): her yeni NewsAnalysis, LLM'e
 GERÇEKTEN gönderilen son metnin (`analyzed_text`) ve onun SHA-256
@@ -49,13 +51,11 @@ from app.core.config import (
     EVENT_INTELLIGENCE_PRIMARY_MODEL,
     OPENAI_API_KEY,
 )
-from app.engines.event_intelligence.usage import compute_cost_usd
+from app.engines.event_intelligence.budget import MAX_COMPLETION_TOKENS, EventIntelligenceBudget
 from app.models.news_analysis import NewsAnalysis
 from app.models.news_raw import NewsRawItem
-from app.models.token_usage import TokenUsageLog
 from app.repositories.news_analysis_repository import NewsAnalysisRepository
 from app.repositories.news_raw_repository import NewsRawRepository
-from app.repositories.token_usage_repository import TokenUsageRepository
 from app.services.news.article_fetcher import fetch_article_text
 from app.services.news.event_dedup import DedupEntry, cluster_by_event
 
@@ -175,17 +175,20 @@ class EventIntelligenceEngine:
         client: OpenAI | None = None,
         analysis_repo: NewsAnalysisRepository | None = None,
         news_repo: NewsRawRepository | None = None,
-        usage_repo: TokenUsageRepository | None = None,
+        budget: EventIntelligenceBudget | None = None,
         primary_model: str | None = None,
     ):
         if client is None and not OPENAI_API_KEY:
             raise ValueError(
                 "OPENAI_API_KEY ayarlanmamış — backend/.env dosyasına ekleyin"
             )
-        self._client = client or OpenAI(api_key=OPENAI_API_KEY)
+        # SDK'nin otomatik tekrarları kapalı: tek bütçe rezervasyonu altında
+        # birden fazla ücretli deneme olmasın; tekrar deneme, uygulama
+        # seviyesinde yeni bir rezervasyonla yapılır (bkz. budget.py).
+        self._client = client or OpenAI(api_key=OPENAI_API_KEY, max_retries=0)
         self._analysis_repo = analysis_repo or NewsAnalysisRepository()
         self._news_repo = news_repo or NewsRawRepository()
-        self._usage_repo = usage_repo or TokenUsageRepository()
+        self._budget = budget or EventIntelligenceBudget.from_firestore()
         self._primary_model = primary_model or EVENT_INTELLIGENCE_PRIMARY_MODEL
 
     def analyze_item(self, news: NewsRawItem, asset: str) -> NewsAnalysis:
@@ -213,18 +216,38 @@ class EventIntelligenceEngine:
         # hash'lenir, ham sayfa DEĞİL (bölüm 5).
         analyzed_text = "\n".join(content_lines)
 
-        response = self._client.chat.completions.create(
-            model=self._primary_model,
-            messages=[
+        request = {
+            "model": self._primary_model,
+            "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": analyzed_text},
             ],
-            temperature=_DETERMINISM_TEMPERATURE,
-            seed=_DETERMINISM_SEED,
-            response_format={
+            "temperature": _DETERMINISM_TEMPERATURE,
+            "seed": _DETERMINISM_SEED,
+            "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": "news_analysis", "schema": _RESPONSE_SCHEMA, "strict": True},
             },
+            "max_completion_tokens": MAX_COMPLETION_TOKENS,
+        }
+        # Bütçe: ücretli çağrıdan HEMEN ÖNCE rezervasyon (yetersiz/okunamaz ise
+        # çağrı yapılmaz, istisna yükselir); belirsiz sonuçta rezervasyon tutulur.
+        reservation = self._budget.reserve(
+            model=self._primary_model, request=request, news_id=news.external_id, asset=asset
+        )
+        try:
+            response = self._client.chat.completions.create(**request)
+        except Exception:
+            self._budget.mark_uncertain(reservation)
+            raise
+        # Gerçek kullanım, yanıt ayrıştırılmadan ÖNCE uzlaştırılır — geçersiz
+        # çıktı da ücretlidir.
+        self._budget.settle(
+            reservation,
+            usage=getattr(response, "usage", None),
+            news_id=news.external_id,
+            asset=asset,
+            created_at=datetime.now(timezone.utc),
         )
         raw = response.choices[0].message.content
         data = json.loads(raw)
@@ -251,32 +274,7 @@ class EventIntelligenceEngine:
             **data,
         )
         self._analysis_repo.add(analysis)
-        self._log_usage(response, news.external_id, asset, created_at)
         return analysis
-
-    def _log_usage(self, response, news_id: str, asset: str, created_at: datetime) -> None:
-        """Gerçek API yanıtındaki token sayılarını maliyete çevirip kaydeder.
-
-        OpenAI'nin billing/usage API'sinden anlık çekmek yerine (kullanıcı
-        kararı), her çağrının kendi `response.usage`'ı kaynak olarak kullanılır
-        — bu, ek bir ağ çağrısı gerektirmez ve gerçek token sayımına dayanır.
-        """
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return
-        cost_usd = compute_cost_usd(self._primary_model, usage.prompt_tokens, usage.completion_tokens)
-        self._usage_repo.add(
-            TokenUsageLog(
-                news_id=news_id,
-                asset=asset,
-                model_used=self._primary_model,
-                prompt_tokens=usage.prompt_tokens,
-                completion_tokens=usage.completion_tokens,
-                total_tokens=usage.total_tokens,
-                cost_usd=cost_usd,
-                created_at=created_at,
-            )
-        )
 
     def analyze_recent_for_asset(self, asset: str, limit: int = 5) -> list[NewsAnalysis]:
         """Bu varlık için en son haberleri getirir; daha önce analiz edilmemiş

@@ -9,9 +9,12 @@ paylaşılan bir gizli anahtarla korunuyor — herkese açık bir Cloud Run
 adresinde gerçek OpenAI maliyeti oluşturduğundan).
 
 Her aktif varlık için: (1) haberleri çeker/saklar (Yahoo+Google+Foreks —
-`fetch_and_store_news`, AŞAMA 69'da bu amaçla çıkarılmıştı), (2) OpenAI
-bütçesi el veriyorsa henüz analiz edilmemiş haberleri EventIntelligenceEngine
-ile analiz eder, (3) DecisionEngine ile teknik+haber+makroyu birleştirip
+`fetch_and_store_news`, AŞAMA 69'da bu amaçla çıkarılmıştı), (2) henüz
+analiz edilmemiş haberleri EventIntelligenceEngine ile analiz eder — bütçe
+kontrolü her model çağrısından önce motorun merkezi kapısında yapılır
+(`event_intelligence/budget.py`); bütçe yetmezse ya da bütçe durumu
+okunamazsa haber analizi o noktada DURUR (neden sonuçta açıkça yazılır),
+kararlar mevcut analizlerle devam eder, (3) DecisionEngine ile teknik+haber+makroyu birleştirip
 kararı kaydeder (haber tek başına karar vermiyor — DecisionEngine mimarisi
 DEĞİŞMEDİ), (4) kayıtlı TÜM kullanıcılara, `GET /decisions/{symbol}` ile
 AYNI bildirim mantığıyla (portföyde varsa güçlü AL/SAT, yoksa yalnızca en
@@ -23,24 +26,18 @@ DURMAZ — 100 varlığın 1-2'sinde geçici hata, günün geri kalanını iptal
 etmemeli.
 """
 
-from app.core.config import EVENT_INTELLIGENCE_BUDGET_USD
 from app.engines.decision.engine import DecisionEngine
+from app.engines.event_intelligence.budget import BudgetExhaustedError, BudgetUnavailableError
 from app.engines.event_intelligence.engine import EventIntelligenceEngine
-from app.engines.event_intelligence.usage import summarize
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.fcm_token_repository import FcmTokenRepository
 from app.repositories.news_raw_repository import NewsRawRepository
 from app.repositories.portfolio_repository import PortfolioRepository
-from app.repositories.token_usage_repository import TokenUsageRepository
 from app.services.news.foreks_news_provider import ForeksNewsProvider
 from app.services.news.news_aggregator import fetch_and_store_news
 from app.services.notifications.fcm_sender import notify_if_new_opportunity, notify_if_strong_decision
 
 NEWS_FETCH_LIMIT = 10
-
-
-def _remaining_budget_usd(usage_repo: TokenUsageRepository) -> float:
-    return summarize(usage_repo.list_all(), EVENT_INTELLIGENCE_BUDGET_USD)["remaining_usd"]
 
 
 def _make_event_engine() -> EventIntelligenceEngine | None:
@@ -58,7 +55,6 @@ def run_daily_analysis(
     event_engine: EventIntelligenceEngine | None = None,
     token_repo: FcmTokenRepository | None = None,
     portfolio_repo: PortfolioRepository | None = None,
-    usage_repo: TokenUsageRepository | None = None,
     news_raw_repo: NewsRawRepository | None = None,
     foreks_provider: ForeksNewsProvider | None = None,
     fetch_news=fetch_and_store_news,
@@ -67,13 +63,13 @@ def run_daily_analysis(
     decision_engine = decision_engine or DecisionEngine()
     token_repo = token_repo or FcmTokenRepository()
     portfolio_repo = portfolio_repo or PortfolioRepository()
-    usage_repo = usage_repo or TokenUsageRepository()
     news_raw_repo = news_raw_repo or NewsRawRepository()
     foreks_provider = foreks_provider or ForeksNewsProvider()
 
     if event_engine is None:
         event_engine = _make_event_engine()
-    analyze_news = event_engine is not None and _remaining_budget_usd(usage_repo) > 0
+    analyze_news = event_engine is not None
+    news_analysis_stop_reason = None if analyze_news else "EVENT_ENGINE_UNAVAILABLE"
 
     # Genel piyasa haberlerini (Foreks) TEK seferde çek — sembol başına DEĞİL
     # (bkz. ForeksNewsProvider modül docstring'i, tüm piyasayı tek istekte tarar).
@@ -96,8 +92,13 @@ def run_daily_analysis(
             fetch_news(symbol, limit=NEWS_FETCH_LIMIT)
 
             if analyze_news:
-                event_engine.analyze_recent_for_asset(symbol)
-            else:
+                try:
+                    event_engine.analyze_recent_for_asset(symbol)
+                except BudgetExhaustedError:
+                    analyze_news, news_analysis_stop_reason = False, "BUDGET_EXHAUSTED"
+                except BudgetUnavailableError:
+                    analyze_news, news_analysis_stop_reason = False, "BUDGET_STATE_UNAVAILABLE"
+            if not analyze_news:
                 skipped_budget.append(symbol)
 
             decision = decision_engine.decide_for_asset(symbol)
@@ -116,5 +117,6 @@ def run_daily_analysis(
         "total_assets": len(assets),
         "processed": len(processed),
         "news_analysis_skipped_budget": skipped_budget,
+        "news_analysis_stop_reason": news_analysis_stop_reason,
         "errors": errors,
     }

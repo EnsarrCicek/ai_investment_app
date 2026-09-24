@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.event_budget_fakes import any_model_test_budget
 from app.engines.decision.engine import (
     DEFAULT_THRESHOLDS,
     DEFAULT_WEIGHTS,
@@ -332,11 +333,6 @@ class _FakeNewsRepo:
         return self._items[:limit]
 
 
-class _FakeUsageRepo:
-    def add(self, log):
-        pass
-
-
 _VALID_RESPONSE = {
     "sentiment_score": 40.0,
     "confidence": 0.7,
@@ -362,7 +358,7 @@ def test_analyze_recent_for_asset_calls_llm_only_once_for_duplicate_cluster():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([yahoo, google]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -382,7 +378,7 @@ def test_analyze_recent_for_asset_independent_events_both_analyzed():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([a, b]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -407,7 +403,7 @@ def test_analyze_recent_for_asset_reuses_existing_legacy_duplicate_analysis_with
         client=client,
         analysis_repo=_FakeAnalysisRepo(existing={"google:6": legacy_google_analysis}),
         news_repo=_FakeNewsRepo([yahoo, google]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.event_budget_fakes import any_model_test_budget
 from app.engines.decision.engine import _WeightedNewsAnalysis, _aggregate_news_score
 from app.engines.event_intelligence import engine as engine_module
 from app.engines.event_intelligence.engine import (
@@ -77,15 +78,6 @@ class _FakeNewsRepo:
         return self._items[:limit]
 
 
-class _FakeUsageRepo:
-    def __init__(self):
-        self.added: list = []
-
-    def add(self, log):
-        self.added.append(log)
-        return "fake-usage-id"
-
-
 def _news_item(external_id="n1", title="Şirket rekor kâr açıkladı", summary="Detaylı özet burada."):
     now = datetime.now(timezone.utc)
     return NewsRawItem(
@@ -117,7 +109,7 @@ def _engine(client, repo=None, news_items=None):
         client=client,
         analysis_repo=repo or _FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo(news_items or []),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="m",
     )
 
@@ -253,7 +245,7 @@ def test_persisted_model_used_matches_actual_invoked_model_kwarg():
         client=client,
         analysis_repo=_FakeAnalysisRepo(),
         news_repo=_FakeNewsRepo([]),
-        usage_repo=_FakeUsageRepo(),
+        budget=any_model_test_budget(),
         primary_model="actually-invoked-model-xyz",
     )
 
