@@ -46,6 +46,11 @@ class TechnicalVersionSpec:
     freeze_manifest_path: Path
     protocol_version_prefix: str
     normalized_fingerprint: bool
+    # Sürüm-başına TEK güven çıpası (release gate). Manifest sha'sı protokolden,
+    # scoring hash/parmak izi manifest'ten türetilir -- sabit çoğaltılmaz.
+    # V1 için None: V1 superseded, yeni release'i yoktur.
+    expected_protocol_version: str | None = None
+    expected_protocol_sha256: str | None = None
 
 
 TECHNICAL_V1_SPEC = TechnicalVersionSpec(
@@ -61,6 +66,8 @@ TECHNICAL_V2_SPEC = TechnicalVersionSpec(
     freeze_manifest_path=_RESOURCES / "technical_v2_freeze_manifest.json",
     protocol_version_prefix="TECHNICAL_V2_PROTOCOL_",
     normalized_fingerprint=True,
+    expected_protocol_version="TECHNICAL_V2_PROTOCOL_V1",
+    expected_protocol_sha256="50b5b4e336f48c4043fe6802067b14b86ad8e0beb2cc78a6d56fec8209b395b8",
 )
 TECHNICAL_VERSION_SPECS: dict[str, TechnicalVersionSpec] = {
     TECHNICAL_V1_SPEC.technical_version: TECHNICAL_V1_SPEC,
