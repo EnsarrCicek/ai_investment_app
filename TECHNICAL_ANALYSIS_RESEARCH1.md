@@ -3030,3 +3030,47 @@ tarihsel durumdur. Çalışmalar master üzerinde yalnızca YEREL olarak commit 
 `8c0ee31` (Technical V2-R1), `f9d7a1c` (fiyat sekmesi yenileme), `b26fd00`
 (EventIntelligence bütçe + mutabakat CLI'ı); bu günlük notları ayrı bir belge
 commit'indedir. Push yapılmadı. Deploy ve canlı doğrulama durumları değişmedi.
+
+# MARKET-RISK-1 — Fiyat temelli erken risk modeli (keşifsel, 28.09.2026)
+
+Tek deneme: 6 fiyat özelliği + StandardScaler + L2 lojistik regresyon (C=1), 2024 eğitim,
+2025 kronolojik değerlendirme (2025 daha önce görüldüğü için bağımsız holdout DEĞİL).
+Hedef: T+1..T+10 seans kapanışlarından biri <= -%10. Çıktı: `backend/app/research/
+market_risk_shadow/runs/early_risk_model_20260928/`. Model yakınsadı.
+- İlk AL günlerinde (n=903) 152 sert düşüşün 22'si işaretlendi; 110 uyarının 88'inde
+  hedef düşüş görülmedi. İlk günlerde Brier sabit referanstan kötü (0,1455 vs 0,1426).
+- Tüm AL günlerinde AP 0,238 vs sabit 0,196 (zayıf ayrım; gözlemler örtüşür).
+- Eşik kayması: eğitim skorlarının %90 persentili 2025'te ~%21 uyarı oranı üretti.
+- Üretime ALINMADI; eşik/özellik/model değiştirilerek yeniden eğitilmedi.
+
+# MARKET-RISK-1 — Araştırma kapanışı (28.09.2026)
+
+- Mevcut gölge risk kuralları erken uyarı kapsamı bakımından yetersiz kaldı: sonradan sert
+  düşen AL günlerinin çoğunda T günü uyarı yoktu; hisse kuralı çoğunlukla başlamış düşüşe
+  kapanışta tepki verdi (bkz. sharp_drop_coverage.json).
+- Fiyat temelli lojistik model keşifsel düzeyde zayıf ayrım gösterdi; üretime alınmadı.
+- Hacim deneyi (dvol_20_100) önceden kaydedilmiş karşılaştırma koşulunu karşılamadı:
+  EK_ISARET_YOK (runs/volume_experiment_20260928/result.json).
+- Bu sonuçlar yalnızca denenen özellikler, model, örneklem (dondurulmuş 100 sembol,
+  2024 eğitim/2025 değerlendirme) ve hedef (10 seansta <= -%10) için geçerlidir;
+  "hacim işe yaramaz" veya "düşüş tahmin edilemez" genellemesi yapılmaz.
+- Sınırlamalar: 2024 teknik karar kapsamı %61,5; XU100 boşlukları; sıfır hacim kuralı
+  2024 eğitim örnekleminin ~1/3'ünü dışladı; 2025 bağımsız holdout değildir.
+- Eski deneyler, kod ve çıktılar korunmuştur. Risk filtresi gölge modunda kalır.
+
+# PORTFÖY — Salt-okunur pozisyon inceleme modülü (28.09.2026)
+
+- `backend/app/services/portfolio/position_review.py` + yerel JSON CLI; üretim uç noktalarına,
+  `pnl_calculator`'a ve karar motoruna bağlı DEĞİL. Otomatik AL/SAT üretmez.
+- Değerleme: beklenen son tamamlanmış seans (takvim + 18.00 + 30 dk, saat dilimli
+  `evaluated_at`). `retrieved_at` kesinleşmeden önceyse INCOMPLETE_BAR; `retrieved_at` /
+  `source_updated_at` değerlendirmeden sonraysa OBSERVED_AFTER_EVALUATION. Anlamı bilinmeyen
+  `source_timestamp` yalnızca gösterilir.
+- `price_basis` ve kurumsal işlem kontrolü GİRDİ BEYANIDIR; eksik/uyumsuzsa kâr/zarar ve sınır
+  sonucu üretilmez. Kâr/zarar fiyat bazlı gerçekleşmemiş farktır (komisyon, vergi, nakit
+  temettü hariç). Ağırlık yalnızca açık hisse pozisyonları içindedir.
+- Tek sembol gerçek veri denemesi (THYAO.IS, yfinance 1.5.2, auto_adjust=False, tek çağrı,
+  çıktı yerel geçici klasörde): seans etiketi ve 25.09 kapanışı alındı; sağlayıcı
+  01.09–27.09 aralığında olay bildirmedi (yokluk doğrulaması değildir). `Close`'un ham fiyat
+  olduğu Yahoo belgesiyle kanıtlanamadı → PRICE_BASIS_UNVERIFIED (engel geçerli sonuç).
+  Karar: haricî doğrulama gerekiyor (resmî BIST kapanışı + KAP bölünme/bedelsiz kontrolü).

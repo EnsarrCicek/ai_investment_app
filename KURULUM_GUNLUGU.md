@@ -2167,3 +2167,13 @@ Son bildirilen doğrulama: 99 Flutter testi başarılı, `flutter analyze` temiz
 Gerçek cihaz kontrolü: NOT RUN.
 Değişiklikler commit edilmedi; release APK güncellenmedi.
 Güncel durum (24.09.2026): backend son bildirilen 2628 passed; hiçbir yeni çalışma deploy edilmedi; billing son salt-okunur kontrolde kapalı (ayrıntı: `TECHNICAL_ANALYSIS_RESEARCH1.md` → "GÜNCEL DURUM ÖZETİ").
+
+## Dış Teknik Sinyal Karşılaştırması (24.09.2026) — BEKLEMEDE
+
+Hedef: dış kaynakların teknik değerlendirmelerini (Güçlü Al…Güçlü Sat) kendi analizimizle OTOMATİK karşılaştırmak.
+
+- İncelenen kaynaklarda (Investing.com, TradingView, Matriks, Barchart OnDemand, Finnhub) BIST kapsamı, programatik erişim ve gerekli kullanım hakları (otomatik karşılaştırma, saklama, kullanıcıya gösterme) BİRLİKTE doğrulanamadı. Bu, piyasada uygun kaynak olmadığı anlamına gelmez.
+- Sağlayıcı yanıtı veya yeni somut belge gelmeden entegrasyona başlanmayacak; boş entegrasyon altyapısı yazılmayacak.
+- Widget gösterimi (yalnızca ekranda gösterim) otomatik karşılaştırma hedefini karşılamaz; alternatif sayılmaz.
+- Tasarım notu: dış etiketler önceden tanımlı eşlemeyle yöne çevrilir (Güçlü Al/Al → yükseliş yönlü, Nötr → yönsüz/nötr teknik değerlendirme, Sat/Güçlü Sat → düşüş yönlü); "Nötr" bir yatay fiyat tahmini değildir. Her kaynak için ayrı sınıf: aynı yön veya iki taraf da nötr → UYUMLU; zıt yön → ÇELİŞKİLİ; yalnızca biri nötr → KISMEN; eksik veya karşılaştırılamayan veride uyum sınıfı üretilmez. Kaynak sayısı ve bağımsızlığı ayrı bilgilerdir.
+- Bu bekleyen özellik genel backend/Flutter yayınını engellemez.
