@@ -1,0 +1,676 @@
+{
+ "label": "POSITION-EXIT-1 TEMSILI senaryolar: tum fiyatlar, gerceklesmeler, masraf ve parametreler SENTETIKTIR; %10 hedef kullanici deney parametresidir, dogrulanmis optimum degildir",
+ "scenarios": [
+  {
+   "name": "S1_1000_TL_TO_1100_TL",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 100,
+    "price": "10.00",
+    "fees": "1.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "0",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "10.40"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "11.00"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "11.00"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "A_FULL_AT_TARGET",
+     "executions": [
+      {
+       "report_id": "A1",
+       "request_id": "A_FULL_AT_TARGET-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 100,
+       "price": "11.00",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 92,
+       "price": "11.00",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "C_HALF_THEN_TRAIL",
+     "executions": [
+      {
+       "report_id": "C1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 50,
+       "price": "11.00",
+       "final": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S2_10_LOTS_AT_100_PRICE_110_WHOLE_LOT",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 10,
+    "price": "100.00",
+    "fees": "1.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "0",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "105.00"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "110.00"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 10,
+       "price": "110.00",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "C_HALF_THEN_TRAIL",
+     "executions": [
+      {
+       "report_id": "C1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 5,
+       "price": "110.00",
+       "final": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S3_STOP_BEFORE_TARGET",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 100,
+    "price": "10.00",
+    "fees": "1.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "0",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "10.30"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "9.80"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "9.15"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "A_FULL_AT_TARGET",
+     "executions": [
+      {
+       "report_id": "A1",
+       "request_id": "A_FULL_AT_TARGET-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 100,
+       "price": "9.05",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 100,
+       "price": "9.05",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "C_HALF_THEN_TRAIL",
+     "executions": [
+      {
+       "report_id": "C1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 100,
+       "price": "9.05",
+       "final": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S4_RALLY_CONTINUES_THEN_REVERSES",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 100,
+    "price": "10.00",
+    "fees": "1.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "0",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "10.50"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "11.00"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "11.60"
+    },
+    {
+     "session": "2026-09-07",
+     "close": "12.50"
+    },
+    {
+     "session": "2026-09-08",
+     "close": "12.20"
+    },
+    {
+     "session": "2026-09-09",
+     "close": "11.85"
+    },
+    {
+     "session": "2026-09-10",
+     "close": "11.70"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "A_FULL_AT_TARGET",
+     "executions": [
+      {
+       "report_id": "A1",
+       "request_id": "A_FULL_AT_TARGET-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 100,
+       "price": "11.05",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 92,
+       "price": "11.05",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "C_HALF_THEN_TRAIL",
+     "executions": [
+      {
+       "report_id": "C1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 50,
+       "price": "11.05",
+       "final": true
+      },
+      {
+       "report_id": "C2",
+       "request_id": "C_HALF_THEN_TRAIL-R2",
+       "session": "2026-09-10",
+       "filled_quantity": 50,
+       "price": "11.80",
+       "final": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S5_GAP_DOWN_BELOW_LEVELS",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 100,
+    "price": "10.00",
+    "fees": "1.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "0",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "10.50"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "11.00"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "10.10"
+    },
+    {
+     "session": "2026-09-07",
+     "close": "9.10"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 92,
+       "price": "10.20",
+       "final": true
+      },
+      {
+       "report_id": "B2",
+       "request_id": "B_RECOVER_PRINCIPAL-R2",
+       "session": "2026-09-08",
+       "filled_quantity": 8,
+       "price": "8.90",
+       "final": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S6_NOT_FILLED_AND_PARTIAL",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 100,
+    "price": "10.00",
+    "fees": "1.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "0",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "10.50"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "11.00"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "11.00"
+    },
+    {
+     "session": "2026-09-07",
+     "close": "11.10"
+    },
+    {
+     "session": "2026-09-08",
+     "close": "10.50"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "A_FULL_AT_TARGET",
+     "executions": [
+      {
+       "report_id": "A1",
+       "request_id": "A_FULL_AT_TARGET-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 0,
+       "final": true,
+       "note": "gerceklesmedi"
+      }
+     ]
+    },
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 30,
+       "price": "11.00",
+       "final": false
+      },
+      {
+       "report_id": "B2",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 0,
+       "final": true,
+       "note": "kalan kisim gerceklesmedi"
+      },
+      {
+       "report_id": "B3",
+       "request_id": "B_RECOVER_PRINCIPAL-R2",
+       "session": "2026-09-08",
+       "filled_quantity": 0,
+       "final": true,
+       "note": "gerceklesmedi"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S7_SINGLE_LOT_MIN_COMMISSION_DUPLICATE_MAX_HOLD",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 1,
+    "price": "100.00",
+    "fees": "5.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 5,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "5",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "104.00"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "110.00"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "108.00"
+    },
+    {
+     "session": "2026-09-07",
+     "close": "106.00"
+    },
+    {
+     "session": "2026-09-08",
+     "close": "105.00"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "B_RECOVER_PRINCIPAL",
+     "executions": [
+      {
+       "report_id": "B1",
+       "request_id": "B_RECOVER_PRINCIPAL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 1,
+       "price": "110.00",
+       "final": true
+      }
+     ]
+    },
+    {
+     "policy": "C_HALF_THEN_TRAIL",
+     "executions": [
+      {
+       "report_id": "C1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-09",
+       "filled_quantity": 1,
+       "price": "104.90",
+       "final": true
+      },
+      {
+       "report_id": "C1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-09",
+       "filled_quantity": 1,
+       "price": "104.90",
+       "final": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "S8_PENDING_TARGET_THEN_STOP_CANCEL_LIFECYCLE",
+   "data_origin": "TEMSILI",
+   "symbol": "ORNEK",
+   "entry": {
+    "session": "2026-09-01",
+    "quantity": 100,
+    "price": "10.00",
+    "fees": "5.00",
+    "fees_basis": "ASSUMED"
+   },
+   "params": {
+    "target_pct": 10,
+    "stop_loss_pct": 8,
+    "trailing_pct": 5,
+    "max_holding_sessions": 20,
+    "lot_size": 1,
+    "fees": {
+     "commission_rate_pct": "0.1",
+     "min_commission": "5",
+     "slippage_pct_assumption": "0"
+    }
+   },
+   "bars": [
+    {
+     "session": "2026-09-02",
+     "close": "10.50"
+    },
+    {
+     "session": "2026-09-03",
+     "close": "11.00"
+    },
+    {
+     "session": "2026-09-04",
+     "close": "9.10"
+    },
+    {
+     "session": "2026-09-07",
+     "close": "9.00"
+    },
+    {
+     "session": "2026-09-08",
+     "close": "8.90"
+    },
+    {
+     "session": "2026-09-09",
+     "close": "8.80"
+    }
+   ],
+   "runs": [
+    {
+     "policy": "C_HALF_THEN_TRAIL",
+     "executions": [
+      {
+       "report_id": "F1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-04",
+       "filled_quantity": 20,
+       "price": "11.00",
+       "final": false
+      },
+      {
+       "report_id": "F2",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 10,
+       "price": "9.00",
+       "final": false
+      },
+      {
+       "report_id": "CX1",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-07",
+       "type": "CANCEL_CONFIRMED"
+      },
+      {
+       "report_id": "F2",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 10,
+       "price": "9.00",
+       "final": false
+      },
+      {
+       "report_id": "F2",
+       "request_id": "C_HALF_THEN_TRAIL-R1",
+       "session": "2026-09-07",
+       "filled_quantity": 15,
+       "price": "9.00",
+       "final": false
+      },
+      {
+       "report_id": "N1",
+       "request_id": "C_HALF_THEN_TRAIL-R2",
+       "session": "2026-09-08",
+       "filled_quantity": 0,
+       "final": false,
+       "note": "gerceklesmedi"
+      },
+      {
+       "report_id": "P1",
+       "request_id": "C_HALF_THEN_TRAIL-R2",
+       "session": "2026-09-09",
+       "filled_quantity": 40,
+       "price": "8.80",
+       "final": false
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

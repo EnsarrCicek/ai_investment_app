@@ -1,0 +1,120 @@
+{
+ "schema": "research-data-issues-v1",
+ "created": "2026-09-29",
+ "scope": "Yalnızca yerel araştırma çalıştırıcıları için. Üretim veri sağlayıcısı, DecisionEngine ve bildirimler bu kayda bağlı DEĞİLDİR.",
+ "limits": [
+  "Kayıt yalnızca incelenmiş ve sorunu doğrulanmış dosya kimliklerini (SHA-256) engeller; kayıt bulunmaması verinin doğru olduğunu KANITLAMAZ.",
+  "Kayıt sembol için kalıcı yasak değildir; ancak sorun kaydı bulunan bir sembolün FARKLI hash'li dosyası da açık bir inceleme kaydı (reviews) olmadan onaylı sayılmaz.",
+  "Resmî karşılaştırma yalnızca listelenen seanslar içindir; aradaki günler resmî olarak doğrulanmadı."
+ ],
+ "evidence_location_note": "Aşağıda başvurulan girdi dosyaları, kanıt dosyaları ve runs/ çıktıları YEREL araştırma dosyalarıdır ve Git deposunda BULUNMAZ; hash'ler yerel kopyaların doğrulanması içindir. Ek not (29.09.2026):2024-11-01..2024-12-20 (BSOKE) ve 2025-06-02..2025-07-11 (FENER) için 64 seans resmî BIST bülteniyle karşılaştırıldı (app/research/official_bist/runs/bsoke_fener_20260929_v2, yerel); ölçekli pencereler 2024-12-02..2024-12-09 ve 2025-06-23..2025-06-27 resmî olarak desteklendi. Bu not sorun kaydını KALDIRMAZ ve yeni dosyalara inceleme onayı VERMEZ.",
+ "issues": [
+  {
+   "issue_id": "DI-20260929-BSOKE-01",
+   "symbol": "BSOKE",
+   "status": "CONFIRMED_PRICE_DISCONTINUITY",
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BSOKE_provider_ohlcv.csv",
+    "sha256": "059964873b1fc3b3824f026baabd5f3fe5c56d19f75b12b265f59f9e3ca5dc05",
+    "provenance": "universe_review._yahoo_download, yfinance 1.5.2 ticker.history(start, end, interval='1d'), varsayılan auto_adjust=True, repair=False; DOWNLOADED 2026-09-25T16:41:01+03:00"
+   },
+   "officially_compared_sessions": {
+    "2024-11-29": {"official_close": 60.0, "local_close": 60.0, "price_ratio": 1.0, "volume_ratio": 1.0},
+    "2024-12-02": {"official_close": 59.0, "local_close": 15.467761, "price_ratio": 0.262165, "volume_ratio": 3.814385},
+    "2024-12-09": {"official_close": 61.65, "local_close": 16.1625, "price_ratio": 0.262165, "volume_ratio": 3.814385},
+    "2024-12-10": {"official_close": 15.22, "local_close": 15.22, "price_ratio": 1.0, "volume_ratio": 1.0}
+   },
+   "locally_inferred_scaled_window": {
+    "first": "2024-12-02",
+    "last": "2024-12-09",
+    "basis": "YEREL SERİDEN ÇIKARIM: 2024-11-29 kapanışından 2024-12-02 açılışına -%73,83 sıçrama ile resmî rüçhan başlangıcından (2024-12-10) önceki son seans arası. Aradaki 2024-12-03..2024-12-06 seansları resmî bültenle KARŞILAŞTIRILMADI."
+   },
+   "explained_factor": "Oran, resmî bedelli koşullarından teorik rüçhan sonrası fiyat oranına eşit: (61,65 + 3 × 1,00) / 4 / 61,65 = 0,262165.",
+   "official_corporate_action": {"kap": "https://www.kap.org.tr/tr/Bildirim/1363968", "type": "BEDELLİ %300, 1,00 TL",
+                                 "rights_period": "2024-12-10..2024-12-24", "record_date": "2024-12-11", "payment_date": "2024-12-12"},
+   "origin": "KESİNLEŞMEDİ: ham Yahoo yanıtı saklanmadığı için ölçeklemenin Yahoo verisinde mi yoksa yfinance iç adımlarında mı oluştuğu tamamen ayrıştırılamadı (yfinance auto_adjust hacme dokunmaz; ölçekli pencerede hacim de ters oranla değişmiş).",
+   "evidence_files": {
+    "app/research/position_exit/runs/exit_exp1_tail_official_20260929/bulletin_vs_yahoo.json": "414c2772a65e9f41b50675a65c1fccffa6b33dbfb09d525fb3ab8fe48840ec82",
+    "app/research/position_exit/runs/exit_exp1_tail_official_20260929/diagnosis.json": "27375c5ec55517a154109754506e53e251e2b6d02515576afcc80aa91481d401",
+    "app/research/position_exit/runs/exit_exp1_tail_official_20260929/access_log.tsv": "f2677bfe0254a47024949f0b9dc0cb85adc1e75fd4b449c31aea0f2607a48353"
+   }
+  },
+  {
+   "issue_id": "DI-20260929-FENER-01",
+   "symbol": "FENER",
+   "status": "CONFIRMED_PRICE_DISCONTINUITY",
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/FENER_provider_ohlcv.csv",
+    "sha256": "f91b73aa34f33071d95ddf812386e553a98cd72159473b5807a2845ca705dc36",
+    "provenance": "universe_review._yahoo_download, yfinance 1.5.2 ticker.history(start, end, interval='1d'), varsayılan auto_adjust=True, repair=False; DOWNLOADED 2026-09-25T16:41:23+03:00"
+   },
+   "officially_compared_sessions": {
+    "2025-06-20": {"official_close": 48.56, "local_close": 48.560001, "price_ratio": 1.0, "volume_ratio": 1.0},
+    "2025-06-23": {"official_close": 47.94, "local_close": 10.378436, "price_ratio": 0.216488, "volume_ratio": 4.619193},
+    "2025-06-27": {"official_close": 48.52, "local_close": 10.503999, "price_ratio": 0.216488, "volume_ratio": 4.619193},
+    "2025-06-30": {"official_close": 11.55, "local_close": 11.55, "price_ratio": 1.0, "volume_ratio": 1.0}
+   },
+   "locally_inferred_scaled_window": {
+    "first": "2025-06-23",
+    "last": "2025-06-27",
+    "basis": "YEREL SERİDEN ÇIKARIM: 2025-06-20 kapanışından 2025-06-23 açılışına -%78,49 sıçrama ile resmî rüçhan başlangıcından (2025-06-30) önceki son seans arası. Aradaki 2025-06-24..2025-06-26 seansları resmî bültenle KARŞILAŞTIRILMADI."
+   },
+   "explained_factor": "Oran, resmî bedelli koşullarından teorik rüçhan sonrası fiyat oranına eşit: (48,52 + 4 × 1,00) / 5 / 48,52 = 0,216488.",
+   "official_corporate_action": {"kap": "https://www.kap.org.tr/tr/Bildirim/1452776", "type": "BEDELLİ %400, 1,00 TL",
+                                 "rights_period": "2025-06-30..2025-07-14", "record_date": "2025-07-01", "payment_date": "2025-07-02"},
+   "origin": "KESİNLEŞMEDİ: ham Yahoo yanıtı saklanmadığı için ölçeklemenin Yahoo verisinde mi yoksa yfinance iç adımlarında mı oluştuğu tamamen ayrıştırılamadı (yfinance auto_adjust hacme dokunmaz; ölçekli pencerede hacim de ters oranla değişmiş).",
+   "evidence_files": {
+    "app/research/position_exit/runs/exit_exp1_tail_official_20260929/bulletin_vs_yahoo.json": "414c2772a65e9f41b50675a65c1fccffa6b33dbfb09d525fb3ab8fe48840ec82",
+    "app/research/position_exit/runs/exit_exp1_tail_official_20260929/diagnosis.json": "27375c5ec55517a154109754506e53e251e2b6d02515576afcc80aa91481d401",
+    "app/research/position_exit/runs/exit_exp1_tail_official_20260929/access_log.tsv": "f2677bfe0254a47024949f0b9dc0cb85adc1e75fd4b449c31aea0f2607a48353"
+   }
+  }
+ ],
+ "reviews": [],
+ "affected_research": [
+  {
+   "study": "MARKET-RISK-1 evren incelemesi (teknik sinyal + gölge risk kuralları)",
+   "outputs": {"app/research/market_risk_shadow/runs/universe_20260925/results/BSOKE.json": "1c202a53cd6b74ba45013386c8fb8648d46bb2b490d87ba568a9ba2a0d506ca7",
+               "app/research/market_risk_shadow/runs/universe_20260925/results/FENER.json": "0fd61041fece1be089fa8dc617c88639d71db946b7e3f2c512a9ff6bca67676a",
+               "app/research/market_risk_shadow/runs/universe_20260925/summary.json": "85fe0fe49504bc7426210f123117b407afd4685a5e9ff1290415ba569fda1081"},
+   "binding": "Sonuç dosyaları sorunlu CSV hash'lerini içeriyor.",
+   "propagation": "Ölçekli pencere ve onu geriye bakış penceresine alan seanslardaki teknik skor/sınıf, fiyat getirisi ve hisse risk kuralları; ileri fiyat hareketi ölçüleri.",
+   "impact_magnitude": "UNKNOWN",
+   "status_note": "Sorunlu veri sürümüne dayanır; bu iki sembol için yeniden değerlendirme gerekir."
+  },
+  {
+   "study": "MARKET-RISK-1 hisse engeli ayrıştırması ve sert düşüş kapsamı",
+   "outputs": {"app/research/market_risk_shadow/runs/universe_20260925/asset_gate_analysis.json": "33f2e36ada1ae2d39523d1a34beaccc99e690f48682c606c130d69dec9852efd",
+               "app/research/market_risk_shadow/runs/universe_20260925/sharp_drop_coverage.json": "14e22c44f3f53e37ad2dfdb21a49f1c5d18813b20012b92974dee4d9f860ab8b"},
+   "binding": "Kod yolu: aynı çalıştırma klasörünün results/{SYM}.json satırlarını okur; sharp_drop_coverage ayrıca inputs/{SYM}_provider_ohlcv.csv kapanışlarını okur. Çıktıda girdi hash'i kayıtlı DEĞİL.",
+   "propagation": "Hisse risk kuralı sınıfları, engel epizotları ve 10 seans ileri düşüş hedefi (sahte kırılma DROP sayılabilir).",
+   "impact_magnitude": "UNKNOWN",
+   "status_note": "Sorunlu veri sürümüne dayanır; yeniden değerlendirme gerekir."
+  },
+  {
+   "study": "MARKET-RISK-1 fiyat temelli erken risk modeli",
+   "outputs": {"app/research/market_risk_shadow/runs/early_risk_model_20260928/result.json": "de8111f39815a45ac7b366e22ac9a025576c92d5198645842b5cf2361796d98a"},
+   "binding": "result.json identity.input_sha256 sorunlu CSV hash'lerini içeriyor.",
+   "propagation": "Fiyat özellikleri, ileri düşüş hedefi; BSOKE kırılması 2024 eğitim, FENER kırılması 2025 değerlendirme dönemine düşer.",
+   "impact_magnitude": "UNKNOWN",
+   "status_note": "Sonuçlar silinmedi; sorunlu veri sürümüne dayanır ve yeniden değerlendirme gerektirir. Sonucun tersine döneceği iddia EDİLMEZ."
+  },
+  {
+   "study": "MARKET-RISK-1 hacim deneyi (dvol_20_100)",
+   "outputs": {"app/research/market_risk_shadow/runs/volume_experiment_20260928/result.json": "9f71695e04bde90e44ed41d4193ef31540426a5d8049c728a9b74971ce8ae338"},
+   "binding": "result.json identity.input_sha256 sorunlu CSV hash'lerini içeriyor.",
+   "propagation": "Ölçekli pencerede hacim ters oranla büyütülmüş: 120 seanslık dvol penceresine giren tüm seanslar; ayrıca fiyat özellikleri ve hedef.",
+   "impact_magnitude": "UNKNOWN",
+   "status_note": "Kayıtlı karar EK_ISARET_YOK silinmedi; sorunlu veri sürümüne dayanır ve yeniden değerlendirme gerektirir. Sonucun tersine döneceği iddia EDİLMEZ."
+  },
+  {
+   "study": "POSITION-EXIT-1 EXIT-EXP-1 normalize çıkış karşılaştırması",
+   "outputs": {"app/research/position_exit/runs/exit_exp1_20260929/result.json": "6ebbd86490705ff8c32d408068939814c336feaf3dd03ecc7a08d9f9e44e4512",
+               "app/research/position_exit/runs/exit_exp1_20260929/episodes.jsonl": "1c55c29e53bc7c6953f4c8bf803f8eaf98b6e89e17580e65f46242a311c5edad"},
+   "binding": "identity.fetch_manifest_sha256 (sorunlu CSV hash'lerini içeren manifest) ve results_files_sha256; koşucu inputs/{SYM}_provider_ohlcv.csv okur.",
+   "propagation": "BSOKE ve FENER'in bütün epizotlarında giriş/çıkış sinyalleri, fiyat yolu ve sonuçlar; en belirgin etkilenenler BSOKE:2024-11-22 ve FENER:2025-06-11.",
+   "impact_magnitude": "UNKNOWN (iki epizodun doğrudan payı dışında hesaplanmadı)",
+   "status_note": "Veri doğrulaması nedeniyle politika seçimine uygun DEĞİL."
+  }
+ ]
+}
