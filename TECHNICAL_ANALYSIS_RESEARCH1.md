@@ -3074,3 +3074,68 @@ market_risk_shadow/runs/early_risk_model_20260928/`. Model yakınsadı.
   01.09–27.09 aralığında olay bildirmedi (yokluk doğrulaması değildir). `Close`'un ham fiyat
   olduğu Yahoo belgesiyle kanıtlanamadı → PRICE_BASIS_UNVERIFIED (engel geçerli sonuç).
   Karar: haricî doğrulama gerekiyor (resmî BIST kapanışı + KAP bölünme/bedelsiz kontrolü).
+- Güncelleme (29.09.2026) — THYAO gerçek veri denemesi: **VERİ DOĞRULAMASI BEKLİYOR** (kapatıldı).
+  - 28.09.2026 THYAO.E kapanışı BIST günlük bülteninden (`thb202609281.csv`, satır 269,
+    `KAPANIS FIYATI` = "CLOSING PRICE") 287,00 olarak alındı. Bülten 29.09 10:49:37 TSİ'de
+    alındı, değerlendirme 10:52:40 TSİ'de yapıldı (beklenen seans 28.09).
+  - Para biriminin resmî dayanağı doğrulanamadı: bültende para birimi sütunu yok, erişilen BIST
+    format belgesi (v1.3, 2017) bu bülteni kapsamıyor.
+  - Kurumsal işlem taramasının yeterli kapsamı doğrulanamadı: KAP listesinde (01.01–29.09.2026,
+    74 bildirim) yalnızca başlıklar ve iki bildirimin içeriği incelendi; yürürlük/hak kullanım
+    tarihi ayrılamadı; 2026 öncesi duyurular kapsam dışı; sorgu servisinin tamlığı belgelenmemiş.
+  - Gerçek modül sonucu: CORPORATE_ACTIONS_UNVERIFIED; kâr/zarar ve sınır değerlendirmesi
+    üretilmedi.
+  - Önceki (25.09) girdideki "olay yok" kurumsal işlem beyanı yeterli kanıta dayanmıyordu; yeni
+    girdiden çıkarıldı. Eski girdi/çıktı tarihsel kayıt olarak değiştirilmeden bırakıldı.
+  - STALE_PRICE gibi ilk engelde duran sonuçlar sonraki kontrollerin (fiyat temeli, kurumsal
+    işlem) geçtiğini göstermez; o kontroller hiç çalışmaz.
+  - Modül yerel ve üretime bağlı değil. Bu deneme tek sembol/tek seanslıktır; bütün hisselere
+    ilişkin doğrulama değildir.
+  - Kanıt ve çıktılar yalnızca oturumun GEÇİCİ scratchpad klasöründedir (kalıcı arşiv DEĞİL,
+    silinebilir): `C:\Users\Nolto Teknoloji\AppData\Local\Temp\claude\C--Users-Nolto-Teknoloji-
+    Desktop-Projects-ai-investment-app\a38676ee-313a-43b5-aab1-abcd07366032\scratchpad\` altında
+    `thyao_trial\run_20260928T115007\` (Yahoo denemesi), `thyao_official\` (25.09 bülteni, KAP
+    listesi ve iki bildirim, eski girdi/çıktı) ve `thyao_official_20260928\` (28.09 bülteni, BIST
+    format PDF'i, evidence.json, yeni girdi/çıktı).
+  - Bekleyen veri: (1) BIST günlük bülten alan tanımlarını ve fiyat para birimini gösteren resmî
+    belge; (2) THYAO için 01.09–28.09.2026 aralığını kapsayan, yürürlük/hak kullanım tarihli ve
+    tamlığı belgelenmiş resmî kurumsal işlem kaydı (ör. MKK/KAP hak kullanım listesi).
+
+# POSITION-EXIT-1 / EXIT-EXP-1 — Veri doğrulama durumu (29.09.2026)
+
+Çıkış mekanizması testleri ile yatırım performansı kanıtı ayrıdır. EXIT-EXP-1 veri doğrulaması nedeniyle politika seçimine uygun değildir.
+
+- BSOKE ve FENER yerel Yahoo girdilerinde (dosya SHA-256'ya bağlı) CONFIRMED_PRICE_DISCONTINUITY: resmî BIST
+  bülteniyle 4'er seans karşılaştırıldı; yerel seride rüçhan öncesi kısa bir pencere (yerel çıkarım: BSOKE
+  02.12–09.12.2024, FENER 23.06–27.06.2025) teorik rüçhan oranıyla ölçekli, önceki geçmiş ölçeksiz. Resmî
+  olay: bedelli %300 / %400 (KAP 1363968 / 1452776). Köken (Yahoo mu, yfinance iç adımı mı) kesinleşmedi.
+- Kayıt: `backend/app/research/data_issues/known_issues.json`; kontrol: `registry.py`. EXIT-EXP-1 koşucusu bilinen
+  sorunlu girdi dosyasıyla artık başlamaz (sorunlu semboller atlanmaz). Kayıt bulunmaması verinin doğru olduğunu
+  kanıtlamaz.
+- Aynı girdilere dosya bağıyla dayanan önceki çalışmalar (evren incelemesi, hisse engeli/sert düşüş kapsamı,
+  erken risk modeli, hacim deneyi EK_ISARET_YOK, EXIT-EXP-1) silinmedi; sorunlu veri sürümüne dayanır ve
+  yeniden değerlendirme gerektirir. Etki büyüklüğü hesaplanmadı (UNKNOWN); sonuçların tersine döneceği iddia
+  edilmez.
+
+# BSOKE/FENER resmî fiyat araştırması — Kapanış notu (29.09.2026)
+
+- Resmî ham veri: BSOKE (01.11–20.12.2024) ve FENER (02.06–11.07.2025) için takvime göre beklenen 64 seansın
+  tamamı Borsa İstanbul günlük bülteninden alındı (eksik 0, tarih tekrarı 0, OHLC tutarsızlığı 0). Eski Yahoo
+  serisi yalnızca 02.12–09.12.2024 (BSOKE, oran 0,262165) ve 23.06–27.06.2025 (FENER, oran 0,216488) seanslarında
+  resmî fiyattan ayrılıyor; diğer seanslar uyumlu.
+- Kaynak serideki ölçek deseni gösterildi; sağlayıcının bunu hangi iç işlemle oluşturduğu KANITLANMADI.
+- Yöntem: BIST Duyuru 2015/116 (24.11.2015) madde 5.1, Ft = (Fk + n2·R − T)/(1 + n1 + n2), Fk = son kapanış;
+  VİOP genelgesi (gn414yeni) ile aynı yapı. Belgenin bulunması sonraki tüm mevzuat değişikliklerinin
+  doğrulandığı anlamına gelmez. Resmî hassasiyet Ft için 3 hane; yuvarlama yönü belgede yok — gösterilen
+  3 haneli değerler (ROUND_HALF_UP) araştırma varsayımıdır, resmî yayımlanmış fiyat DEĞİLDİR.
+- Bedelli dönüşümü ve değerlendirme tarihine göre fiyat görünümü (as_of) ARAŞTIRMA amaçlıdır; BIST'in resmî
+  düzeltilmiş serisi, yatırımcı getirisi (rüçhan/ek ödeme) veya emir gerçekleşme fiyatı değildir.
+- Teknik geçmiş yetersiz: olay öncesi pencere teknik motorun asgari 60 seansını karşılamıyor (BSOKE 27 seans).
+- Eski strateji sonuçları (EXIT-EXP-1, MARKET-RISK deneyleri) yeniden doğrulanmadı; bilinen veri sorunu
+  engeli korunuyor. Bildirim ve üretim bağlantısı kurulmadı.
+- Son hedefli testler (29.09.2026, 74 geçti): POSITION-EXIT motoru 30, normalize karşılaştırma 11, veri sorunu
+  kaydı/engeli 6, bülten ayrıştırıcı 14, bedelli dönüşümü + as_of görünümü 13. Tam regresyon bu kapanışta
+  yeniden çalıştırılmadı. Yerel `runs/` dosyası gerektiren testler bu dosyalar yoksa atlanır.
+- Depo durumu (yeni not): önceki kayıtlardaki "commit edilmedi" ifadeleri tarihsel olarak korunur; bu tarihte
+  araştırma kodu, testler, veri sorunu kaydı ve bu günlük YEREL commit'e alındı (push yapılmadı). İndirilmiş
+  veri, bültenler, PDF'ler ve runs/ çıktıları depoya eklenmedi.
