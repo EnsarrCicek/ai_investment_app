@@ -5,7 +5,9 @@
  "limits": [
   "Kayıt yalnızca incelenmiş ve sorunu doğrulanmış dosya kimliklerini (SHA-256) engeller; kayıt bulunmaması verinin doğru olduğunu KANITLAMAZ.",
   "Kayıt sembol için kalıcı yasak değildir; ancak sorun kaydı bulunan bir sembolün FARKLI hash'li dosyası da açık bir inceleme kaydı (reviews) olmadan onaylı sayılmaz.",
-  "Resmî karşılaştırma yalnızca listelenen seanslar içindir; aradaki günler resmî olarak doğrulanmadı."
+  "Resmî karşılaştırma yalnızca listelenen seanslar içindir; aradaki günler resmî olarak doğrulanmadı.",
+  "Yeni kayıt eklenmesi yeni resmî fiyat serisine otomatik onay VERMEZ; yeni dosyalar ayrıca inceleme kaydı gerektirir.",
+  "DI-MW-* kayıtları bülten karşılaştırmasıyla doğrulanan seansları kapsar; diğer seanslar için doğruluk onayı değildir."
  ],
  "evidence_location_note": "Aşağıda başvurulan girdi dosyaları, kanıt dosyaları ve runs/ çıktıları YEREL araştırma dosyalarıdır ve Git deposunda BULUNMAZ; hash'ler yerel kopyaların doğrulanması içindir. Ek not (29.09.2026):2024-11-01..2024-12-20 (BSOKE) ve 2025-06-02..2025-07-11 (FENER) için 64 seans resmî BIST bülteniyle karşılaştırıldı (app/research/official_bist/runs/bsoke_fener_20260929_v2, yerel); ölçekli pencereler 2024-12-02..2024-12-09 ve 2025-06-23..2025-06-27 resmî olarak desteklendi. Bu not sorun kaydını KALDIRMAZ ve yeni dosyalara inceleme onayı VERMEZ.",
  "issues": [
@@ -19,10 +21,30 @@
     "provenance": "universe_review._yahoo_download, yfinance 1.5.2 ticker.history(start, end, interval='1d'), varsayılan auto_adjust=True, repair=False; DOWNLOADED 2026-09-25T16:41:01+03:00"
    },
    "officially_compared_sessions": {
-    "2024-11-29": {"official_close": 60.0, "local_close": 60.0, "price_ratio": 1.0, "volume_ratio": 1.0},
-    "2024-12-02": {"official_close": 59.0, "local_close": 15.467761, "price_ratio": 0.262165, "volume_ratio": 3.814385},
-    "2024-12-09": {"official_close": 61.65, "local_close": 16.1625, "price_ratio": 0.262165, "volume_ratio": 3.814385},
-    "2024-12-10": {"official_close": 15.22, "local_close": 15.22, "price_ratio": 1.0, "volume_ratio": 1.0}
+    "2024-11-29": {
+     "official_close": 60.0,
+     "local_close": 60.0,
+     "price_ratio": 1.0,
+     "volume_ratio": 1.0
+    },
+    "2024-12-02": {
+     "official_close": 59.0,
+     "local_close": 15.467761,
+     "price_ratio": 0.262165,
+     "volume_ratio": 3.814385
+    },
+    "2024-12-09": {
+     "official_close": 61.65,
+     "local_close": 16.1625,
+     "price_ratio": 0.262165,
+     "volume_ratio": 3.814385
+    },
+    "2024-12-10": {
+     "official_close": 15.22,
+     "local_close": 15.22,
+     "price_ratio": 1.0,
+     "volume_ratio": 1.0
+    }
    },
    "locally_inferred_scaled_window": {
     "first": "2024-12-02",
@@ -30,8 +52,13 @@
     "basis": "YEREL SERİDEN ÇIKARIM: 2024-11-29 kapanışından 2024-12-02 açılışına -%73,83 sıçrama ile resmî rüçhan başlangıcından (2024-12-10) önceki son seans arası. Aradaki 2024-12-03..2024-12-06 seansları resmî bültenle KARŞILAŞTIRILMADI."
    },
    "explained_factor": "Oran, resmî bedelli koşullarından teorik rüçhan sonrası fiyat oranına eşit: (61,65 + 3 × 1,00) / 4 / 61,65 = 0,262165.",
-   "official_corporate_action": {"kap": "https://www.kap.org.tr/tr/Bildirim/1363968", "type": "BEDELLİ %300, 1,00 TL",
-                                 "rights_period": "2024-12-10..2024-12-24", "record_date": "2024-12-11", "payment_date": "2024-12-12"},
+   "official_corporate_action": {
+    "kap": "https://www.kap.org.tr/tr/Bildirim/1363968",
+    "type": "BEDELLİ %300, 1,00 TL",
+    "rights_period": "2024-12-10..2024-12-24",
+    "record_date": "2024-12-11",
+    "payment_date": "2024-12-12"
+   },
    "origin": "KESİNLEŞMEDİ: ham Yahoo yanıtı saklanmadığı için ölçeklemenin Yahoo verisinde mi yoksa yfinance iç adımlarında mı oluştuğu tamamen ayrıştırılamadı (yfinance auto_adjust hacme dokunmaz; ölçekli pencerede hacim de ters oranla değişmiş).",
    "evidence_files": {
     "app/research/position_exit/runs/exit_exp1_tail_official_20260929/bulletin_vs_yahoo.json": "414c2772a65e9f41b50675a65c1fccffa6b33dbfb09d525fb3ab8fe48840ec82",
@@ -49,10 +76,30 @@
     "provenance": "universe_review._yahoo_download, yfinance 1.5.2 ticker.history(start, end, interval='1d'), varsayılan auto_adjust=True, repair=False; DOWNLOADED 2026-09-25T16:41:23+03:00"
    },
    "officially_compared_sessions": {
-    "2025-06-20": {"official_close": 48.56, "local_close": 48.560001, "price_ratio": 1.0, "volume_ratio": 1.0},
-    "2025-06-23": {"official_close": 47.94, "local_close": 10.378436, "price_ratio": 0.216488, "volume_ratio": 4.619193},
-    "2025-06-27": {"official_close": 48.52, "local_close": 10.503999, "price_ratio": 0.216488, "volume_ratio": 4.619193},
-    "2025-06-30": {"official_close": 11.55, "local_close": 11.55, "price_ratio": 1.0, "volume_ratio": 1.0}
+    "2025-06-20": {
+     "official_close": 48.56,
+     "local_close": 48.560001,
+     "price_ratio": 1.0,
+     "volume_ratio": 1.0
+    },
+    "2025-06-23": {
+     "official_close": 47.94,
+     "local_close": 10.378436,
+     "price_ratio": 0.216488,
+     "volume_ratio": 4.619193
+    },
+    "2025-06-27": {
+     "official_close": 48.52,
+     "local_close": 10.503999,
+     "price_ratio": 0.216488,
+     "volume_ratio": 4.619193
+    },
+    "2025-06-30": {
+     "official_close": 11.55,
+     "local_close": 11.55,
+     "price_ratio": 1.0,
+     "volume_ratio": 1.0
+    }
    },
    "locally_inferred_scaled_window": {
     "first": "2025-06-23",
@@ -60,13 +107,4149 @@
     "basis": "YEREL SERİDEN ÇIKARIM: 2025-06-20 kapanışından 2025-06-23 açılışına -%78,49 sıçrama ile resmî rüçhan başlangıcından (2025-06-30) önceki son seans arası. Aradaki 2025-06-24..2025-06-26 seansları resmî bültenle KARŞILAŞTIRILMADI."
    },
    "explained_factor": "Oran, resmî bedelli koşullarından teorik rüçhan sonrası fiyat oranına eşit: (48,52 + 4 × 1,00) / 5 / 48,52 = 0,216488.",
-   "official_corporate_action": {"kap": "https://www.kap.org.tr/tr/Bildirim/1452776", "type": "BEDELLİ %400, 1,00 TL",
-                                 "rights_period": "2025-06-30..2025-07-14", "record_date": "2025-07-01", "payment_date": "2025-07-02"},
+   "official_corporate_action": {
+    "kap": "https://www.kap.org.tr/tr/Bildirim/1452776",
+    "type": "BEDELLİ %400, 1,00 TL",
+    "rights_period": "2025-06-30..2025-07-14",
+    "record_date": "2025-07-01",
+    "payment_date": "2025-07-02"
+   },
    "origin": "KESİNLEŞMEDİ: ham Yahoo yanıtı saklanmadığı için ölçeklemenin Yahoo verisinde mi yoksa yfinance iç adımlarında mı oluştuğu tamamen ayrıştırılamadı (yfinance auto_adjust hacme dokunmaz; ölçekli pencerede hacim de ters oranla değişmiş).",
    "evidence_files": {
     "app/research/position_exit/runs/exit_exp1_tail_official_20260929/bulletin_vs_yahoo.json": "414c2772a65e9f41b50675a65c1fccffa6b33dbfb09d525fb3ab8fe48840ec82",
     "app/research/position_exit/runs/exit_exp1_tail_official_20260929/diagnosis.json": "27375c5ec55517a154109754506e53e251e2b6d02515576afcc80aa91481d401",
     "app/research/position_exit/runs/exit_exp1_tail_official_20260929/access_log.tsv": "f2677bfe0254a47024949f0b9dc0cb85adc1e75fd4b449c31aea0f2607a48353"
+   }
+  },
+  {
+   "issue_id": "DI-20260930-FENER-02",
+   "symbol": "FENER",
+   "status": "CONFIRMED_PRICE_DISCONTINUITY",
+   "related_issue": "DI-20260929-FENER-01 (aynı dosyada aynı desen, farklı olay)",
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/FENER_provider_ohlcv.csv",
+    "sha256": "f91b73aa34f33071d95ddf812386e553a98cd72159473b5807a2845ca705dc36"
+   },
+   "officially_compared_sessions": "2024-11-26..2024-12-18 tüm seanslar resmî bültenle karşılaştırıldı",
+   "scaled_window_official": {
+    "first": "2024-12-09",
+    "last": "2024-12-16",
+    "price_ratio_old_over_official": 0.430243,
+    "volume_ratio_old_over_official": 2.324269
+   },
+   "unscaled_neighbors": "2024-12-06 ve 2024-12-17 oran 1,000000",
+   "explained_factor": "Oran, FENER bedelli %152,57627 / R 6,00 TL (hak kullanımı 2024-12-17) için resmî formülden DK = (105,60 + 1,5257627×6)/2,5257627/105,60 = 0,430243.",
+   "official_corporate_action": {
+    "kap": "https://www.kap.org.tr/tr/Bildirim/1365941",
+    "reference_price_kap": "https://www.kap.org.tr/tr/Bildirim/1366085 (Fr 60,167)"
+   },
+   "origin": "UNKNOWN: ham sağlayıcı yanıtı saklanmadığı için ölçeğin nasıl oluştuğu kanıtlanmadı.",
+   "evidence_files": {
+    "app/research/official_bist/runs/history_extension_20260929/BSOKE_official_daily_extended.csv": "e837307b2aed25aac0041fad7673c7fa80945506423cc8e55932935dd544e859",
+    "app/research/official_bist/runs/history_extension_20260929/FENER_official_daily_extended.csv": "46037069ba58c5eaab23d67b02dd0399009874f9e0125222a5675e70e7d70de0",
+    "app/research/official_bist/runs/history_extension_20260929/old_vs_new_price_ratio_segments.json": "470f5efb614fbadd2fdca249121133cee4a6f4f9049c98d0ecacdb8a0ccecd7a",
+    "app/research/official_bist/runs/history_extension_20260929/source_manifest.json": "adc9449296125712afb8c8fcea4c4e8bfeb6ec1a7c52cbe77e759d9094a3db11"
+   }
+  },
+  {
+   "issue_id": "DI-20260930-BSOKE-02",
+   "symbol": "BSOKE",
+   "status": "CONFIRMED_SINGLE_SESSION_VALUE_MISMATCH",
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BSOKE_provider_ohlcv.csv",
+    "sha256": "059964873b1fc3b3824f026baabd5f3fe5c56d19f75b12b265f59f9e3ca5dc05"
+   },
+   "session": "2024-09-06",
+   "fields": {
+    "Close": {
+     "old": 72.19999694824219,
+     "official": 72.3
+    },
+    "Volume_vs_TOPLAM_ISLEM_ADEDI": {
+     "old": 5135118,
+     "official": 5442912
+    },
+    "Open": {
+     "old": 70.0999984741211,
+     "official": 70.1
+    },
+    "High": {
+     "old": 72.30000305175781,
+     "official": 72.35
+    }
+   },
+   "official_bulletin": {
+    "url": "https://www.borsaistanbul.com/data/thb/2024/09/thb202409061.zip",
+    "sha256": "278aa1f918b6886932cd860f93d7db8c59ca80970e01bdefc844c97428e76979"
+   },
+   "origin": "UNKNOWN",
+   "evidence_files": {
+    "app/research/official_bist/runs/history_extension_20260929/BSOKE_official_daily_extended.csv": "e837307b2aed25aac0041fad7673c7fa80945506423cc8e55932935dd544e859",
+    "app/research/official_bist/runs/history_extension_20260929/FENER_official_daily_extended.csv": "46037069ba58c5eaab23d67b02dd0399009874f9e0125222a5675e70e7d70de0",
+    "app/research/official_bist/runs/history_extension_20260929/old_vs_new_price_ratio_segments.json": "470f5efb614fbadd2fdca249121133cee4a6f4f9049c98d0ecacdb8a0ccecd7a",
+    "app/research/official_bist/runs/history_extension_20260929/source_manifest.json": "adc9449296125712afb8c8fcea4c4e8bfeb6ec1a7c52cbe77e759d9094a3db11"
+   }
+  },
+  {
+   "issue_id": "DI-20260930-FENER-03",
+   "symbol": "FENER",
+   "status": "CONFIRMED_SINGLE_SESSION_VALUE_MISMATCH",
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/FENER_provider_ohlcv.csv",
+    "sha256": "f91b73aa34f33071d95ddf812386e553a98cd72159473b5807a2845ca705dc36"
+   },
+   "session": "2025-05-08",
+   "fields": {
+    "High": {
+     "old": 48.599998474121094,
+     "official": 51.1
+    },
+    "Close": {
+     "old": 47.79999923706055,
+     "official": 50.55
+    },
+    "Volume_vs_TOPLAM_ISLEM_ADEDI": {
+     "old": 6821055,
+     "official": 16261184
+    }
+   },
+   "official_bulletin": {
+    "url": "https://www.borsaistanbul.com/data/thb/2025/05/thb202505081.zip",
+    "sha256": "9c1f8840b6e26748d5d12b623c4ffa187b14b89d9834d4db3ddcb4c5526aa02f"
+   },
+   "origin": "UNKNOWN",
+   "evidence_files": {
+    "app/research/official_bist/runs/history_extension_20260929/BSOKE_official_daily_extended.csv": "e837307b2aed25aac0041fad7673c7fa80945506423cc8e55932935dd544e859",
+    "app/research/official_bist/runs/history_extension_20260929/FENER_official_daily_extended.csv": "46037069ba58c5eaab23d67b02dd0399009874f9e0125222a5675e70e7d70de0",
+    "app/research/official_bist/runs/history_extension_20260929/old_vs_new_price_ratio_segments.json": "470f5efb614fbadd2fdca249121133cee4a6f4f9049c98d0ecacdb8a0ccecd7a",
+    "app/research/official_bist/runs/history_extension_20260929/source_manifest.json": "adc9449296125712afb8c8fcea4c4e8bfeb6ec1a7c52cbe77e759d9094a3db11"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-AEFES",
+   "symbol": "AEFES",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/AEFES_provider_ohlcv.csv",
+    "sha256": "3203e72feb7311e5a8cd3eb26543e31b36b542a8c3a0a66ec9cccd4436105cf9"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.098343",
+      "high": "0.098343",
+      "low": "0.098915",
+      "close": "0.098962"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "8.208664"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.098343",
+      "high": "0.098343",
+      "low": "0.098343",
+      "close": "0.097882"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "6.957160"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/AEFES.json": "60317e608d4e568a9a44fc660e687bfc8da565ff077436e70a407d34d1782642"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-AKBNK",
+   "symbol": "AKBNK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/AKBNK_provider_ohlcv.csv",
+    "sha256": "2ed3061c03ddb715a258d917b7e6eb11f5cf378b9a65fad5ee5d8e435603cb98"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.947801",
+      "high": "0.947801",
+      "low": "0.964798",
+      "close": "0.959056"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.807170"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.968945",
+      "high": "0.968945",
+      "low": "0.968945",
+      "close": "0.968557"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.558435"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/AKBNK.json": "6076a47ff576d7259d273b0b7159026af68b90f140f961c71df04d4169ed312a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-AKSA",
+   "symbol": "AKSA",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/AKSA_provider_ohlcv.csv",
+    "sha256": "1f359dff3c89f19d08f8ff1a9a5bb6d83dc215b23c235c977593c5aca044a398"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.904290",
+      "high": "0.904290",
+      "low": "0.911475",
+      "close": "0.913527"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.853149"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/AKSA.json": "bc46858f74be7784857732f43b560d3676f517d648122c9c25bb2ac0092f1292"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-AKSEN",
+   "symbol": "AKSEN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/AKSEN_provider_ohlcv.csv",
+    "sha256": "a3df966dcb5395bd0e8d693fafe8542565698e2c804e143aad43cd67c58cc567"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.007979"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.874100"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.995589",
+      "low": "1.000000",
+      "close": "0.993663"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.522666"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/AKSEN.json": "1f6d3e0893b9fd72fdeb8127a185e6822c4862ea7aa84a5a9a0b4e724bb6932c"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ALARK",
+   "symbol": "ALARK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ALARK_provider_ohlcv.csv",
+    "sha256": "0ce63d7a28a9e63bc5659be9759bd76f5596c26aac563ee7ee1f56f504824618"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.972818",
+      "high": "0.972818",
+      "low": "0.977475",
+      "close": "0.976432"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.867342"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.998314",
+      "low": "1.000000",
+      "close": "1.004535"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.604575"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ALARK.json": "e052cbc908d6c7ef74e8c01ea6e79c763bcee7a5bcf37c108ed6dd080e4bbf6f"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ALTNY",
+   "symbol": "ALTNY",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ALTNY_provider_ohlcv.csv",
+    "sha256": "d44414a8730b4391c52f36abd3d1d0ad38032a2c27e6c36b8ae29a0821c87d98"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.235294",
+      "high": "0.235294",
+      "low": "0.235294",
+      "close": "0.237805"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "3.812363"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.235294",
+      "high": "0.231324",
+      "low": "0.235294",
+      "close": "0.233798"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "2.124995"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ALTNY.json": "7c2e64fadb7427d28b7240dd37806be99c4b58d53a27bfa965bde76e43b4b8e4"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ANSGR",
+   "symbol": "ANSGR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ANSGR_provider_ohlcv.csv",
+    "sha256": "b59b0fdea3442031e7b857124d24f14e119b9d1adb3ef4ed1eadd26c5321819f"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.227405",
+      "high": "0.227405",
+      "low": "0.228720",
+      "close": "0.230736"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "3.052732"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.237390",
+      "high": "0.236596",
+      "low": "0.237390",
+      "close": "0.235934"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "2.360011"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ANSGR.json": "2a0286bd5608c7836aa0be3f457afd7e204eaa147ef1ee8a9f7a72ec8f3aa9bb"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ARCLK",
+   "symbol": "ARCLK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ARCLK_provider_ohlcv.csv",
+    "sha256": "ec98aeb3cce9214c8a7d8240218bd6e19f2d3afab13f81542ea79b69f84b52f9"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.003534",
+      "close": "0.998595"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.860426"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.990426",
+      "low": "1.000000",
+      "close": "0.994718"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.460471"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ARCLK.json": "3c6f582e8fa99c64ac221b33094a664940ba6f12c713b6245172bc1c1a8f6aa0"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ASELS",
+   "symbol": "ASELS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ASELS_provider_ohlcv.csv",
+    "sha256": "30b3be757b5297b46cbe28ae9558caf453b80194236b2baffd32810595f0e7d4"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.997097",
+      "high": "0.997097",
+      "low": "0.997971",
+      "close": "1.000586"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.836353"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.998728",
+      "high": "0.976043",
+      "low": "0.998727",
+      "close": "1.001968"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.545480"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ASELS.json": "93e871fe105a8fe6dd61ef3b747101bfa5a20eaf6333d88082ed8bac7627a11a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ASTOR",
+   "symbol": "ASTOR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ASTOR_provider_ohlcv.csv",
+    "sha256": "b1007a31f59d8b6cb24539517ff84e8aed593965fe0ee358c53b76cdb3140552"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.986547",
+      "high": "0.986547",
+      "low": "0.986547",
+      "close": "0.988349"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.949936"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.986547",
+      "high": "0.982870",
+      "low": "0.986547",
+      "close": "0.982844"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.554944"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ASTOR.json": "dacd537472afce89c5cac4e0b21f41e357e75ab340cb5abc228e486761be93c2"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BALSU",
+   "symbol": "BALSU",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BALSU_provider_ohlcv.csv",
+    "sha256": "7bfb87c0363fd6a103feddf39859174f4483f8d1a8e9d7b35c701283c6ec80a3"
+   },
+   "sessions": {
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.990246",
+      "high": "0.990246",
+      "low": "0.994417",
+      "close": "0.997361"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.542209"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BALSU.json": "564b23eb373a21071a74b0d1b14b54af5204e2dcfeb5f9aa844903d049d0ace9"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BERA",
+   "symbol": "BERA",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BERA_provider_ohlcv.csv",
+    "sha256": "d790d8a0cf95c892ecb04e6b5612d09c77ad86fa48e267799a682f51b7e7d712"
+   },
+   "sessions": {
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.982984",
+      "low": "1.000000",
+      "close": "0.984190"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.454632"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BERA.json": "ec6458ffbf14da88b0f4ebac802e7819317f0612774a51a8324090a25a569ebf"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BIMAS",
+   "symbol": "BIMAS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BIMAS_provider_ohlcv.csv",
+    "sha256": "1e07f22794ded3117ac10f6a7d2a7036798926fc88f02fd9ebd1bf33d46b883e"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.474771",
+      "high": "0.474771",
+      "low": "0.479602",
+      "close": "0.479589"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "1.543758"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.482453",
+      "high": "0.482453",
+      "low": "0.482453",
+      "close": "0.486170"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "1.028413"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BIMAS.json": "5e44f2738e1a8fc3009301db201aeb8bec0640a58e7ec895b341bebc9d173398"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BRSAN",
+   "symbol": "BRSAN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BRSAN_provider_ohlcv.csv",
+    "sha256": "73c5cf7151da9a5ce6c6508f5384c35fbc95d589e2c28e3cc66a87c0c7620c3e"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.011589",
+      "close": "1.013201"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.927728"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.999288"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.596642"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BRSAN.json": "996ee352489b184b3cbb4b6f01c8664315193a88fac916f6f263c8fd27b8c1e1"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BRYAT",
+   "symbol": "BRYAT",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BRYAT_provider_ohlcv.csv",
+    "sha256": "7335210bf9d62cb78cb7086115b32b05782ed084e1b47912bfdda4d03d421b69"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.895861",
+      "high": "0.895861",
+      "low": "0.900647",
+      "close": "0.905433"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.916712"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.924650",
+      "high": "0.924650",
+      "low": "0.925121",
+      "close": "0.926994"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.605105"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BRYAT.json": "348269d84ab06b6c725d392c540729de2aae06991d102f85d15d83ea96b0660a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BSOKE",
+   "symbol": "BSOKE",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [
+    "DI-20260930-BSOKE-02"
+   ],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BSOKE_provider_ohlcv.csv",
+    "sha256": "059964873b1fc3b3824f026baabd5f3fe5c56d19f75b12b265f59f9e3ca5dc05"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.999309",
+      "low": "1.000000",
+      "close": "0.998617"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.943450"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.007435"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.575497"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BSOKE.json": "69b8f8b804fbd3ad1a8fd1f5941aaa0f8de95b47e13c1778627b96d755cf2730"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-BTCIM",
+   "symbol": "BTCIM",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/BTCIM_provider_ohlcv.csv",
+    "sha256": "cdd66d64625bba8bfb22f35f3cb2f3591d5638c5de35bc105b2371e2a1071739"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.032258",
+      "high": "0.032258",
+      "low": "0.032258",
+      "close": "0.032192"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "28.286267"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.998214",
+      "low": "1.001812",
+      "close": "0.994614"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.485893"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/BTCIM.json": "ae50b81b193efa526e85ff7dac26c5e305c7cf57410fae79ba7b58222fc06c87"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-CANTE",
+   "symbol": "CANTE",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/CANTE_provider_ohlcv.csv",
+    "sha256": "d0a0a0a58d0f1b5c466533518cca5416d7de39877f04785bdfc2768bfac476a0"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.005882",
+      "close": "1.017647"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.886931"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/CANTE.json": "72b026f5de0d086cc5b021d18aebfc26e77c51059ae3836c646ff2d1778a916e"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-CCOLA",
+   "symbol": "CCOLA",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/CCOLA_provider_ohlcv.csv",
+    "sha256": "d63badee6da4642e944494fc8ac15556f1cdee7f78b079358c560efcca674617"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.963283",
+      "high": "0.963283",
+      "low": "0.963283",
+      "close": "0.970693"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.846303"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.963283",
+      "high": "0.948158",
+      "low": "0.963283",
+      "close": "0.955822"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.512547"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/CCOLA.json": "beb4e1677a05918aeef907cf55f8126253966451039a07ee024c3a0e102a1a26"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-CIMSA",
+   "symbol": "CIMSA",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/CIMSA_provider_ohlcv.csv",
+    "sha256": "27ed42ac1f54ca61d6ee42b9ab76e5de6486ce42beb8e4146bc6df576c112721"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.972666",
+      "high": "0.972666",
+      "low": "0.972666",
+      "close": "0.973734"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.890022"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.984799",
+      "high": "0.983930",
+      "low": "0.984799",
+      "close": "0.979119"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.548210"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/CIMSA.json": "b24eae47d3b704918a2645134bafa7e087d8b387a860af070ecbef2c30a737f8"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-CVKMD",
+   "symbol": "CVKMD",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/CVKMD_provider_ohlcv.csv",
+    "sha256": "4b2c5a9e2e7734788188bc8c1b0141fa11c1825c9993b8e95c278772f006bbe5"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.030000",
+      "high": "0.030000",
+      "low": "0.030248",
+      "close": "0.030263"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "28.416854"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.007728"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.726491"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/CVKMD.json": "c053823506e2888101ac4ef7b79814ccc511e7fc91fc494bf7fbe0d83b8cae2b"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-CWENE",
+   "symbol": "CWENE",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/CWENE_provider_ohlcv.csv",
+    "sha256": "5c778afc5a26e8aa818b20b7f9b292f587c8f4df0595953728455ce9de4a4a57"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.114765",
+      "high": "0.114765",
+      "low": "0.114765",
+      "close": "0.115040"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "8.050914"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.927394",
+      "high": "0.919099",
+      "low": "0.927394",
+      "close": "0.926253"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.522523"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/CWENE.json": "e76b8a1b4ff2c1930da8ae93bbb647acc63af2d7ecc09287303433920e231953"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-DAPGM",
+   "symbol": "DAPGM",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/DAPGM_provider_ohlcv.csv",
+    "sha256": "fbe03485a4c70006711cfb275adfa309633e9f5e962281418ddccf77eb3ebbc0"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.994585"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.825866"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.995000"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.459868"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/DAPGM.json": "de346c8b65302f3a69d4e0e5df846a11607f2804f921d9b1f8ebc8adfa89726d"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-DOAS",
+   "symbol": "DOAS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/DOAS_provider_ohlcv.csv",
+    "sha256": "b1c93bd84270bc5fbe8c6349bb09afb0eedc7b26bbf453246c0b323a2223f5c7"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.753411",
+      "high": "0.753411",
+      "low": "0.753747",
+      "close": "0.756099"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.885476"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.753411",
+      "high": "0.745621",
+      "low": "0.753411",
+      "close": "0.745601"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.593442"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/DOAS.json": "21f57c0346add6deceb10e7b34cc6c29d4087ecd5ff883d6add7af549dc0b96f"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-DOHOL",
+   "symbol": "DOHOL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/DOHOL_provider_ohlcv.csv",
+    "sha256": "c875eecaf098fcf55c19533c15763b630313063c30978d7af35db4a3695723db"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.984112",
+      "high": "0.984112",
+      "low": "0.992562",
+      "close": "0.987342"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.890860"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.984112",
+      "high": "0.984112",
+      "low": "0.999984",
+      "close": "0.998574"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.377963"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/DOHOL.json": "b0c99303b31ba0bc84f30d78a751979c458c9d1616cc2f56e75226dfccfc166d"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-DSTKF",
+   "symbol": "DSTKF",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/DSTKF_provider_ohlcv.csv",
+    "sha256": "80a69410a6ca0a2878a6743f9c391c37c6bb2a84cc7e35656b65d4576b5ed90a"
+   },
+   "sessions": {
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.002804"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.690431"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/DSTKF.json": "7be4b9192235028da411fdf01dc89ed587d2d0828531c6241417c1a08fdc9a6b"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ECILC",
+   "symbol": "ECILC",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ECILC_provider_ohlcv.csv",
+    "sha256": "2e4645f5dad1d4e234ac06b5b6a00605a3fae7d58fb5a0aa9a80c315ff0d8674"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.945105",
+      "high": "0.945105",
+      "low": "0.945105",
+      "close": "0.945492"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.886558"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.945105",
+      "high": "0.945105",
+      "low": "0.945105",
+      "close": "0.940391"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.511925"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ECILC.json": "aa9b02cc3f3d7df46cb4eb8040b6f55bef2d6c7ed4cd5d5a396be6e5bebbe0d1"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-EKGYO",
+   "symbol": "EKGYO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/EKGYO_provider_ohlcv.csv",
+    "sha256": "2c2f072fd0ad465925a246929330a6efaf5d7c4a899a0801e841f62bcad13046"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.946528",
+      "high": "0.946528",
+      "low": "0.954911",
+      "close": "0.953332"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.901279"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.946528",
+      "high": "0.918733",
+      "low": "0.946528",
+      "close": "0.928223"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.327954"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/EKGYO.json": "4dfd8f701fa029b9ce854af186b06e449c8484066b1c1826cecdaeda3c593b54"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ENERY",
+   "symbol": "ENERY",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ENERY_provider_ohlcv.csv",
+    "sha256": "27319716bfcce03bd24d82a6fcb31d32bdea232dc8693aa94b645b93dce8f9ec"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.016061",
+      "high": "0.016061",
+      "low": "0.016061",
+      "close": "0.016100"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "47.809172"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.996919",
+      "high": "0.973681",
+      "low": "1.001758",
+      "close": "0.975857"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.281884"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ENERY.json": "09f1ebe53d49cf7921b08bab9111e6de1b142328bd82d6ac273762bb199b4a6a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ENJSA",
+   "symbol": "ENJSA",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ENJSA_provider_ohlcv.csv",
+    "sha256": "339d9ef0afdf15a04860bf55f2349e3accfeabd3a79fe5a35ba91e5b0375a82f"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.914647",
+      "high": "0.914647",
+      "low": "0.922532",
+      "close": "0.924100"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.901853"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.959230",
+      "high": "0.955700",
+      "low": "0.959230",
+      "close": "0.949460"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.586430"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ENJSA.json": "19dbbeb489afa399fdafa16e6fd17611958d7ea665293fa083e019b03e6b72c6"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ENKAI",
+   "symbol": "ENKAI",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ENKAI_provider_ohlcv.csv",
+    "sha256": "8234a51ef319c3e5aafac7c7a71ee9678d3df253d1032e1fe5b4db2d5e6723ae"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.921327",
+      "high": "0.921327",
+      "low": "0.928147",
+      "close": "0.921327"
+     },
+     "fields_differing_from_open": [
+      "low"
+     ],
+     "volume_ratio_info": "0.850912"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.951047",
+      "high": "0.907752",
+      "low": "0.951047",
+      "close": "0.910841"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.255705"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ENKAI.json": "6b4ebec72582125e47800e51ac2c402262e15cbbf0e8b952c19fe93161070e71"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-EREGL",
+   "symbol": "EREGL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/EREGL_provider_ohlcv.csv",
+    "sha256": "400d648a7c292ed2b24409c55ebffdf5cf2af3923e407da3d14ce2ba6f3808f8"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.488674",
+      "high": "0.488674",
+      "low": "0.491169",
+      "close": "0.491585"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "1.727783"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.977348",
+      "high": "0.977348",
+      "low": "0.977348",
+      "close": "0.976508"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.734799"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/EREGL.json": "2f346c0e8ebf75b18bf5e51c316b23869d943b5c6973968349aef1e9a86b7cad"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ESEN",
+   "symbol": "ESEN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ESEN_provider_ohlcv.csv",
+    "sha256": "4f7524feddb26e0b052ba7751b16de035edf7fe6f931a2a5bc07a85d2e50db82"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.142857",
+      "high": "0.142857",
+      "low": "0.143726",
+      "close": "0.144087"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "6.386434"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.142857",
+      "high": "0.141287",
+      "low": "0.142857",
+      "close": "0.140392"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "3.572975"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ESEN.json": "52054eee45f01aa0396ad7ef4e23575b38fbb113f5ae1a186f63d919b3bd276a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-EUPWR",
+   "symbol": "EUPWR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/EUPWR_provider_ohlcv.csv",
+    "sha256": "f19a137d188462de5dedbc779b0b5011eca68489523abe7b9d6080e2de02029b"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.333333",
+      "high": "0.333333",
+      "low": "0.333333",
+      "close": "0.334796"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "2.853449"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.998396",
+      "low": "1.000000",
+      "close": "0.995177"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.624196"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/EUPWR.json": "20cb6dc45c72d11bdb76079c754c51c45bb91af9c8256aa892cb3e43df815383"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-EUREN",
+   "symbol": "EUREN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/EUREN_provider_ohlcv.csv",
+    "sha256": "81f6571d9be0beb431297a44fe52295d56e3859452bfbcb699a2030ffe027c88"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.002778",
+      "close": "0.993806"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.867823"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.980328",
+      "low": "1.000000",
+      "close": "0.983221"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.281118"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/EUREN.json": "564f7d414b1de8d2672682d5a13297e3a66a86d8b33d10e1afa4ead7147eee2a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-FENER",
+   "symbol": "FENER",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [
+    "DI-20260930-FENER-03"
+   ],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/FENER_provider_ohlcv.csv",
+    "sha256": "f91b73aa34f33071d95ddf812386e553a98cd72159473b5807a2845ca705dc36"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.003068"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.901489"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.951076",
+      "low": "1.000000",
+      "close": "0.945598"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.419469"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/FENER.json": "c500cd1d3c594b6beb774118c7fb5e18999e53dae69224f6f8210be93d2cb33e"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-FROTO",
+   "symbol": "FROTO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/FROTO_provider_ohlcv.csv",
+    "sha256": "740796fa16a9ef3550777a574d6838fde4a2638ae97d922d14a8e60a1dbf6974"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.087985",
+      "high": "0.087985",
+      "low": "0.088507",
+      "close": "0.088649"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "8.334570"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.907254",
+      "high": "0.893131",
+      "low": "0.907254",
+      "close": "0.902787"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.583551"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/FROTO.json": "515cb52fa6912d7aa3ea144f1aef1c486ddd7c80fb792c58f64b55e202fd4802"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GARAN",
+   "symbol": "GARAN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GARAN_provider_ohlcv.csv",
+    "sha256": "f68f46d315f79a6208142aa101d2dc5b86850860bfe42ab5ba9bfe60d5e168c8"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.926887",
+      "high": "0.926887",
+      "low": "0.949784",
+      "close": "0.940308"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.812175"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.961159",
+      "high": "0.958312",
+      "low": "0.961159",
+      "close": "0.955432"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.513138"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GARAN.json": "b1ffe1b9fd200c52c6e7dc24c671ea0fd8c12d740bb393c374e557591029a0c9"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GENIL",
+   "symbol": "GENIL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GENIL_provider_ohlcv.csv",
+    "sha256": "bbaa608f5e83d179e28b6289e6db3890f8092d0da3504ebd11e74554badafcc6"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.066096",
+      "high": "0.066096",
+      "low": "0.066096",
+      "close": "0.065354"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "12.313617"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.066461",
+      "high": "0.063339",
+      "low": "0.066461",
+      "close": "0.062570"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "4.300429"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GENIL.json": "36d62a30a9a2617a94d8dfd1ed4dd66d467a7340b99acb2f6a731e430812470c"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GESAN",
+   "symbol": "GESAN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GESAN_provider_ohlcv.csv",
+    "sha256": "81aa62550203bb8056fe3d1014830f7a70ae617265a479e91682564265b82c20"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.003185"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.917941"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.994568",
+      "low": "1.000000",
+      "close": "0.998008"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.483893"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GESAN.json": "ab32cc3471b83ec3e1400f0367822b88ef1fefbd843cc653dea4a993c5a7dce8"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GLRMK",
+   "symbol": "GLRMK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GLRMK_provider_ohlcv.csv",
+    "sha256": "b8289e0f898e76b52faa03a2dcf04a2e7fc9e290d78230262b3051d6dfacba55"
+   },
+   "sessions": {
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.990891",
+      "low": "1.000000",
+      "close": "0.995398"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.508148"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GLRMK.json": "8a6146847ce86d39734737b735906ce6d583c4f57fa274b5804978a24f7b7618"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GRSEL",
+   "symbol": "GRSEL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GRSEL_provider_ohlcv.csv",
+    "sha256": "a512893b58f47a679b5c91e967f111b4eb66803bfdafefeab0ece7c0e6ff9e13"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.990964",
+      "high": "0.990964",
+      "low": "0.990964",
+      "close": "0.997551"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.974207"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.992633",
+      "high": "0.992633",
+      "low": "0.992633",
+      "close": "0.999132"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.680493"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GRSEL.json": "eb0bf1d573f1a450babca71a660507c734fe9ece3ce6d2a058af4762d69bc41b"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GRTHO",
+   "symbol": "GRTHO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GRTHO_provider_ohlcv.csv",
+    "sha256": "608c53313ddfa13e36e5a5bb7022a60ff758da45031f73fb486e4f0b2e806695"
+   },
+   "sessions": {
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.995882",
+      "high": "0.953656",
+      "low": "0.995882",
+      "close": "0.990595"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.727798"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GRTHO.json": "069dbe3b03c204e64bb03f990fa77a5fa90c17583ab666a509b2f4eca6ba5674"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GSRAY",
+   "symbol": "GSRAY",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GSRAY_provider_ohlcv.csv",
+    "sha256": "8b2743e4758b8eec0bcff50bb4485511c06394a7a5c4197ac27c7c701a84f7fb"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.997268"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.922154"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.990244",
+      "low": "1.000000",
+      "close": "0.985294"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.500039"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GSRAY.json": "17b8404a6d360b5f5644c6d9ac03012fa6d25447de1485e60decdb9752225077"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-GUBRF",
+   "symbol": "GUBRF",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/GUBRF_provider_ohlcv.csv",
+    "sha256": "73d4d4ddae38bf0031d70aca75a020e8b95a8549ba0c0ba3cb406cd57c172648"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.998294"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.903531"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.993838",
+      "low": "1.000000",
+      "close": "0.988556"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.644968"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/GUBRF.json": "9ac6b7efb6b09a8410129b040449ee2807aeb4ab3fc48cfb53b6f336eb118c93"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-HALKB",
+   "symbol": "HALKB",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/HALKB_provider_ohlcv.csv",
+    "sha256": "0dd80c1ea208a02d3d5ff6293512523dc8bdb6b47bacb03d33ed591eb515d796"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.007652",
+      "close": "1.000000"
+     },
+     "fields_differing_from_open": [
+      "low"
+     ],
+     "volume_ratio_info": "0.916280"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.996024",
+      "low": "1.000000",
+      "close": "0.996008"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.642299"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/HALKB.json": "c7b49cca7df0163c00ef2cc5dd362ce31e8015801fd96ad161625c975e070ffd"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-HEKTS",
+   "symbol": "HEKTS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/HEKTS_provider_ohlcv.csv",
+    "sha256": "bef59b3dd7a257b85867d7178611b139186877e8f5995cd56d7c836097904b01"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.002562",
+      "close": "1.004270"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.878351"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.987097",
+      "low": "1.000000",
+      "close": "0.990260"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.411855"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/HEKTS.json": "f26fa5e39d371bead024d2cd2dc73a7b3ccfe49d99a23e77664ba638e3fe70d3"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-IEYHO",
+   "symbol": "IEYHO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/IEYHO_provider_ohlcv.csv",
+    "sha256": "20b278dbac03d9f4daf9a3fe946690f3f2732dd274c9fac4c4cdef761afefc01"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.001224",
+      "close": "0.987923"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.827496"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.073540"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.685541"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/IEYHO.json": "098b19df686aaa6195368383f894c79371e797e0593452516af0a592dc814e56"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ISCTR",
+   "symbol": "ISCTR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ISCTR_provider_ohlcv.csv",
+    "sha256": "269a0324e82e5c036aad6f3c548f8ee2ede1c0964a3060b35dcc45b478216269"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.945065",
+      "high": "0.945065",
+      "low": "0.950073",
+      "close": "0.950776"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.861194"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.959034",
+      "high": "0.949777",
+      "low": "0.959034",
+      "close": "0.952510"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.425997"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ISCTR.json": "7461235e71595d26e87ec28790d8e52baa518441219a216d99d05867a2efe8ab"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ISMEN",
+   "symbol": "ISMEN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ISMEN_provider_ohlcv.csv",
+    "sha256": "c864a3528b48454d360e42620c397869304800c14e1e594db65faed7847b0f51"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.815944",
+      "high": "0.815944",
+      "low": "0.823733",
+      "close": "0.823258"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.751210"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.926630",
+      "high": "0.914794",
+      "low": "0.926630",
+      "close": "0.914762"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.508571"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ISMEN.json": "f22ba064e71fe3c69dafa9b27b74178ba514cf5c5b378560b39ff3cbbb8e6710"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-IZENR",
+   "symbol": "IZENR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/IZENR_provider_ohlcv.csv",
+    "sha256": "345ff2c249d60ebf7fecf2b41d0a7461705c5a7e2b097efaa576356bab465870"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.235294",
+      "high": "0.235294",
+      "low": "0.235294",
+      "close": "0.234835"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "3.915719"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.003311",
+      "close": "1.006601"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.653401"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/IZENR.json": "fe383d1c41fb3a9ca865cef8e636d29514d0418efa1a5b3b75f0018454f3a9ed"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-KCHOL",
+   "symbol": "KCHOL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/KCHOL_provider_ohlcv.csv",
+    "sha256": "741659f0c029b5185b0d76325bbca8faf5ce551a4a6b0acda1060de5affadd33"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.920976",
+      "high": "0.920976",
+      "low": "0.929952",
+      "close": "0.929449"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.830565"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.963958",
+      "high": "0.947152",
+      "low": "0.963958",
+      "close": "0.959162"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.486995"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/KCHOL.json": "01428c6ea1c981c9bc6061cc49fc16dbb0092b56ef1ed3908380217a067bf4e0"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-KLRHO",
+   "symbol": "KLRHO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/KLRHO_provider_ohlcv.csv",
+    "sha256": "5abe9da4fcb381120c0244d92d03a5269c5d0d083d4b43ebb3f819f207e029ee"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.001980",
+      "close": "0.993464"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.682037"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.995624"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.058737"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/KLRHO.json": "25fed362dc68d89f1d3a6fe2764d9cb20439df2e61847ce8c201b78664930b67"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-KRDMD",
+   "symbol": "KRDMD",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/KRDMD_provider_ohlcv.csv",
+    "sha256": "44acddb2d370dddbedccafc1523f43c422393c1cf8958a2d3128b89b47865a8f"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.005343",
+      "close": "1.004448"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.847619"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.988215",
+      "low": "1.000000",
+      "close": "0.988186"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.619669"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/KRDMD.json": "86559ac480628a1c8d29cee6e6fd0fa7d415a75e8d1e33bac5fa9f1c10a357c1"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-KTLEV",
+   "symbol": "KTLEV",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/KTLEV_provider_ohlcv.csv",
+    "sha256": "d3a31b0018071c3ea347200a21ec78faa6005035722f66482723b16efd7301d4"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.025230",
+      "high": "0.025230",
+      "low": "0.025230",
+      "close": "0.025209"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "36.877286"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.025618",
+      "high": "0.024705",
+      "low": "0.025618",
+      "close": "0.025395"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "25.161741"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/KTLEV.json": "d74b61f55e95f29d460f4521c7174144980e8d1b59cf1b6b32256bbf6ff1fb0b"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-KUYAS",
+   "symbol": "KUYAS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/KUYAS_provider_ohlcv.csv",
+    "sha256": "e5ae0d3489451839c6518d308ef7f88614a0f71a8638314ada9702436378537f"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.250000",
+      "high": "0.250000",
+      "low": "0.250000",
+      "close": "0.251815"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "3.525850"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.011690",
+      "close": "0.988157"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.428158"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/KUYAS.json": "1c7e2769b92af4cbbeffea7a95fe0b842f9a03414212788632eb9d3251c7909c"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-MAGEN",
+   "symbol": "MAGEN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/MAGEN_provider_ohlcv.csv",
+    "sha256": "37a9e30adf676337305dabb3e75628ea4472ecee081c337c9dae3143f87a3d43"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.400000",
+      "high": "0.400000",
+      "low": "0.404622",
+      "close": "0.404978"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "2.036956"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.400000",
+      "high": "0.400000",
+      "low": "0.400000",
+      "close": "0.400869"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "1.738302"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/MAGEN.json": "7ad46707c4e7ff958bddf9e78a637636e48f89d5cec74e5c322c330cbcc7d048"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-MAVI",
+   "symbol": "MAVI",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/MAVI_provider_ohlcv.csv",
+    "sha256": "ff00c691fb4d117e4479c1814e60461090eb2df90476a502a7fa2f1c6cff1b95"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.464227",
+      "high": "0.464227",
+      "low": "0.464460",
+      "close": "0.464459"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "1.753728"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.928454",
+      "high": "0.928454",
+      "low": "0.931840",
+      "close": "0.932378"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.473789"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/MAVI.json": "6eaf27627cc945fedaf75d4fb44109e63809362a9c299724be4d177ad9f4e99c"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-MGROS",
+   "symbol": "MGROS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/MGROS_provider_ohlcv.csv",
+    "sha256": "14e1c4c9af2e4a6cb0e039047e32ca5897c2a592937ad0faf6fbb2a3da29f0de"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.966285",
+      "high": "0.966285",
+      "low": "0.966785",
+      "close": "0.966784"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.896890"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.972464",
+      "high": "0.972464",
+      "low": "0.972464",
+      "close": "0.971508"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.657305"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/MGROS.json": "4c4f7ff8456e83d6935ec0963baf5f90ac1855f8d53084afd067aea54319b91f"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-MIATK",
+   "symbol": "MIATK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/MIATK_provider_ohlcv.csv",
+    "sha256": "cb37e8ff4d47e52fc476b68b06b22c08f768b87593e7fe9c81dadf6a6773848a"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.001695",
+      "close": "1.000846"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.901582"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.986728",
+      "low": "1.000000",
+      "close": "0.992987"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.400104"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/MIATK.json": "43b8d3bbe61d9a5166e33fbdef865c17d9fe5ecd7f42a10b1dc3f56ba0522d63"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-MPARK",
+   "symbol": "MPARK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/MPARK_provider_ohlcv.csv",
+    "sha256": "21042a28bf690326c100c15a1c045b1bab27319c1484d3284d6c2785445d0b4e"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.004777",
+      "close": "1.007166"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.858069"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.000755"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.653171"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/MPARK.json": "ad7ba28bf40412fab85c87acae7730ed366cd179418e1151a49f3d3f1553d64b"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-OBAMS",
+   "symbol": "OBAMS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/OBAMS_provider_ohlcv.csv",
+    "sha256": "e9af8c0e7934f275380f160eb983f1c1a2039c0223409a42a45cb0334fb8196d"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.162950",
+      "high": "0.162950",
+      "low": "0.162950",
+      "close": "0.163758"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "5.326452"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.165811",
+      "high": "0.165811",
+      "low": "0.165811",
+      "close": "0.164329"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "2.393792"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/OBAMS.json": "3d85f611eec94b4e307975b89879ba3cea0fadadc5cde40234b6592a6d6a6dcf"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ODAS",
+   "symbol": "ODAS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ODAS_provider_ohlcv.csv",
+    "sha256": "9a72513bc6840b1feb4db56b193559e6cf0f99a5eb8f586d9c16ab67f7a975bf"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.005634",
+      "close": "1.007042"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.872344"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.995859",
+      "low": "1.000000",
+      "close": "0.991718"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.484312"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ODAS.json": "9ac80b0fdb41aa6214391b54d69d11ecc60a3cc8a1f9ecaa7fe59797dc724693"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ODINE",
+   "symbol": "ODINE",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ODINE_provider_ohlcv.csv",
+    "sha256": "0b3e0fb93aa1b9bb4c60554b22594114920e82a8dd2fa9d0043ef9d868a6fb97"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.009994"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.924229"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.990631"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.709967"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ODINE.json": "efed3eb9529c8aa01c66807e491cd9952080bf195cc72eba4c6986a96dd5aebe"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-OTKAR",
+   "symbol": "OTKAR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/OTKAR_provider_ohlcv.csv",
+    "sha256": "dbcf9fd3316507b2975c9a25e55daab98864d222c548f21fb0db9d0afec86efb"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.012500",
+      "close": "1.015341"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.851730"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.974296",
+      "low": "1.000000",
+      "close": "0.991880"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.401368"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/OTKAR.json": "6e7c2204297fce3a49952fdf3a8f7a3bd32cbf39d4beba1409cc40b66938a56f"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-OYAKC",
+   "symbol": "OYAKC",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/OYAKC_provider_ohlcv.csv",
+    "sha256": "8b2f5e6b4e3a07882bff938fe8a37f695e9113e76561b66704ff2f7ee82ada0b"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.244648",
+      "high": "0.244648",
+      "low": "0.245957",
+      "close": "0.244277"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "3.328178"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.954128",
+      "high": "0.952370",
+      "low": "0.954128",
+      "close": "0.955909"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.625783"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/OYAKC.json": "410980764578a6e884813168729d5afba508a9e66ae9a2e2fc12ce1d95236cce"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-PASEU",
+   "symbol": "PASEU",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/PASEU_provider_ohlcv.csv",
+    "sha256": "6021a71e03249a31c8317dd36f718b543a663fb138248cec5c5b6db2b3e223d4"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.250000",
+      "high": "0.250000",
+      "low": "0.250000",
+      "close": "0.248410"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "3.030544"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.993382"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.765443"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/PASEU.json": "2aebc469667f5b369d0fb6aea69e5da383e634a79acee63062215a2b80d7e3b0"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-PATEK",
+   "symbol": "PATEK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/PATEK_provider_ohlcv.csv",
+    "sha256": "3936f888a9f78e220dce5f96385e23a5a7eb4bebf25642588ff11fcb92690c21"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.223333",
+      "high": "0.223333",
+      "low": "0.223333",
+      "close": "0.223795"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "4.129719"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.223333",
+      "high": "0.223333",
+      "low": "0.224876",
+      "close": "0.226722"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "2.462640"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/PATEK.json": "b5e00a3020a6c7d938dcdc012c3828046d8341983d2201370c5f8eb40633d792"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-PETKM",
+   "symbol": "PETKM",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/PETKM_provider_ohlcv.csv",
+    "sha256": "ce69b8f6c2b5ed05ae40fa6100aab8bce780964bd4ce39395a2c265e20ac4dd6"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.008467"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.900314"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.981448",
+      "low": "1.000000",
+      "close": "0.993891"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.509844"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/PETKM.json": "b53e4453a6f24a584cc4e648dc1df08c54d33a2f7aa922ed07fcc696fbd3abb0"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-PGSUS",
+   "symbol": "PGSUS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/PGSUS_provider_ohlcv.csv",
+    "sha256": "5817013807681432e57025ee76349563f706717000c046f50d7a2743ba7bff0e"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.002207",
+      "close": "1.003961"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.871763"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.999142",
+      "low": "1.000000",
+      "close": "1.003888"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.649196"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/PGSUS.json": "53740c58afe2fd25bd47403df3ed44b786a41a4cc29acc7ab392b99fbcdc2ab2"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-PSGYO",
+   "symbol": "PSGYO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/PSGYO_provider_ohlcv.csv",
+    "sha256": "df2ea883af80692932c7178bb8fdab6e76ca741ef610444463493c1049ae0e13"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.979537",
+      "high": "0.979537",
+      "low": "0.985510",
+      "close": "0.985510"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.911370"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.992710",
+      "high": "0.992709",
+      "low": "0.992710",
+      "close": "0.998415"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.513249"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/PSGYO.json": "e544e6c55aa6edd2b94dd57901418e6fa2f8680fe82fad773486ccc8c7b1fb55"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-QUAGR",
+   "symbol": "QUAGR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/QUAGR_provider_ohlcv.csv",
+    "sha256": "55728707e9f2235d8695fe3f07197f8f4f76966a2adc329c4e07ca3c61ea353a"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.003356",
+      "close": "1.003344"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.789574"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/QUAGR.json": "80d33d7104b67d752033dd270790def5bcfcf8a053c2e92c82372d850fc8c445"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-RALYH",
+   "symbol": "RALYH",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/RALYH_provider_ohlcv.csv",
+    "sha256": "5aac4c8608dcbcfe5e708a62d4916a28ec6a7c120e2219d15d307980fc462e73"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.189189",
+      "high": "0.189189",
+      "low": "0.189189",
+      "close": "0.180728"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "4.724582"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.990033",
+      "low": "1.000000",
+      "close": "0.968067"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.490173"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/RALYH.json": "779d0e989840321f792436ced2d4ce330229f411ad2372e2236bc6d8d43b1ca1"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-REEDR",
+   "symbol": "REEDR",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/REEDR_provider_ohlcv.csv",
+    "sha256": "7e94602f4ee006cf18cfbcafd0d43cc72b70af59cae48e72c20cb285ec8e943d"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.005155",
+      "close": "1.004504"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.896503"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.005343"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.559177"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/REEDR.json": "5f28535e3160941cca780aa1bc0d23f8d806577301cf9f1f93370a2b83a9ab89"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-SAHOL",
+   "symbol": "SAHOL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/SAHOL_provider_ohlcv.csv",
+    "sha256": "b88da9a0c179fa76ce18d021a0b2e95aca28a7f2507a28debc52ed627f63024e"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.949060",
+      "high": "0.949060",
+      "low": "0.954206",
+      "close": "0.961359"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.845199"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.984188",
+      "high": "0.974953",
+      "low": "0.984188",
+      "close": "0.986866"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.477764"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/SAHOL.json": "96aff7688c8c628334ed6d675db5e4528c757ec3d457657ca51fea12f50deba8"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-SARKY",
+   "symbol": "SARKY",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/SARKY_provider_ohlcv.csv",
+    "sha256": "8ce91c241889390a725d46a0f18a4c3e06a2f2fe7adbd164b827f560a7d50af8"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.580753",
+      "high": "0.580753",
+      "low": "0.583237",
+      "close": "0.583231"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "1.529832"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.593294",
+      "high": "0.592036",
+      "low": "0.593294",
+      "close": "0.591407"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.949251"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/SARKY.json": "3c76589221e26a83f22168fff19509112cb514cf72677769b5ff57a8840bf8e3"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-SASA",
+   "symbol": "SASA",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/SASA_provider_ohlcv.csv",
+    "sha256": "a15738883e3b46b37956d94502d0ad54803bd7aba8dfb2b750c941e8a7af2e53"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.004264",
+      "close": "1.004264"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.856759"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.007916"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.555818"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/SASA.json": "211773a7d3b9b0bc44870631d4396249b100920bb1adbfb8a016debd6b5fb8f5"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-SISE",
+   "symbol": "SISE",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/SISE_provider_ohlcv.csv",
+    "sha256": "c23e46c951d84a41c4354bac2277829f41bb0c484c20ed77d19c4b1521416407"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.968335",
+      "high": "0.968335",
+      "low": "0.973439",
+      "close": "0.974367"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.841291"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.968335",
+      "high": "0.967179",
+      "low": "0.968335",
+      "close": "0.965436"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.594708"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/SISE.json": "fbf5a25848d8a9ac51f59041112048a4bc102f693f7fa1abaa4167ba724db71f"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-SKBNK",
+   "symbol": "SKBNK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/SKBNK_provider_ohlcv.csv",
+    "sha256": "3532792659146f300e09182ba659977633db5871a1a226b640464dc1ff45dd58"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.985775",
+      "high": "0.985775",
+      "low": "0.992833",
+      "close": "0.990458"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.903200"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.985775",
+      "high": "0.985775",
+      "low": "0.985775",
+      "close": "0.989634"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.601312"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/SKBNK.json": "3bc6d2f4977dde616106918b3325ee91cc84cb6a791bee9508763fd64aa8f393"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-SOKM",
+   "symbol": "SOKM",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/SOKM_provider_ohlcv.csv",
+    "sha256": "9767c175606e941e630f0f8403f8fc545e9f7d7130a979c8e4f9f907a909d4ec"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.982530",
+      "high": "0.982530",
+      "low": "0.988964",
+      "close": "0.990802"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.902720"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.999479",
+      "low": "1.000000",
+      "close": "1.003143"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.571009"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/SOKM.json": "440e858505089cd4669f9a446aa987370314e3e8bff29ce2f3d782a0f59bd02a"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TAVHL",
+   "symbol": "TAVHL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TAVHL_provider_ohlcv.csv",
+    "sha256": "1fb7abeacf01b959e433b31d6b566465b406aab20c7a71f3cf7c34f8ed3ff539"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.986955",
+      "high": "0.986955",
+      "low": "0.994591",
+      "close": "0.987902"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.803794"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.986955",
+      "high": "0.986955",
+      "low": "0.991890",
+      "close": "0.997722"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.503805"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TAVHL.json": "24f945e3520824137609065e6201cd9b2d13db5a45acae4af1827bd9107de9d9"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TCELL",
+   "symbol": "TCELL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TCELL_provider_ohlcv.csv",
+    "sha256": "1825c7ddb1886ad4d9142b4891f3041889ad89117230242fa957a795911b4e72"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.932291",
+      "high": "0.932291",
+      "low": "0.944837",
+      "close": "0.945802"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.888277"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.961426",
+      "high": "0.956656",
+      "low": "0.961426",
+      "close": "0.957704"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.533890"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TCELL.json": "4ec52dc65886e430c1524db1cd25add22f51c35cec3d48eafe5c1338cfb016bb"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-THYAO",
+   "symbol": "THYAO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/THYAO_provider_ohlcv.csv",
+    "sha256": "ecfa62c8775f052613aa32f3747153881ad4961561b125adec7f998f7511b568"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.976884",
+      "high": "0.976884",
+      "low": "0.981894",
+      "close": "0.980215"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.838967"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.976884",
+      "high": "0.976884",
+      "low": "0.976884",
+      "close": "0.978601"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.684410"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/THYAO.json": "d2314a269578d4e7e9017f7c9f66843cbc52ce1e42b3da5535f5d91e206f9f15"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TKFEN",
+   "symbol": "TKFEN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TKFEN_provider_ohlcv.csv",
+    "sha256": "c1facc9766ab0e3baca14c683a59123a14281ff35126dd287aac9e48a2026758"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.995303",
+      "high": "0.995303",
+      "low": "0.995303",
+      "close": "1.003597"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.875578"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.995303",
+      "high": "0.977715",
+      "low": "0.995303",
+      "close": "0.982964"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.489829"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TKFEN.json": "c709b974c2cad4c27393ea39765e1563e0e17aee8e2ab024ac243fbe9039c09d"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TOASO",
+   "symbol": "TOASO",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TOASO_provider_ohlcv.csv",
+    "sha256": "7b84d96234bd7a8415e700eda6fd93f7ef5901a8b140a817f48dcbf7482a9ec0"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.872783",
+      "high": "0.872783",
+      "low": "0.877512",
+      "close": "0.876717"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.909478"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.935536",
+      "high": "0.927705",
+      "low": "0.935536",
+      "close": "0.932278"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.473377"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TOASO.json": "5570cfbdb07f35910e6d2372358b0b366707e770d0273b6b19cc6164d8034af8"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TSKB",
+   "symbol": "TSKB",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TSKB_provider_ohlcv.csv",
+    "sha256": "20fa0169bfec4dab40c1011246df2cb8e0edf247d6c186e0ea6cd29e285ffd8e"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.954049",
+      "high": "0.954049",
+      "low": "0.954049",
+      "close": "0.956412"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.943876"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.954049",
+      "high": "0.951364",
+      "low": "0.954049",
+      "close": "0.955850"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.556261"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TSKB.json": "986c49c7bc3b8b930576f8c10c4c80792a57fe111be7bba5482df0fc347432e6"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TTKOM",
+   "symbol": "TTKOM",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TTKOM_provider_ohlcv.csv",
+    "sha256": "c788100fafe2eee2a25631fb8d20e505ffe1b1e3624e8c1fbbc77e20b0611576"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.002982",
+      "close": "1.002979"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.924718"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.017025"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.737819"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TTKOM.json": "0b617087ec3f4f4f3150a1291bb0eaedf10d2b2f6a5da659ed4112bb75362cc3"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TUKAS",
+   "symbol": "TUKAS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TUKAS_provider_ohlcv.csv",
+    "sha256": "3b174f932f3b2f2287902d878bbb453d29c1f10904f97dc24608f8f10cc046bd"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.009988",
+      "close": "1.012484"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.863678"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.977612",
+      "low": "1.000000",
+      "close": "0.977444"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.632118"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TUKAS.json": "cb05f16c8a6e09218062e9f27875051c91561c2afc1cd0b9a8287847e65d7827"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TUPRS",
+   "symbol": "TUPRS",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TUPRS_provider_ohlcv.csv",
+    "sha256": "beefc9d73d2caa94c46755731166510afafa870bf34bd7843cd6de0a2b359e9d"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.811844",
+      "high": "0.811844",
+      "low": "0.814364",
+      "close": "0.815873"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.837631"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.923725",
+      "high": "0.918010",
+      "low": "0.923725",
+      "close": "0.915867"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.843111"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TUPRS.json": "f0d0b776cb8b9ffe41459f7a53acda34efa1f4a897170d4bb2c3b4922b274237"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-TURSG",
+   "symbol": "TURSG",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/TURSG_provider_ohlcv.csv",
+    "sha256": "e7a2cc21d18b5796ef541d631dbdbdfc487b96513a7f8ce5c7aa8a7589c1699a"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.238970",
+      "high": "0.238970",
+      "low": "0.241414",
+      "close": "0.238599"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "3.380516"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.238970",
+      "high": "0.238001",
+      "low": "0.238970",
+      "close": "0.238273"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "2.068222"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/TURSG.json": "341c2a4d20cb026a2749917784042b565168556dc78b9d02ebae9a4204d6cc19"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ULKER",
+   "symbol": "ULKER",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ULKER_provider_ohlcv.csv",
+    "sha256": "00d849650df14fd1894f9a21d5c8f3cd3160430faae4a4edae80e8d5923facba"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "0.880139",
+      "high": "0.880139",
+      "low": "0.894119",
+      "close": "0.883733"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.860495"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "0.880139",
+      "high": "0.874648",
+      "low": "0.880139",
+      "close": "0.876202"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.488802"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ULKER.json": "a111f092cca087ac96b00e587ff0012525c071f4b39ee7b83ee3d5b998bc4196"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-VAKBN",
+   "symbol": "VAKBN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/VAKBN_provider_ohlcv.csv",
+    "sha256": "baf7f712c846eb41c6b891fe73c802e21fe0a9353b56199ea8ebe3c7d8e646b2"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "1.003731"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.919365"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.000000",
+      "close": "0.995544"
+     },
+     "fields_differing_from_open": [
+      "close"
+     ],
+     "volume_ratio_info": "0.566405"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/VAKBN.json": "65d6ebe7179f96bc408c3cd0fccf95be84d4c891c86319d85b3f85ef3473c4cd"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-VESTL",
+   "symbol": "VESTL",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/VESTL_provider_ohlcv.csv",
+    "sha256": "ec62b21f3a8d3185a2cb0041b30b671e1784eca734b0e438a674c469583c0aff"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.034893",
+      "close": "1.015504"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.888669"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.987893",
+      "low": "1.000000",
+      "close": "0.991211"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.514954"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/VESTL.json": "04a6465670d2d404213326b69eb930c86536a28cdb8c64049a438db6f7ac233c"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-YKBNK",
+   "symbol": "YKBNK",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/YKBNK_provider_ohlcv.csv",
+    "sha256": "0323b9bedd07928867e22db758942782664ac723c3771bf99666b391bd4aedbf"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.016308",
+      "close": "1.015595"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.805768"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.994176",
+      "low": "1.000000",
+      "close": "0.990787"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.438557"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/YKBNK.json": "1785872e861b56f3d3633cb7ddf10d1d1ce5b471e3463c7231e520c68bf9b85e"
+   }
+  },
+  {
+   "issue_id": "DI-MW-20260930-ZOREN",
+   "symbol": "ZOREN",
+   "status": "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH",
+   "pattern": "Piyasa geneli: 06.09.2024 ve/veya 08.05.2025 seanslarında Yahoo barı resmî bültenden farklı (açılış aynı ölçekte; yüksek ≤, düşük ≥ resmî; kapanış farklı; hacim çoğunlukla düşük).",
+   "related_issues": [],
+   "file": {
+    "path_as_reviewed": "app/research/market_risk_shadow/runs/universe_20260925/inputs/ZOREN_provider_ohlcv.csv",
+    "sha256": "2179856999cd4f69930ccdba43badfbd097b120f984a044b3a7b17e800026151"
+   },
+   "sessions": {
+    "2024-09-06": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "1.000000",
+      "low": "1.002222",
+      "close": "1.002217"
+     },
+     "fields_differing_from_open": [
+      "low",
+      "close"
+     ],
+     "volume_ratio_info": "0.917089"
+    },
+    "2025-05-08": {
+     "ratios_yahoo_over_official": {
+      "open": "1.000000",
+      "high": "0.984756",
+      "low": "1.000000",
+      "close": "0.990798"
+     },
+     "fields_differing_from_open": [
+      "high",
+      "close"
+     ],
+     "volume_ratio_info": "0.314464"
+    }
+   },
+   "origin": "UNKNOWN: eksik gün içi kapsamla uyumlu; kesilme saati/mekanizma kanıtlanmadı. Yerel ayrıştırma, tarih kayması ve düzeltme adımı elendi; 30.09.2026 yeniden alımında aynı değerler döndü.",
+   "evidence_files": {
+    "app/research/official_bist/runs/market_days_diagnosis_20260930/diagnosis_summary.json": "see_file",
+    "app/research/official_bist/runs/universe_quality_20260930/symbols/ZOREN.json": "af283b884c9528dfb5696cffc1116aec3a3b5189c6ab26246e9d1de14d14ce2b"
    }
   }
  ],
@@ -74,9 +4257,11 @@
  "affected_research": [
   {
    "study": "MARKET-RISK-1 evren incelemesi (teknik sinyal + gölge risk kuralları)",
-   "outputs": {"app/research/market_risk_shadow/runs/universe_20260925/results/BSOKE.json": "1c202a53cd6b74ba45013386c8fb8648d46bb2b490d87ba568a9ba2a0d506ca7",
-               "app/research/market_risk_shadow/runs/universe_20260925/results/FENER.json": "0fd61041fece1be089fa8dc617c88639d71db946b7e3f2c512a9ff6bca67676a",
-               "app/research/market_risk_shadow/runs/universe_20260925/summary.json": "85fe0fe49504bc7426210f123117b407afd4685a5e9ff1290415ba569fda1081"},
+   "outputs": {
+    "app/research/market_risk_shadow/runs/universe_20260925/results/BSOKE.json": "1c202a53cd6b74ba45013386c8fb8648d46bb2b490d87ba568a9ba2a0d506ca7",
+    "app/research/market_risk_shadow/runs/universe_20260925/results/FENER.json": "0fd61041fece1be089fa8dc617c88639d71db946b7e3f2c512a9ff6bca67676a",
+    "app/research/market_risk_shadow/runs/universe_20260925/summary.json": "85fe0fe49504bc7426210f123117b407afd4685a5e9ff1290415ba569fda1081"
+   },
    "binding": "Sonuç dosyaları sorunlu CSV hash'lerini içeriyor.",
    "propagation": "Ölçekli pencere ve onu geriye bakış penceresine alan seanslardaki teknik skor/sınıf, fiyat getirisi ve hisse risk kuralları; ileri fiyat hareketi ölçüleri.",
    "impact_magnitude": "UNKNOWN",
@@ -84,8 +4269,10 @@
   },
   {
    "study": "MARKET-RISK-1 hisse engeli ayrıştırması ve sert düşüş kapsamı",
-   "outputs": {"app/research/market_risk_shadow/runs/universe_20260925/asset_gate_analysis.json": "33f2e36ada1ae2d39523d1a34beaccc99e690f48682c606c130d69dec9852efd",
-               "app/research/market_risk_shadow/runs/universe_20260925/sharp_drop_coverage.json": "14e22c44f3f53e37ad2dfdb21a49f1c5d18813b20012b92974dee4d9f860ab8b"},
+   "outputs": {
+    "app/research/market_risk_shadow/runs/universe_20260925/asset_gate_analysis.json": "33f2e36ada1ae2d39523d1a34beaccc99e690f48682c606c130d69dec9852efd",
+    "app/research/market_risk_shadow/runs/universe_20260925/sharp_drop_coverage.json": "14e22c44f3f53e37ad2dfdb21a49f1c5d18813b20012b92974dee4d9f860ab8b"
+   },
    "binding": "Kod yolu: aynı çalıştırma klasörünün results/{SYM}.json satırlarını okur; sharp_drop_coverage ayrıca inputs/{SYM}_provider_ohlcv.csv kapanışlarını okur. Çıktıda girdi hash'i kayıtlı DEĞİL.",
    "propagation": "Hisse risk kuralı sınıfları, engel epizotları ve 10 seans ileri düşüş hedefi (sahte kırılma DROP sayılabilir).",
    "impact_magnitude": "UNKNOWN",
@@ -93,7 +4280,9 @@
   },
   {
    "study": "MARKET-RISK-1 fiyat temelli erken risk modeli",
-   "outputs": {"app/research/market_risk_shadow/runs/early_risk_model_20260928/result.json": "de8111f39815a45ac7b366e22ac9a025576c92d5198645842b5cf2361796d98a"},
+   "outputs": {
+    "app/research/market_risk_shadow/runs/early_risk_model_20260928/result.json": "de8111f39815a45ac7b366e22ac9a025576c92d5198645842b5cf2361796d98a"
+   },
    "binding": "result.json identity.input_sha256 sorunlu CSV hash'lerini içeriyor.",
    "propagation": "Fiyat özellikleri, ileri düşüş hedefi; BSOKE kırılması 2024 eğitim, FENER kırılması 2025 değerlendirme dönemine düşer.",
    "impact_magnitude": "UNKNOWN",
@@ -101,7 +4290,9 @@
   },
   {
    "study": "MARKET-RISK-1 hacim deneyi (dvol_20_100)",
-   "outputs": {"app/research/market_risk_shadow/runs/volume_experiment_20260928/result.json": "9f71695e04bde90e44ed41d4193ef31540426a5d8049c728a9b74971ce8ae338"},
+   "outputs": {
+    "app/research/market_risk_shadow/runs/volume_experiment_20260928/result.json": "9f71695e04bde90e44ed41d4193ef31540426a5d8049c728a9b74971ce8ae338"
+   },
    "binding": "result.json identity.input_sha256 sorunlu CSV hash'lerini içeriyor.",
    "propagation": "Ölçekli pencerede hacim ters oranla büyütülmüş: 120 seanslık dvol penceresine giren tüm seanslar; ayrıca fiyat özellikleri ve hedef.",
    "impact_magnitude": "UNKNOWN",
@@ -109,12 +4300,50 @@
   },
   {
    "study": "POSITION-EXIT-1 EXIT-EXP-1 normalize çıkış karşılaştırması",
-   "outputs": {"app/research/position_exit/runs/exit_exp1_20260929/result.json": "6ebbd86490705ff8c32d408068939814c336feaf3dd03ecc7a08d9f9e44e4512",
-               "app/research/position_exit/runs/exit_exp1_20260929/episodes.jsonl": "1c55c29e53bc7c6953f4c8bf803f8eaf98b6e89e17580e65f46242a311c5edad"},
+   "outputs": {
+    "app/research/position_exit/runs/exit_exp1_20260929/result.json": "6ebbd86490705ff8c32d408068939814c336feaf3dd03ecc7a08d9f9e44e4512",
+    "app/research/position_exit/runs/exit_exp1_20260929/episodes.jsonl": "1c55c29e53bc7c6953f4c8bf803f8eaf98b6e89e17580e65f46242a311c5edad"
+   },
    "binding": "identity.fetch_manifest_sha256 (sorunlu CSV hash'lerini içeren manifest) ve results_files_sha256; koşucu inputs/{SYM}_provider_ohlcv.csv okur.",
    "propagation": "BSOKE ve FENER'in bütün epizotlarında giriş/çıkış sinyalleri, fiyat yolu ve sonuçlar; en belirgin etkilenenler BSOKE:2024-11-22 ve FENER:2025-06-11.",
    "impact_magnitude": "UNKNOWN (iki epizodun doğrudan payı dışında hesaplanmadı)",
    "status_note": "Veri doğrulaması nedeniyle politika seçimine uygun DEĞİL."
+  }
+ ],
+ "identity_checks": [
+  {
+   "symbol": "BSOKE",
+   "checked": "2026-09-30",
+   "result": "MATCH",
+   "bulletin": "BSOKE.E / BATISOKE CIMENTO",
+   "kap_member": {
+    "companyCode": "878",
+    "mkkMemberOid": "4028e4a24158e42401415920fc3308c5",
+    "current_title": "BATIÇİM ÇİMENTO SANAYİ A.Ş."
+   },
+   "basis": [
+    "2024 bildirimlerinde bu OID altında şirket bildirimleri 'BATISÖKE SÖKE ÇİMENTO SANAYİİ T.A.Ş.', stockCodes BSOKE",
+    "KAP 1295722 ve 1304771: 'B Grubu, BSOKE, TRABSOKE91F5' (kâr payı ödenmeyecek); KAP 1363968 bedelli: aynı ISIN",
+    "KAP 1621195: unvan değişikliği Batısöke Söke Çimento Sanayi T.A.Ş. -> Batıçim Çimento Sanayi A.Ş., tescil 19.06.2026",
+    "BTCIM ayrı üye: companyCode 877, OID 4028e4a140e95be70140ee07044700eb, 'BATIÇİM BATI ANADOLU SANAYİ VE TİCARET A.Ş.'"
+   ],
+   "evidence": "app/research/official_bist/runs/history_extension_20260929/kap (member_BSOKE.json, member_BTCIM.json, bsoke_2024.json, oid878_2025.json, oid878_2026.json, kap_1621195.html; access_log.tsv)"
+  },
+  {
+   "symbol": "FENER",
+   "checked": "2026-09-30",
+   "result": "MATCH",
+   "bulletin": "FENER.E / FENERBAHCE FUTBOL",
+   "kap_member": {
+    "companyCode": "1383",
+    "mkkMemberOid": "4028e4a240e95dc90140ede7351a013d",
+    "current_title": "FENERBAHÇE FUTBOL A.Ş."
+   },
+   "basis": [
+    "Sorgulanan şirket bildirimleri 'FENERBAHÇE FUTBOL A.Ş.', stockCodes FENER",
+    "KAP 1365941 ve 1452776: 'B Grubu, FENER, TREFBAH00019'"
+   ],
+   "evidence": "app/research/official_bist/runs/history_extension_20260929/kap"
   }
  ]
 }

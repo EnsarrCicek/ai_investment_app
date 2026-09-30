@@ -31,7 +31,8 @@ def main(out: Path) -> int:
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     events = {r["symbol"]: r for r in csv.DictReader((RAW / "corporate_actions.csv").open(encoding="utf-8"))}
-    windows = {i["symbol"]: i["locally_inferred_scaled_window"] for i in json.loads(REGISTRY.read_text(encoding="utf-8"))["issues"]}
+    windows = {i["symbol"]: i["locally_inferred_scaled_window"] for i in json.loads(REGISTRY.read_text(encoding="utf-8"))["issues"]
+               if "locally_inferred_scaled_window" in i}  # kayıtta bu alanı taşımayan başka sorun türleri de var
     method = {"series_kind": SERIES_KIND,
               "formula": "Ft = (Fk + n2 × R) / (1 + n2); DK = Ft / Fk; hak kullanımından önceki seansların OHLC'si × DK",
               "primary_sources": {"method": "https://www.borsaistanbul.com/data/Genelge/gn414yeni.pdf",

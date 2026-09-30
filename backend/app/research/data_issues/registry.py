@@ -31,17 +31,20 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict:
 def check_input_files(files: dict[str, Path], registry: dict | None = None) -> dict:
     """files: {symbol: csv_path}. Saf okuma; dosyaları değiştirmez."""
     registry = registry if registry is not None else load_registry()
-    by_hash = {i["file"]["sha256"]: i for i in registry["issues"]}
+    by_hash: dict[str, list[dict]] = {}
+    for i in registry["issues"]:  # aynı dosyada birden çok sorun olabilir; hiçbiri gizlenmez
+        by_hash.setdefault(i["file"]["sha256"], []).append(i)
     issue_symbols = {i["symbol"] for i in registry["issues"]}
     reviewed = {(r["symbol"], r["sha256"]) for r in registry.get("reviews", [])
                 if r.get("status") == "REVIEWED_NO_KNOWN_ISSUE"}
     blocked = []
     for symbol, path in sorted(files.items()):
         digest = sha256_file(path)
-        issue = by_hash.get(digest)
-        if issue is not None:
-            blocked.append({"symbol": symbol, "file": str(path), "sha256": digest, "issue_id": issue["issue_id"],
-                            "reason": issue["status"]})
+        issues = by_hash.get(digest)
+        if issues:
+            blocked.append({"symbol": symbol, "file": str(path), "sha256": digest, "issue_id": issues[0]["issue_id"],
+                            "issue_ids": [i["issue_id"] for i in issues],
+                            "reason": "|".join(dict.fromkeys(i["status"] for i in issues))})
         elif symbol in issue_symbols and (symbol, digest) not in reviewed:
             blocked.append({"symbol": symbol, "file": str(path), "sha256": digest, "issue_id": None,
                             "reason": "REVIEW_REQUIRED: sembolde doğrulanmış sorun kaydı var; bu dosya kimliği incelenmedi"})

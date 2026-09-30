@@ -121,7 +121,8 @@ def main(out: Path, reuse_run: Path | None = None) -> int:
     bulletins.mkdir()
     prior = prior_log()
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
-    inferred = {i["symbol"]: i["locally_inferred_scaled_window"] for i in registry["issues"]}
+    inferred = {i["symbol"]: i["locally_inferred_scaled_window"] for i in registry["issues"]
+                if "locally_inferred_scaled_window" in i}  # kayıtta bu alanı taşımayan başka sorun türleri de var
     manifest, summary = {"created_utc": datetime.now(timezone.utc).isoformat(), "sessions": []}, {"symbols": {}}
     for sym, (a, b) in PLAN.items():
         code = f"{sym}.E"

@@ -34,7 +34,7 @@ def _registry_for(tmp_path, content=b"a,b\n1,2\n", symbol="ORNEK"):
 
 def test_registry_records_both_confirmed_issues_by_file_identity():
     reg = load_registry()
-    by_symbol = {i["symbol"]: i for i in reg["issues"]}
+    by_symbol = {i["symbol"]: i for i in reg["issues"] if i["issue_id"].startswith("DI-20260929")}
     assert set(by_symbol) == {"BSOKE", "FENER"}
     for issue in by_symbol.values():
         assert issue["status"] == "CONFIRMED_PRICE_DISCONTINUITY" and len(issue["file"]["sha256"]) == 64
@@ -82,3 +82,27 @@ def test_exit_exp1_runner_blocked_before_start_on_known_issue_files(tmp_path, ca
 def test_old_outputs_and_inputs_unchanged():
     for rel, digest in OLD_OUTPUTS.items():
         assert hashlib.sha256((BACKEND / rel).read_bytes()).hexdigest() == digest, rel
+
+
+def test_multiple_issues_on_same_file_are_all_reported(tmp_path):
+    f, reg = _registry_for(tmp_path)
+    reg["issues"].append({"issue_id": "T-2", "symbol": "ORNEK", "status": "CONFIRMED_SINGLE_SESSION_VALUE_MISMATCH",
+                          "file": {"sha256": reg["issues"][0]["file"]["sha256"]}})
+    out = check_input_files({"ORNEK": f}, reg)
+    assert out["blocked"][0]["issue_ids"] == ["T-1", "T-2"]
+    assert out["blocked"][0]["reason"] == "CONFIRMED_PRICE_DISCONTINUITY|CONFIRMED_SINGLE_SESSION_VALUE_MISMATCH"
+
+
+def test_new_registry_entries_keep_unknown_origin_and_identity_basis():
+    reg = load_registry()
+    new = {i["issue_id"]: i for i in reg["issues"] if i["issue_id"].startswith("DI-20260930")}
+    assert set(new) == {"DI-20260930-FENER-02", "DI-20260930-BSOKE-02", "DI-20260930-FENER-03"}
+    assert all(i["origin"].startswith("UNKNOWN") for i in new.values())
+    assert {c["symbol"]: c["result"] for c in reg["identity_checks"]} == {"BSOKE": "MATCH", "FENER": "MATCH"}
+
+
+def test_market_wide_entries_limited_to_two_days_and_unknown_origin():
+    mw = [i for i in load_registry()["issues"] if i["issue_id"].startswith("DI-MW-20260930")]
+    assert mw and all(set(i["sessions"]) <= {"2024-09-06", "2025-05-08"} for i in mw)
+    assert all(i["origin"].startswith("UNKNOWN") and i["status"] == "CONFIRMED_MARKET_WIDE_SESSION_MISMATCH" for i in mw)
+    assert len({i["file"]["sha256"] for i in mw}) == len(mw)
