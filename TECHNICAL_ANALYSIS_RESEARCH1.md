@@ -3139,3 +3139,43 @@ market_risk_shadow/runs/early_risk_model_20260928/`. Model yakınsadı.
 - Depo durumu (yeni not): önceki kayıtlardaki "commit edilmedi" ifadeleri tarihsel olarak korunur; bu tarihte
   araştırma kodu, testler, veri sorunu kaydı ve bu günlük YEREL commit'e alındı (push yapılmadı). İndirilmiş
   veri, bültenler, PDF'ler ve runs/ çıktıları depoya eklenmedi.
+
+# BSOKE/FENER teknik yeniden hesaplama pilotu — Kimlik ve kayıt kapanışı (30.09.2026)
+
+- Resmî geçmiş tamamlandı (BSOKE 158/158, FENER 156/156 seans). FENER'de ikinci bir bedelli bulundu
+  (hak kullanımı 17.12.2024, %152,57627, R 6,00 TL; KAP 1365941). Üç olayın resmî rüçhan referans fiyatı formülle eşleşti.
+- Teknik skor, değiştirilmemiş üretim teknik hattı + Technical V2 ağırlıkları + DEFAULT_THRESHOLDS ile, T'ye kadar
+  resmî fiyat görünümünde yeniden hesaplandı: 44/44 seans hesaplandı, 30'unda ham sınıf değişti (BSOKE 15, FENER 15);
+  eski yapay kırılma çevresindeki SAT dizileri yeni hesapta sürmüyor. Tam DecisionEngine kararı değildir.
+- Kimlik: KAP üyesi 878 (OID ...3308c5) BSOKE payının şirketidir; güncel unvan "Batıçim Çimento Sanayi A.Ş."
+  (unvan değişikliği tescili 19.06.2026, KAP 1621195; eski unvan Batısöke Söke Çimento). 1295722/1304771 kâr payı
+  bildirimleri BSOKE (TRABSOKE91F5) payına aittir; BTCIM ayrı üyedir (877). FENER kimliği de eşleşti.
+- Veri sorunu kaydına eklendi (kök neden UNKNOWN, yerel kanıtlar Git'te yok): FENER Aralık 2024 kısmi ölçek
+  penceresi (09.12–16.12.2024, oran 0,430243), BSOKE 06.09.2024 ve FENER 08.05.2025 tek seans değer farkları.
+  Kontrol modülü aynı dosyadaki tüm sorun kimliklerini raporlayacak şekilde düzeltildi.
+- Sınırlar: KAP tarama tamlığı belgelenmedi; RS alanı Yahoo XU100 kaynaklı ve V2 skoruna etkisiz; yeni resmî
+  dosyalar için inceleme onayı yok; sonuçlar 100 sembole genellenmez. Hedefli testler: veri sorunu kaydı 8 +
+  normalize koşucu 11 = 19 geçti. Commit/push yapılmadı.
+
+# 100 sembollük resmî bülten kalite taraması ve piyasa geneli seans uyumsuzluğu (30.09.2026)
+
+- Kapsam: yereldeki 295 resmî bülten (07.05.2024–11.07.2025, kesintisiz); 2024–2025'in tamamı değil. Ağsız tarama.
+- 06.09.2024 (90 sembol) ve 08.05.2025 (92 sembol): Yahoo barı resmî bültenden farklı. Ayrıştırma/eşleme hatası,
+  tarih kayması ve Yahoo düzeltme adımı elendi; alternatif bülten sürümü bulunamadı. Yahoo yüksek/düşük her
+  sembolde resmî aralık içinde, kapanış farklı, hacim çoğunlukla düşük — eksik gün içi kapsamla uyumlu; mekanizma
+  UNKNOWN. 30.09.2026 yeniden alımı aynı değerleri döndürdü (kaynak farkı tekrarlanabilir).
+- Sayım düzeltmesi: 182 tutarsız seansın 180'inde kapanış oranı açılıştan farklı (178, daha sıkı ölçüttü).
+- Kayıt: known_issues.json'a DI-MW-20260930-{SYM} ×95 eklendi; BSOKE-02/FENER-03 bu desenle ilişkilendirildi.
+  Fiyat onarımı yapılmadı; yeni serilere onay verilmedi. Testler: veri kaydı + kalite taraması 16 geçti.
+
+# 100 sembollük resmî ham fiyat paketi ve teknik hazırlık tablosu (30.09.2026)
+
+- Yereldeki 295 resmî bültenden (07.05.2024–11.07.2025) ağsız olarak 100 sembol için ham seans fiyatı dosyaları
+  oluşturuldu (fiyat temeli OFFICIAL_RAW_SESSION_PRICE; eksik gün doldurulmadı, sıfır fiyat işlem fiyatı sayılmadı;
+  kod değişikliği tahminle eşlenmedi). Manifest girdi/çıktı hash'lerini içerir.
+- Veri mevcut: 95 sembol; teknik pencere ön kontrolünü geçen en az bir seans: 92 sembol (tam kapsamda
+  22.11.2024–11.07.2025, 158 seans). READY_FOR_RESEARCH_WITH_LIMITS yalnızca BSOKE ve FENER; 98 sembol NOT_READY.
+- Ortak engeller: kimlik doğrulanmadı 98, kurumsal işlem taraması yapılmadı 98, açıklanmamış özsermaye işareti 63
+  (dönüşüm yok 63), eksik/sıfır seans 7, yetersiz sürekli geçmiş 3, bültende kod yok 5.
+- Paket yatırımcı getirisi/tam lot/emir kanıtı değildir; sorun kayıtları kaldırılmadı, genel onay verilmedi.
+  Testler: test_raw_package 5 geçti.
