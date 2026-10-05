@@ -2177,3 +2177,40 @@ Hedef: dış kaynakların teknik değerlendirmelerini (Güçlü Al…Güçlü Sa
 - Widget gösterimi (yalnızca ekranda gösterim) otomatik karşılaştırma hedefini karşılamaz; alternatif sayılmaz.
 - Tasarım notu: dış etiketler önceden tanımlı eşlemeyle yöne çevrilir (Güçlü Al/Al → yükseliş yönlü, Nötr → yönsüz/nötr teknik değerlendirme, Sat/Güçlü Sat → düşüş yönlü); "Nötr" bir yatay fiyat tahmini değildir. Her kaynak için ayrı sınıf: aynı yön veya iki taraf da nötr → UYUMLU; zıt yön → ÇELİŞKİLİ; yalnızca biri nötr → KISMEN; eksik veya karşılaştırılamayan veride uyum sınıfı üretilmez. Kaynak sayısı ve bağımsızlığı ayrı bilgilerdir.
 - Bu bekleyen özellik genel backend/Flutter yayınını engellemez.
+
+## Kullanıcı Sınır Uyarısı — ilk aşama: elle kontrol (01.10.2026) — YEREL DOĞRULAMA, COMMIT EDİLMEDİ
+
+- Portföy kartına "Kâr/zarar sınırları" eklendi (`lib/features/portfolio/position_limits_sheet.dart`): isteğe bağlı kâr
+  hedefi / zarar sınırı yüzdesi, varsayılan yok; kaydet/değiştir/kaldır; "Sınırları kontrol et". Ekranda otomatik takip
+  ve telefon bildiriminin bu sürümde olmadığı yazıyor.
+- Saklama: projede yerel saklama altyapısı yoktu; `path_provider` (önbellekten, `pub get --offline`) ile cihaz içi,
+  Firebase UID'sine göre ayrı JSON dosyası. Senkronizasyon yok. Sınır, pozisyon sürümüne (lot kimliği + miktar + alış fiyatı + alış tarihi,
+  sıradan bağımsız özet; `GET /portfolio/positions` → `position_version`; 05.10.2026 düzeltmesi) bağlı; sürüm değişirse ayar pasif, yeniden kayıt gerekir.
+- Backend: `POST /portfolio/positions/{asset}/limit-check` (doğrulanmış kullanıcı, salt-okunur, karar/bildirim yok;
+  istemci fiyat/maliyet/doğrulama alanı gönderemez → 422). Değerlendirme `position_review.review` (v2: isteğe bağlı
+  `profit_target_pct`, eşitlik aşım değil). Mevcut `BistProvider` düzeltilmiş yfinance serisi verdiği ve kurumsal işlem
+  kontrolü olmadığı için gerçek veriyle sonuç `DEGERLENDIRILEMEDI / PRICE_BASIS_UNVERIFIED`.
+- Testler: backend 2852 geçti (1 atlandı); Flutter 108 geçti. Gerçek cihaz: NOT RUN.
+- Manuel hesap (05.10.2026): sınır ekranına canlı kontrolden ayrı "Manuel hesap" bölümü eklendi. Kullanıcının girdiği
+  adet, ortalama maliyet, karşılaştırma fiyatı, ortak para birimi ve isteğe bağlı sınırlarla aritmetik; kalıcı
+  kaydedilmez, pozisyonu/kayıtlı sınırları/limit-check sonucunu değiştirmez; girdi değişince sonuç temizlenir. Belirsiz
+  sayılar ("1.547", binlik ayırıcı) reddedilir. Eşitlik aşım değil (6 ondalık karşılaştırma). Testler: portföy Flutter
+  testleri 18 geçti. Gerçek cihaz: NOT RUN.
+
+## Quote yanıtında fiyat türü ve zaman (05.10.2026) — YEREL DOĞRULAMA, COMMIT EDİLMEDİ
+
+- `GET /market-data/{symbol}/quote` geriye uyumlu alanlar aldı: `price_type` (INTRADAY_BAR_CLOSE / DAILY_BAR_CLOSE),
+  `bar_start`, `interval`, `retrieved_at`, `currency`, `exchange`, `identity_check` (MATCH / UNVERIFIED), `fallback_used`,
+  `fallback_reason`, `last_trade_at` (yalnız aynı yanıtta aynı fiyat ve bar aralığıyla doğrulanırsa). `timestamp`
+  anlamı değişmedi (bar başlangıcı). Kimlik aynı fiyat yanıtının meta bilgisinden, ek istek yapılmadan okunur;
+  uyuşmazlıkta quote üretilmez, eksikte varsayılan yazılmaz.
+- Flutter fiyat sekmesi: "Güncelleme ... hafif gecikmeli olabilir" yerine fiyat türü, bar başlangıcı/tarihi, alınma
+  zamanı, kaynak/borsa/para birimi ve "Gecikme süresi doğrulanmadı."; günlük geçiş uyarı olarak gösterilir. Eski
+  backend alanları göndermezse "bilinmiyor". Fiyat hesabı, grafik ve 60 sn yenileme değişmedi.
+- Testler: backend sağlayıcı + ilgili 61, Flutter fiyat/varlık detayı 18 geçti. Gerçek cihaz: NOT RUN.
+- Otomatik fiyat alarmı BEKLEMEDE: Yahoo kullanım koşulları (otomatik toplama) ve belgelenmemiş gecikme çözülmedi.
+- Portföy para birimi (05.10.2026): pozisyon/işlem kaydına nullable `currency` (kayıtlı alış fiyatının birimi; eski
+  kayıt = bilinmiyor), `MarketData`'ya aynı yanıttan `currency/exchange/identity_check`, pozisyon yanıtına
+  `current_price_currency/_exchange/_identity_check`. Portföy, özet, geçmiş, satış, hızlı alım ve sınır ekranlarındaki
+  sabit "TL" kaldırıldı; birim yalnız bilinen/doğrulanmış ve (toplamlarda) ortak ise yazılıyor. TRY/IST varsayılmaz.
+  Testler: backend hedefli 136, Flutter portföy/varlık/model 102 geçti; flutter analyze temiz. Gerçek cihaz: NOT RUN.

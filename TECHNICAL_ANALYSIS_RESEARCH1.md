@@ -3179,3 +3179,53 @@ market_risk_shadow/runs/early_risk_model_20260928/`. Model yakınsadı.
   (dönüşüm yok 63), eksik/sıfır seans 7, yetersiz sürekli geçmiş 3, bültende kod yok 5.
 - Paket yatırımcı getirisi/tam lot/emir kanıtı değildir; sorun kayıtları kaldırılmadı, genel onay verilmedi.
   Testler: test_raw_package 5 geçti.
+
+# 27 sembol — KAP kimlik ve kurumsal işlem taraması (01.10.2026)
+
+- Aday listesi readiness.json'dan sonuçlardan önce üretildi (veri var + bülten döneminde özsermaye işareti yok +
+  değerlendirilebilir seans). KAP yayın aralığı 2023-01-01..2025-07-31, yürürlük kapsamı 2024-05-07..2025-07-11.
+  KAP 429 sınırına uyum için yavaşlatıldı; aşma yapılmadı. Tamlık belgelenmedi; yokluk kanıtı üretilmedi.
+- Kimlik: 27/27 MATCH (dönem içi kendi bildirimleri + kod; TSKB iki aday arasından kod+unvanla çözüldü;
+  BRSAN/MAGEN unvan değişiklikleri dönem dışında).
+- 22 sembol READY_FOR_RESEARCH_WITH_LIMITS (yalnız raw_package_20260930 CSV hash'i ve incelenen aralığa bağlı);
+  5 NOT_READY: BRSAN birleşme, TAVHL birleşme, VESTL bölünme, REEDR bedelsiz kararı (yürürlük tarihi yok),
+  TKFEN temettü tarihi Borsa duyurusuyla doğrulanmadı.
+- Düzeltmeler: raw_package READY yalnız belgelenmiş inceleme pencerelerine bağlandı; KAP sınıflandırması konu
+  tabanlı + Türkçe küçük harf; Borsa 'Hak Kullanımı' öğleden sonra duyurusu sonraki seansa; temettü tablo tarihi.
+  Testler: test_kap_scan_review 12 + test_raw_package 6 geçti.
+
+# 27 sembol inceleme sürüm 2 ve 10 sembol resmî fiyatlı teknik yeniden hesaplama (01.10.2026)
+
+- Sürüm 1 incelemesindeki açıklar giderildi (ağsız, yalnız önbellek): belirsiz olaylar yayın tarihine göre süzülmüyor;
+  temettüde yalnız kesinleşen hak kullanım tarihi (teklif/ödeme/kayıt kullanılmaz); Borsa tarihi yalnız metindeki açık
+  'tarihinden itibaren' ifadesinden; sermaye süreci yalnız listede sermaye başlığıyla doğrulanır; tüm kayıtlı sorgu
+  sonuçları yeniden sınıflandırıldı (340 olay, eksik içerik 0); TSKB'nin OID'siz eski önbelleği geçersiz sayıldı.
+- Uygunluk: sürüm 1'de 22 → sürüm 2'de 10 (ALTNY, ARCLK, KLRHO, MIATK, ODAS, ODINE, OTKAR, PETKM, TTKOM, YKBNK);
+  17 sembol tarihi belirlenemeyen kurumsal işlem nedeniyle NOT_READY.
+- Teknik hesap: 10 sembolde izin verilen 1.574 seansın tamamı hesaplandı (resmî ham fiyat, T'ye kadar, olay dönüşümü
+  yok, V2 ağırlıkları + DEFAULT_THRESHOLDS). Eski Yahoo sonuçlarıyla 1.510 ortak seansta 4 sınıf farkı. Keşifsel;
+  getiri/sinyal başarısı değil. Testler: ilgili hedefli 55 test geçti.
+
+# Eşleştirme kanıtı kontrolü (inceleme sürüm 3) ve resmî verili EXIT-EXP-1 (01.10.2026)
+
+- Sürüm 3 (ağsız, önbellek): OUT_OF_SCOPE_PUBLISHED_AFTER_RANGE kaldırıldı; 120 gün / −60…+365 gün / 10 gün pencereleri
+  eşleşme kanıtı sayılmıyor. Temettü yerine geçme: güncelleme/düzeltme işareti + aynı YK karar tarihi + ISIN + taksit +
+  brüt tutar. Sermaye: süreç anahtarı (karar tarihi, ISIN, bedelsiz oran) + açık başlangıç tarihi + Borsa listesinde aynı
+  oran. Sabah duyurusu: içerik (tutar/oran) listeyle aynı ve listenin açık tarihi yayın günü.
+- Etki: 10 → 9. ARCLK 1115321 (2 taksit) ile 1125721 (peşin, düzeltme) arasında taksit uyuşmuyor → belirsiz, NOT_READY.
+  Diğer 9 sembolün izinli seansları ve ham hash'i sürüm 2 ile aynı.
+- EXIT-EXP-1 (resmî ham bülten, yeniden hesaplanan sınıflar, parametreler değişmedi; runs/exit_exp1_official9_20261001):
+  23 tamamlanmış ortak epizot, 7 veri sonunda açık, 0 değerlendirilemeyen. Keşifsel; holdout değil; genellenmez.
+
+# EXIT-EXP-1 resmî 9 sembol: tamamlanmış + açık epizotların birlikte değerlemesi (01.10.2026, sonradan istenen ek analiz)
+
+- Strateji yeniden çalıştırılmadı; kayıtlı 30 benzersiz epizot (23 tamamlanmış + 7 referans-açık) muhasebeleştirildi
+  (runs/exit_exp1_official9_combined_20261001). Açıklar dört politikada aynı son izinli kapanışta (2025-07-11) değerlendi;
+  kapanış satışı/komisyonu eklenmedi.
+- Ortalama toplam değişim: 23'te REF −4,19 / A −0,56 / B −0,87 / C −1,65; 30'da REF +2,56 / A −0,06 / B −0,30 / C −0,95.
+  Sıralama, açık epizotların (özellikle KLRHO REF +129, gerçekleşmemiş) dahil edilmesiyle tersine döndü. Tek epizoda
+  duyarlı; politika seçimi değildir.
+- Kapanış (01.10.2026): EXIT-EXP-1 keşifsel karşılaştırması tamamlandı. A/B/C'de negatif sonuç oranı daha düşük
+  (23'te %60,9 vs %82,6; 30'da %56,7 vs %70,0), ancak bu örneklemde genel üstünlük kanıtlanmadı. Hedef, zarar sınırı
+  ve azami süre birlikte uygulandı; sonuç yalnız kâr hedefine atfedilemez. Hiçbir politika üretime veya bildirimlere
+  bağlanmadı; ileriye dönük değerlendirme yapılmadı. Araştırma çıktıları ve test kanıtları korunuyor.
