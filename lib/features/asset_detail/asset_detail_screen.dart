@@ -22,6 +22,7 @@ import '../../services/api/market_data_api.dart';
 import '../../services/api/news_analysis_api.dart';
 import '../../services/api/news_api.dart';
 import '../../services/api/portfolio_api.dart';
+import '../../utils/currency_label.dart';
 import '../../utils/decision_engine_version.dart';
 import '../../utils/decision_style.dart';
 import '../../utils/percent_format.dart';
@@ -1895,8 +1896,11 @@ class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
     return '$day.$month.${local.year} $hour:$minute';
   }
 
-  Future<void> _showQuickBuyDialog(BuildContext context, double lastPrice) async {
-    final priceController = TextEditingController(text: lastPrice.toStringAsFixed(2));
+  Future<void> _showQuickBuyDialog(BuildContext context, PriceQuote quote) async {
+    final priceController = TextEditingController(text: quote.lastPrice.toStringAsFixed(2));
+    // Kaydedilen alış fiyatının birimi: yalnız sağlayıcı kimliği doğrulanmış quote'tan (kullanıcı fiyatı değiştirse de
+    // girilen tutarın birimi aynıdır). Doğrulanmamışsa null gönderilir; TRY varsayılmaz.
+    final currency = verifiedQuoteCurrency(quote);
     final quantityController = TextEditingController();
     bool saving = false;
 
@@ -1913,7 +1917,7 @@ class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
                   TextField(
                     controller: priceController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Alış Fiyatı (TL)'),
+                    decoration: InputDecoration(labelText: quickBuyPriceLabel(quote)),
                   ),
                   TextField(
                     controller: quantityController,
@@ -1942,6 +1946,7 @@ class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
                               buyPrice: price,
                               quantity: quantity,
                               buyDate: DateTime.now(),
+                              currency: currency,
                             );
                             if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                           } catch (e) {
@@ -2004,7 +2009,7 @@ class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${quote.lastPrice.toStringAsFixed(2)} TL',
+                        formatQuoteAmount(quote, quote.lastPrice),
                         style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 4),
@@ -2015,14 +2020,10 @@ class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Önceki kapanış: ${quote.previousClose.toStringAsFixed(2)} TL',
+                        'Önceki kapanış: ${formatQuoteAmount(quote, quote.previousClose)}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      Text(
-                        'Güncelleme: ${_fmtTimestamp(quote.timestamp)} '
-                        '(Yahoo Finance, hafif gecikmeli olabilir)',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
-                      ),
+                      QuoteProvenance(quote: quote),
                       if (_autoRefreshFailed)
                         Text(
                           'Otomatik yenileme başarısız; son başarılı veri gösteriliyor.',
@@ -2033,7 +2034,7 @@ class _PriceTabState extends State<_PriceTab> with WidgetsBindingObserver {
                         width: double.infinity,
                         child: FilledButton.icon(
                           style: FilledButton.styleFrom(backgroundColor: Colors.green),
-                          onPressed: () => _showQuickBuyDialog(context, quote.lastPrice),
+                          onPressed: () => _showQuickBuyDialog(context, quote),
                           icon: const Icon(Icons.add_shopping_cart),
                           label: const Text('AL — Portföye Ekle'),
                         ),
@@ -2234,4 +2235,77 @@ class _SparklinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SparklinePainter oldDelegate) =>
       oldDelegate.prices != prices || oldDelegate.color != color;
+}
+
+
+String _fmtLocal(DateTime ts, {bool dateOnly = false}) {
+  final l = ts.toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final date = '${two(l.day)}.${two(l.month)}.${l.year}';
+  return dateOnly ? date : '$date ${two(l.hour)}:${two(l.minute)}';
+}
+
+/// Quote'un doğrulanmış para birimi: yalnız sağlayıcı kimliği MATCH ve currency biliniyorsa; aksi hâlde null.
+String? verifiedQuoteCurrency(PriceQuote q) => q.identityCheck == 'MATCH' ? q.currency : null;
+
+/// Hızlı alım fiyat alanı başlığı: doğrulanmış birim varsa (TRY → TL, diğerleri ISO kodu) parantez içinde.
+String quickBuyPriceLabel(PriceQuote q) {
+  final unit = currencyUnit(verifiedQuoteCurrency(q));
+  return unit == null ? 'Alış Fiyatı' : 'Alış Fiyatı ($unit)';
+}
+
+/// Quote tutarı: "TL" yalnız sağlayıcı kimliği doğrulandıysa (MATCH) ve para birimi TRY ise eklenir.
+/// Doğrulanmamış, eksik veya eski backend yanıtında birim yazılmaz (bkz. provenance bloğu).
+String formatQuoteAmount(PriceQuote q, double value) {
+  final amount = value.toStringAsFixed(2);
+  return q.identityCheck == 'MATCH' && q.currency == 'TRY' ? '$amount TL' : amount;
+}
+
+/// Fiyatın türü ve zamanı: gün içi bar kapanışı / günlük bar kapanışı ayrımı, bar başlangıcı, alınma zamanı,
+/// kaynak kimliği. Eski backend yeni alanları göndermiyorsa "bilinmiyor" yazılır; gecikme süresi iddia edilmez.
+/// (text, uyarı mı)
+List<(String, bool)> quoteProvenanceLines(PriceQuote q) {
+  final lines = <(String, bool)>[];
+  switch (q.priceType) {
+    case 'INTRADAY_BAR_CLOSE':
+      final iv = switch (q.interval) { '5m' => '5 dakikalık ', null => '', final other => '$other ' };
+      lines.add(('Fiyat türü: gün içi ${iv}bar kapanışı', false));
+      lines.add(('Bar başlangıcı: ${_fmtLocal(q.barStart ?? q.timestamp)}', false));
+    case 'DAILY_BAR_CLOSE':
+      lines.add(('Fiyat türü: günlük bar kapanışı', false));
+      lines.add(('Bar tarihi: ${_fmtLocal(q.barStart ?? q.timestamp, dateOnly: true)}', false));
+    default:
+      lines.add(('Fiyat türü: bilinmiyor (backend bu bilgiyi göndermedi)', false));
+      lines.add(('Zaman damgası: ${_fmtLocal(q.timestamp)} (anlamı bilinmiyor)', false));
+  }
+  if (q.fallbackUsed == true) {
+    lines.add(('Gün içi veri alınamadı; günlük bar kapanışı gösteriliyor.', true));
+  }
+  if (q.lastTradeAt != null) {
+    lines.add(('Sağlayıcının bu fiyat için bildirdiği işlem zamanı: ${_fmtLocal(q.lastTradeAt!)}', false));
+  }
+  lines.add(('Alınma zamanı: ${q.retrievedAt == null ? 'bilinmiyor' : _fmtLocal(q.retrievedAt!)}', false));
+  final identity = q.identityCheck == 'MATCH' ? 'doğrulandı' : 'doğrulanmadı';
+  lines.add(('Kaynak: ${q.source} • Borsa: ${q.exchange ?? 'bilinmiyor'} • Para birimi: ${q.currency ?? 'bilinmiyor'} '
+      '(sembol/borsa/para birimi $identity)', q.identityCheck != 'MATCH'));
+  lines.add(('Gecikme süresi doğrulanmadı.', false));
+  return lines;
+}
+
+class QuoteProvenance extends StatelessWidget {
+  final PriceQuote quote;
+
+  const QuoteProvenance({super.key, required this.quote});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (text, warn) in quoteProvenanceLines(quote))
+          Text(text, style: style?.copyWith(color: warn ? Colors.orange : Colors.grey)),
+      ],
+    );
+  }
 }

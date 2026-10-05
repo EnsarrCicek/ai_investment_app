@@ -17,6 +17,9 @@ class _FakeMarketDataApi implements MarketDataApi {
   double nextPrice = 10;
   Object? quoteError;
   Completer<PriceQuote>? heldQuote;
+  // Varsayılan: sağlayıcı kimliği doğrulanmış TRY (fiyat yanında "TL" gösterimi bu koşula bağlı).
+  String? identityCheck = 'MATCH';
+  String? currency = 'TRY';
 
   @override
   Future<PriceQuote> fetchQuote(String symbol) {
@@ -25,7 +28,7 @@ class _FakeMarketDataApi implements MarketDataApi {
     if (held != null) return held.future;
     final error = quoteError;
     if (error != null) return Future.error(error);
-    return Future.value(quoteFor(symbol, nextPrice));
+    return Future.value(quoteFor(symbol, nextPrice, identityCheck: identityCheck, currency: currency));
   }
 
   @override
@@ -40,7 +43,8 @@ class _FakeMarketDataApi implements MarketDataApi {
     return Future.value(const <PriceBar>[]);
   }
 
-  static PriceQuote quoteFor(String symbol, double price) => PriceQuote(
+  static PriceQuote quoteFor(String symbol, double price, {String? identityCheck = 'MATCH', String? currency = 'TRY'}) =>
+      PriceQuote(
         assetId: symbol,
         timestamp: DateTime.utc(2026, 9, 24, 8),
         lastPrice: price,
@@ -52,6 +56,8 @@ class _FakeMarketDataApi implements MarketDataApi {
         low: price,
         volume: 1000,
         source: 'test',
+        identityCheck: identityCheck,
+        currency: currency,
       );
 }
 
@@ -226,5 +232,33 @@ void main() {
     late.complete(_FakeMarketDataApi.quoteFor('GARAN', 1));
     await tester.pump();
     expect(tester.takeException(), isNull);
+  });
+
+  group('fiyat yanında para birimi', () {
+    for (final (label, identity, currency, expected) in [
+      ('MATCH + TRY', 'MATCH', 'TRY', '10.00 TL'),
+      ('UNVERIFIED + TRY', 'UNVERIFIED', 'TRY', '10.00'),
+      ('UNVERIFIED + null', 'UNVERIFIED', null, '10.00'),
+      ('eski backend (alan yok)', null, null, '10.00'),
+    ]) {
+      testWidgets(label, (tester) async {
+        final api = _FakeMarketDataApi()
+          ..identityCheck = identity
+          ..currency = currency;
+        await _open(tester, api);
+        // Ana fiyat satırı (büyük yazı); açılış/yüksek/düşük hücreleri ayrı.
+        final mainPrice = find.byWidgetPredicate((w) => w is Text && w.style?.fontSize == 32);
+        expect(tester.widget<Text>(mainPrice).data, expected);
+        if (!expected.endsWith('TL')) {
+          expect(find.text('10.00 TL'), findsNothing);
+          expect(find.text('Önceki kapanış: 10.00'), findsOneWidget);
+          expect(find.textContaining('Para birimi: ${currency ?? 'bilinmiyor'}'), findsOneWidget);
+          expect(find.textContaining('doğrulanmadı)'), findsOneWidget);
+        } else {
+          expect(find.text('Önceki kapanış: 10.00 TL'), findsOneWidget);
+        }
+        await _close(tester);
+      });
+    }
   });
 }

@@ -1,7 +1,7 @@
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.core.firebase import get_firestore_client
-from app.models.portfolio_position import PortfolioPosition
+from app.models.portfolio_position import PortfolioPosition, merged_currency
 
 COLLECTION = "portfolio_positions"
 
@@ -53,6 +53,7 @@ class PortfolioRepository:
             buy_date=min(lot.buy_date for lot in lots),
             quantity=quantity,
             created_at=max(lot.created_at for lot in lots),
+            currency=merged_currency(lots),
         )
 
     def delete_for_asset(self, user_id: str, asset: str) -> None:

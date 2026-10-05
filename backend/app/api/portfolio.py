@@ -3,11 +3,19 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import get_current_user_id
-from app.models.portfolio_position import PortfolioPosition
+from app.models.portfolio_position import PortfolioPosition, merged_currency
 from app.models.portfolio_transaction import PortfolioTransaction
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.repositories.portfolio_transaction_repository import PortfolioTransactionRepository
-from app.schemas.portfolio import PortfolioPositionClose, PortfolioPositionCreate, PortfolioPositionUpdate
+from app.schemas.portfolio import (
+    PortfolioPositionClose,
+    PortfolioPositionCreate,
+    PortfolioPositionUpdate,
+    PositionLimitCheckRequest,
+)
+from app.services.market_data.bist_provider import BistProvider
+from app.services.portfolio import position_review
+from app.services.portfolio.limit_check import check_limits, position_version
 from app.services.portfolio.pnl_calculator import calculate_pnl, calculate_realized_pnl
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
@@ -27,14 +35,18 @@ def list_positions(user_id: str = Depends(get_current_user_id)):
     records = PortfolioRepository().list_for_user(user_id)
 
     lots_by_asset: dict[str, list[PortfolioPosition]] = {}
-    for _, position in records:
+    records_by_asset: dict[str, list[tuple[str, PortfolioPosition]]] = {}
+    for lot_id, position in records:
         lots_by_asset.setdefault(position.asset, []).append(position)
+        records_by_asset.setdefault(position.asset, []).append((lot_id, position))
 
     results = []
     total_invested = 0.0
     total_current = 0.0
     for asset in sorted(lots_by_asset):
         lots = lots_by_asset[asset]
+        version = position_version(records_by_asset[asset])
+        currency = merged_currency(lots)  # kayıtlı alış fiyatının birimi; güncel fiyatınkiyle karıştırılmaz
         quantity = sum(lot.quantity for lot in lots)
         avg_buy_price = round(sum(lot.quantity * lot.buy_price for lot in lots) / quantity, 2)
         merged = PortfolioPosition(
@@ -44,18 +56,21 @@ def list_positions(user_id: str = Depends(get_current_user_id)):
             buy_date=lots[0].buy_date,
             quantity=quantity,
             created_at=datetime.now(timezone.utc),
+            currency=currency,
         )
         try:
             pnl = calculate_pnl(merged)
         except ValueError as exc:
             results.append(
-                {"asset": asset, "quantity": quantity, "buy_price": avg_buy_price, "lot_count": len(lots), "error": str(exc)}
+                {"asset": asset, "quantity": quantity, "buy_price": avg_buy_price, "lot_count": len(lots),
+                 "position_version": version, "currency": currency, "error": str(exc)}
             )
             continue
         total_invested += pnl["invested_amount"]
         total_current += pnl["current_value"]
         results.append(
-            {"asset": asset, "quantity": quantity, "buy_price": avg_buy_price, "lot_count": len(lots), **pnl}
+            {"asset": asset, "quantity": quantity, "buy_price": avg_buy_price, "lot_count": len(lots),
+             "position_version": version, "currency": currency, **pnl}
         )
 
     total_pnl = round(total_current - total_invested, 2)
@@ -72,12 +87,28 @@ def list_positions(user_id: str = Depends(get_current_user_id)):
     }
 
 
+@router.post("/positions/{asset}/limit-check")
+def limit_check(asset: str, payload: PositionLimitCheckRequest, user_id: str = Depends(get_current_user_id)):
+    """Kullanıcı tanımlı kâr/zarar sınırının ELLE kontrolü — salt-okunur. Karar motoru çağrılmaz, bildirim
+    gönderilmez, hiçbir kayıt yazılmaz (bkz. `app/services/portfolio/limit_check.py`)."""
+    limits = {"profit_target_pct": payload.profit_target_pct, "max_loss_pct": payload.max_loss_pct}
+    try:
+        return check_limits(user_id, asset, payload.position_version, limits, PortfolioRepository(), BistProvider())
+    except position_review.InputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.put("/positions/{asset}")
 def update_position(asset: str, payload: PortfolioPositionUpdate, user_id: str = Depends(get_current_user_id)):
-    position = PortfolioPosition(
-        user_id=user_id, asset=asset, **payload.model_dump(), created_at=datetime.now(timezone.utc)
-    )
-    position_id = PortfolioRepository().replace_for_asset(user_id, asset, position)
+    repo = PortfolioRepository()
+    data = payload.model_dump()
+    # `currency` istekte HİÇ yoksa mevcut (birleşik) kayıtlı birim korunur; açıkça gönderildiyse (null dahil)
+    # istek niyeti uygulanır. Hiçbir birim varsayılmaz.
+    if "currency" not in payload.model_fields_set:
+        existing = repo.get_position_for_asset(user_id, asset)
+        data["currency"] = existing.currency if existing is not None else None
+    position = PortfolioPosition(user_id=user_id, asset=asset, **data, created_at=datetime.now(timezone.utc))
+    position_id = repo.replace_for_asset(user_id, asset, position)
     return {"id": position_id, **position.model_dump()}
 
 
@@ -112,6 +143,7 @@ def close_position(asset: str, payload: PortfolioPositionClose, user_id: str = D
         realized_pnl=pnl["realized_pnl"],
         realized_pnl_percent=pnl["realized_pnl_percent"],
         created_at=now,
+        currency=position.currency,
     )
     PortfolioTransactionRepository().add(transaction)
     portfolio_repo.delete_for_asset(user_id, asset)

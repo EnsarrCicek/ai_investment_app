@@ -1,11 +1,39 @@
 from app.models.portfolio_position import PortfolioPosition
 from app.services.market_data.base import MarketDataProvider
+from app.models.market_data import MarketData
 from app.services.market_data.bist_provider import BistProvider
+from app.services.portfolio.position_review import RAW_BASIS
 
 
-def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | None = None) -> dict:
+def pnl_verification(position_currency: str | None, latest: MarketData,
+                     corporate_actions_verified: bool = False) -> tuple[bool, str | None]:
+    """(pnl_basis_verified, pnl_unverified_reason).
+
+    True = maliyet ve değerleme fiyatı aynı güvenilir fiyat temelinde karşılaştırılabilir ve gerekli kurumsal işlem
+    etkileri doğrulanmıştır. False = sayısal hesap yapılmış olabilir ama yatırım sonucu olarak doğrulanmış değildir.
+    İlk sağlanmayan koşul gerekçe olarak döner (deterministik sıra). Üretimde kurumsal işlem doğrulaması YOK."""
+    if latest.identity_check != "MATCH":
+        return False, "PRICE_IDENTITY_UNVERIFIED"
+    if position_currency is None:
+        return False, "POSITION_CURRENCY_UNKNOWN"
+    if latest.currency is None:
+        return False, "PRICE_CURRENCY_UNKNOWN"
+    if position_currency != latest.currency:
+        return False, "CURRENCY_MISMATCH"
+    if latest.price_basis != RAW_BASIS:
+        return False, "PRICE_BASIS_UNVERIFIED"
+    if not corporate_actions_verified:
+        return False, "CORPORATE_ACTIONS_UNVERIFIED"
+    return True, None
+
+
+def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | None = None,
+                  corporate_actions_verified: bool = False) -> dict:
+    """Hesap formülleri değişmedi. `corporate_actions_verified` yalnız doğrulanmış bir kaynak bağlandığında True
+    olabilir; bugün hiçbir üretim çağıranı bunu vermiyor."""
     provider = provider or BistProvider()
-    current_price = provider.get_latest(position.asset).close
+    latest = provider.get_latest(position.asset)
+    current_price = latest.close
 
     invested_amount = round(position.quantity * position.buy_price, 2)
     current_value = round(position.quantity * current_price, 2)
@@ -18,6 +46,13 @@ def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | No
         "current_value": current_value,
         "profit_loss": profit_loss,
         "return_percent": return_percent,
+        # Güncel fiyatın kaynağı (aynı sağlayıcı yanıtı); kayıtlı pozisyon para birimiyle KARIŞTIRILMAZ.
+        "current_price_currency": latest.currency,
+        "current_price_exchange": latest.exchange,
+        "current_price_identity_check": latest.identity_check,
+        "current_price_basis": latest.price_basis,
+        **dict(zip(("pnl_basis_verified", "pnl_unverified_reason"),
+                   pnl_verification(position.currency, latest, corporate_actions_verified))),
     }
 
 

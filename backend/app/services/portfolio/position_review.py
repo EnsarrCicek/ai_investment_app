@@ -17,7 +17,9 @@ Girdiler (hepsi açık):
   * evaluated_at     : saat dilimli değerlendirme zamanı.
   * corporate_action_checks (isteğe bağlı): {symbol: {checked_from, checked_through,
                        split_or_bonus_dates: [...], source?}}
-  * limits (isteğe bağlı): {max_loss_pct, max_weight_pct}
+  * limits (isteğe bağlı): {max_loss_pct, max_weight_pct, profit_target_pct}
+      - profit_target_pct (v2): maliyete göre fiyat bazlı kazanç yüzdesi bu değeri AŞARSA SINIR_ASILDI;
+        eşitlik aşım değildir (zarar sınırıyla aynı sözleşme). (0, 1000] aralığında.
 
 Fiyat–pozisyon uyumu:
   Alış fiyatı kullanıcının girdiği işlem fiyatıdır; lot/maliyet bölünme veya bedelsiz
@@ -65,7 +67,7 @@ from app.models.portfolio_position import PortfolioPosition
 from app.services.market_data.completed_bars import DAILY_BAR_FINALIZATION_DELAY_MINUTES, latest_expected_completed_date
 from app.services.market_data.trading_calendar import expected_trading_sessions
 
-REVIEW_VERSION = "position-review-v1"
+REVIEW_VERSION = "position-review-v2"  # v2: isteğe bağlı profit_target_pct
 MEASURE_DECIMALS = 6
 CALENDAR_LOOKBACK_DAYS = 20
 RAW_BASIS = "RAW_UNADJUSTED"
@@ -244,14 +246,17 @@ def _limit(value: float | None, limit: float | None) -> str:
     return LIMIT_EXCEEDED if value > limit else LIMIT_WITHIN
 
 
+LIMIT_MAX = {"max_loss_pct": 100, "max_weight_pct": 100, "profit_target_pct": 1000}
+
+
 def _parse_limits(raw: dict | None) -> dict:
-    out = {"max_loss_pct": None, "max_weight_pct": None}
+    out = {"max_loss_pct": None, "max_weight_pct": None, "profit_target_pct": None}
     for key in out:
         value = (raw or {}).get(key)
         if value is None:
             continue
-        if not _finite_positive(value) or value > 100:
-            raise InputError(f"{key} (0, 100] aralığında sonlu bir sayı olmalı: {value!r}")
+        if not _finite_positive(value) or value > LIMIT_MAX[key]:
+            raise InputError(f"{key} (0, {LIMIT_MAX[key]}] aralığında sonlu bir sayı olmalı: {value!r}")
         out[key] = float(value)
     return out
 
@@ -352,6 +357,8 @@ def review(payload: dict) -> dict:
                              "status": _limit(loss, limits["max_loss_pct"])},
             "max_weight_pct": {"limit": limits["max_weight_pct"], "weight_pct": r["weight_in_open_stock_positions_pct"],
                                "status": _limit(r["weight_in_open_stock_positions_pct"], limits["max_weight_pct"])},
+            "profit_target_pct": {"limit": limits["profit_target_pct"], "gain_pct_vs_cost": r["unrealized_pnl_pct"],
+                                  "status": _limit(r["unrealized_pnl_pct"], limits["profit_target_pct"])},
         }
     report["positions"] = positions
     report["open_stock_concentration"] = concentration

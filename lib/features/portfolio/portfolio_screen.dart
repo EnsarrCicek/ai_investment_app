@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../widgets/gradient_app_bar.dart';
@@ -5,7 +6,10 @@ import '../../widgets/gradient_app_bar.dart';
 import '../../models/portfolio_position.dart';
 import '../../services/api/asset_api.dart';
 import '../../services/api/portfolio_api.dart';
+import '../../services/position_limit_store.dart';
+import '../../utils/currency_label.dart';
 import 'portfolio_history_screen.dart';
+import 'position_limits_sheet.dart';
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -16,6 +20,7 @@ class PortfolioScreen extends StatefulWidget {
 
 class _PortfolioScreenState extends State<PortfolioScreen> {
   final _api = PortfolioApi();
+  final _limitStore = PositionLimitStore();
   late Future<(List<PortfolioPosition>, PortfolioSummary)> _future;
   List<String> _availableSymbols = [];
 
@@ -81,7 +86,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 controller: priceController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
-                  labelText: isEdit ? 'Ort. Alış Fiyatı (TL)' : 'Alış Fiyatı (TL)',
+                  // Elle eklenen pozisyonda birim kaydedilmez (TRY varsayılmaz); düzenlemede kayıtlı birim korunur.
+                  labelText: isEdit ? _labelWithUnit('Ort. Alış Fiyatı', existing.buyPriceUnit) : 'Alış Fiyatı',
                 ),
               ),
               TextField(
@@ -107,6 +113,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     buyPrice: price,
                     quantity: quantity,
                     buyDate: DateTime.now(),
+                    currency: existing.currency,
                   );
                 } else {
                   await _api.createPosition(
@@ -128,6 +135,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     if (saved == true) _reload();
   }
 
+  Future<void> _showLimitsSheet(PortfolioPosition position) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => PositionLimitsSheet(
+        position: position,
+        uid: FirebaseAuth.instance.currentUser?.uid,
+        store: _limitStore,
+        check: _api.checkLimits,
+      ),
+    );
+  }
+
   Future<void> _showClosePositionDialog(PortfolioPosition position) async {
     final priceController = TextEditingController(text: position.currentPrice?.toStringAsFixed(2));
     bool saving = false;
@@ -143,12 +163,13 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${position.quantity.toStringAsFixed(0)} adet, ort. alış ${position.buyPrice.toStringAsFixed(2)} TL'),
+                  Text('${position.quantity.toStringAsFixed(0)} adet, ort. alış '
+                      '${withUnit(position.buyPrice.toStringAsFixed(2), position.buyPriceUnit)}'),
                   const SizedBox(height: 12),
                   TextField(
                     controller: priceController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Satış Fiyatı (TL)'),
+                    decoration: InputDecoration(labelText: _labelWithUnit('Satış Fiyatı', position.buyPriceUnit)),
                     autofocus: true,
                   ),
                 ],
@@ -239,7 +260,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
           return Column(
             children: [
-              _SummaryCard(summary: summary),
+              PortfolioSummaryCard(summary: summary, positions: positions),
               Expanded(
                 child: ListView.separated(
                   padding: const EdgeInsets.all(12),
@@ -247,10 +268,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final p = positions[index];
-                    return _PositionTile(
+                    return PortfolioPositionTile(
                       position: p,
                       onEdit: () => _showPositionDialog(existing: p),
                       onClose: () => _showClosePositionDialog(p),
+                      onLimits: () => _showLimitsSheet(p),
                     );
                   },
                 ),
@@ -263,14 +285,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
+/// Özet: toplamın birimi yalnız toplamı oluşturan tüm pozisyonlarda bilinen ve aynı ise gösterilir
+/// (bkz. `summaryUnits`); karışık/bilinmeyen birimde yalnız sayı.
+class PortfolioSummaryCard extends StatelessWidget {
   final PortfolioSummary summary;
+  final List<PortfolioPosition> positions;
 
-  const _SummaryCard({required this.summary});
+  const PortfolioSummaryCard({super.key, required this.summary, required this.positions});
 
   @override
   Widget build(BuildContext context) {
     final color = summary.totalProfitLoss >= 0 ? Colors.green : Colors.red;
+    final units = summaryUnits(positions);
+    final pnlVerified = summaryPnlVerified(positions);
     return Card(
       margin: const EdgeInsets.all(12),
       child: Padding(
@@ -281,21 +308,24 @@ class _SummaryCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Toplam Yatırım: ${summary.totalInvested.toStringAsFixed(0)} TL'),
-                Text('Güncel Değer: ${summary.totalCurrentValue.toStringAsFixed(0)} TL'),
+                Text('Toplam Yatırım: ${withUnit(summary.totalInvested.toStringAsFixed(0), units.invested)}'),
+                Text('Güncel Değer: ${withUnit(summary.totalCurrentValue.toStringAsFixed(0), units.current)}'),
               ],
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  '${summary.totalProfitLoss >= 0 ? '+' : ''}${summary.totalProfitLoss.toStringAsFixed(0)} TL',
-                  style: TextStyle(color: color, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '%${summary.totalReturnPercent.toStringAsFixed(1)}',
-                  style: TextStyle(color: color),
-                ),
+                if (pnlVerified) ...[
+                  Text(
+                    '${summary.totalProfitLoss >= 0 ? '+' : ''}${withUnit(summary.totalProfitLoss.toStringAsFixed(0), units.pnl)}',
+                    style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '%${summary.totalReturnPercent.toStringAsFixed(1)}',
+                    style: TextStyle(color: color),
+                  ),
+                ] else
+                  const Text(pnlUnverifiedTotalText, style: TextStyle(fontWeight: FontWeight.bold)),
               ],
             ),
           ],
@@ -305,12 +335,14 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _PositionTile extends StatelessWidget {
+class PortfolioPositionTile extends StatelessWidget {
   final PortfolioPosition position;
   final VoidCallback onEdit;
   final VoidCallback onClose;
+  final VoidCallback onLimits;
 
-  const _PositionTile({required this.position, required this.onEdit, required this.onClose});
+  const PortfolioPositionTile(
+      {super.key, required this.position, required this.onEdit, required this.onClose, required this.onLimits});
 
   @override
   Widget build(BuildContext context) {
@@ -325,17 +357,33 @@ class _PositionTile extends StatelessWidget {
         ),
         subtitle: position.error != null
             ? Text('Veri alınamadı: ${position.error}')
-            : Text(
-                'Ort. Alış: ${position.buyPrice.toStringAsFixed(2)} TL   Güncel: ${position.currentPrice?.toStringAsFixed(2) ?? '-'} TL',
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Ort. Alış: ${withUnit(position.buyPrice.toStringAsFixed(2), position.buyPriceUnit)}   '
+                    'Güncel: ${position.currentPrice == null ? '-' : withUnit(position.currentPrice!.toStringAsFixed(2), position.currentPriceUnit)}',
+                  ),
+                  if (pnl != null && !position.pnlVerified) ...[
+                    const Text(pnlUnverifiedText),
+                    Text(pnlUnverifiedNote, style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ],
               ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (pnl != null)
+            if (pnl != null && position.pnlVerified)
               Text(
-                '${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(0)} TL',
+                '${pnl >= 0 ? '+' : ''}${withUnit(pnl.toStringAsFixed(0), position.pnlUnit)}',
                 style: TextStyle(color: color, fontWeight: FontWeight.bold),
               ),
+            IconButton(
+              icon: const Icon(Icons.rule),
+              tooltip: 'Kâr/zarar sınırları',
+              onPressed: onLimits,
+            ),
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               onPressed: onEdit,
@@ -351,3 +399,9 @@ class _PositionTile extends StatelessWidget {
     );
   }
 }
+
+String _labelWithUnit(String label, String? unit) => unit == null ? label : '$label ($unit)';
+
+const pnlUnverifiedText = 'Kâr/Zarar: Doğrulanmadı';
+const pnlUnverifiedTotalText = 'Toplam Kâr/Zarar: Doğrulanmadı';
+const pnlUnverifiedNote = 'Fiyat temeli ve kurumsal işlem etkileri doğrulanmadı.';

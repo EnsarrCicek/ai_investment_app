@@ -23,3 +23,5 @@ class PortfolioTransaction(BaseModel):
     realized_pnl_percent: float
     created_at: datetime
     immutable: bool = True
+    # Pozisyonun kayıtlı para birimi taşınır; pozisyonda yoksa None (eski işlemler de None). TRY varsayılmaz.
+    currency: str | None = None

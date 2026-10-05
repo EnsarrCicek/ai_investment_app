@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../widgets/gradient_app_bar.dart';
 
+import '../../models/portfolio_position.dart';
 import '../../models/portfolio_transaction.dart';
 import '../../services/api/portfolio_api.dart';
+import '../../utils/currency_label.dart';
 
 class PortfolioHistoryScreen extends StatefulWidget {
   const PortfolioHistoryScreen({super.key});
@@ -13,7 +15,7 @@ class PortfolioHistoryScreen extends StatefulWidget {
 }
 
 class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
-  late Future<(PortfolioHistorySummary, double)> _future;
+  late Future<(PortfolioHistorySummary, double, List<PortfolioPosition>?)> _future;
 
   @override
   void initState() {
@@ -21,17 +23,20 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
     _future = _load();
   }
 
-  Future<(PortfolioHistorySummary, double)> _load() async {
+  /// Açık pozisyonlar alınamazsa liste null döner: açık K/Z bilinmiyor (0 sayılmaz, doğrulanmamış gösterilir).
+  Future<(PortfolioHistorySummary, double, List<PortfolioPosition>?)> _load() async {
     final api = PortfolioApi();
     final history = await api.fetchHistory();
     var unrealized = 0.0;
+    List<PortfolioPosition>? positions;
     try {
-      final (_, summary) = await api.fetchPositions();
+      final (list, summary) = await api.fetchPositions();
       unrealized = summary.totalProfitLoss;
+      positions = list;
     } catch (_) {
-      // Açık pozisyon yok/alınamadı — toplam yalnızca gerçekleşen K/Z'yi yansıtır.
+      positions = null;
     }
-    return (history, unrealized);
+    return (history, unrealized, positions);
   }
 
   Future<void> _refresh() async {
@@ -45,7 +50,7 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
       appBar: GradientAppBar(title: const Text('Portföy Geçmişi')),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: FutureBuilder<(PortfolioHistorySummary, double)>(
+        child: FutureBuilder<(PortfolioHistorySummary, double, List<PortfolioPosition>?)>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
@@ -57,8 +62,11 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
                 children: [Center(child: Text('Hata: ${snapshot.error}'))],
               );
             }
-            final (history, unrealized) = snapshot.data!;
+            final (history, unrealized, positions) = snapshot.data!;
             final total = history.totalRealizedPnl + unrealized;
+            final units = historyUnits(history.transactions, positions ?? const []);
+            // Gerçekleşen K/Z kullanıcının kayıtlı alış/satış fiyatlarından; açık K/Z piyasa fiyatına dayanır.
+            final openVerified = openPnlVerified(positions);
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -70,11 +78,26 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _SummaryRow(label: 'Gerçekleşen K/Z (satılanlar)', value: history.totalRealizedPnl),
+                        _SummaryRow(
+                          label: 'Gerçekleşen K/Z (satılanlar)',
+                          value: history.totalRealizedPnl,
+                          unit: units.realized,
+                        ),
                         const SizedBox(height: 4),
-                        _SummaryRow(label: 'Açık Pozisyon K/Z (elde tutulanlar)', value: unrealized),
+                        _SummaryRow(
+                          label: 'Açık Pozisyon K/Z (elde tutulanlar)',
+                          value: unrealized,
+                          unit: units.unrealized,
+                          unverified: !openVerified,
+                        ),
                         const Divider(height: 20),
-                        _SummaryRow(label: 'Toplam K/Z (geçmişten bugüne)', value: total, big: true),
+                        _SummaryRow(
+                          label: 'Toplam K/Z (geçmişten bugüne)',
+                          value: total,
+                          unit: units.total,
+                          big: true,
+                          unverified: !openVerified,
+                        ),
                       ],
                     ),
                   ),
@@ -102,8 +125,10 @@ class _SummaryRow extends StatelessWidget {
   final String label;
   final double value;
   final bool big;
+  final String? unit;
+  final bool unverified;
 
-  const _SummaryRow({required this.label, required this.value, this.big = false});
+  const _SummaryRow({required this.label, required this.value, this.unit, this.big = false, this.unverified = false});
 
   @override
   Widget build(BuildContext context) {
@@ -112,14 +137,16 @@ class _SummaryRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: big ? const TextStyle(fontWeight: FontWeight.bold) : null),
-        Text(
-          '${value >= 0 ? '+' : ''}${value.toStringAsFixed(0)} TL',
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: big ? 18 : 14,
+        if (unverified)
+          Text(
+            'Doğrulanmadı',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: big ? 18 : 14),
+          )
+        else
+          Text(
+            '${value >= 0 ? '+' : ''}${withUnit(value.toStringAsFixed(0), unit)}',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: big ? 18 : 14),
           ),
-        ),
       ],
     );
   }
@@ -143,6 +170,8 @@ class _TransactionCard extends StatelessWidget {
     final color = isProfit ? Colors.green : Colors.red;
     final direction = isProfit ? 'yükseldi' : 'düştü';
     final result = isProfit ? 'kâr edildi' : 'zarar edildi';
+    final unit = currencyUnit(t.currency);
+    String amount(double v) => withUnit(v.toStringAsFixed(2), unit);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -163,7 +192,7 @@ class _TransactionCard extends StatelessWidget {
                 Text(t.asset, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const Spacer(),
                 Text(
-                  '${t.realizedPnl >= 0 ? '+' : ''}${t.realizedPnl.toStringAsFixed(0)} TL '
+                  '${t.realizedPnl >= 0 ? '+' : ''}${withUnit(t.realizedPnl.toStringAsFixed(0), unit)} '
                   '(${t.realizedPnlPercent >= 0 ? '+' : ''}${t.realizedPnlPercent.toStringAsFixed(1)}%)',
                   style: TextStyle(color: color, fontWeight: FontWeight.bold),
                 ),
@@ -171,8 +200,8 @@ class _TransactionCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${_fmtDate(t.buyDate)}\'de ${t.buyPrice.toStringAsFixed(2)} TL\'den ${t.quantity.toStringAsFixed(0)} adet alındı, '
-              '${_fmtDate(t.sellDate)}\'de ${t.sellPrice.toStringAsFixed(2)} TL\'den satıldı. '
+              '${_fmtDate(t.buyDate)} tarihinde ${amount(t.buyPrice)} fiyatla ${t.quantity.toStringAsFixed(0)} adet alındı, '
+              '${_fmtDate(t.sellDate)} tarihinde ${amount(t.sellPrice)} fiyatla satıldı. '
               'Fiyat %${t.realizedPnlPercent.abs().toStringAsFixed(1)} $direction, $result.',
               style: const TextStyle(fontSize: 13),
             ),
@@ -182,3 +211,28 @@ class _TransactionCard extends StatelessWidget {
     );
   }
 }
+
+/// Geçmiş özetinin birimleri: gerçekleşen = tüm işlemlerin ortak birimi; açık = portföy özetiyle aynı kural;
+/// toplam = iki tarafın (var olanların) ortak birimi. Bilinmeyen/karışıkta null (birim yazılmaz).
+({String? realized, String? unrealized, String? total}) historyUnits(
+  List<PortfolioTransaction> transactions,
+  List<PortfolioPosition> positions,
+) {
+  final realized = transactions.isEmpty ? null : commonUnit(transactions.map((t) => currencyUnit(t.currency)));
+  final hasOpen = positions.any((p) => p.error == null);
+  final unrealized = hasOpen ? summaryUnits(positions).pnl : null;
+  final String? total;
+  if (transactions.isEmpty) {
+    total = unrealized;
+  } else if (!hasOpen) {
+    total = realized;
+  } else {
+    total = realized != null && realized == unrealized ? realized : null;
+  }
+  return (realized: realized, unrealized: unrealized, total: total);
+}
+
+/// Açık pozisyon K/Z'si doğrulanmış mı: pozisyonlar alınamadıysa (null) hayır; açık pozisyon yoksa (boş liste) değer
+/// gerçekten 0'dır; varsa tümü doğrulanmış olmalı (bkz. `summaryPnlVerified`).
+bool openPnlVerified(List<PortfolioPosition>? positions) =>
+    positions != null && (positions.isEmpty || summaryPnlVerified(positions));

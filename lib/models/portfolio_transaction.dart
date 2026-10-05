@@ -8,6 +8,9 @@ class PortfolioTransaction {
   final double realizedPnl;
   final double realizedPnlPercent;
 
+  /// Pozisyonun kayıtlı para birimi; eski işlemlerde null = bilinmiyor.
+  final String? currency;
+
   PortfolioTransaction({
     required this.asset,
     required this.quantity,
@@ -17,6 +20,7 @@ class PortfolioTransaction {
     required this.sellDate,
     required this.realizedPnl,
     required this.realizedPnlPercent,
+    this.currency,
   });
 
   factory PortfolioTransaction.fromJson(Map<String, dynamic> json) {
@@ -29,6 +33,7 @@ class PortfolioTransaction {
       sellDate: DateTime.parse(json['sell_date'] as String),
       realizedPnl: (json['realized_pnl'] as num).toDouble(),
       realizedPnlPercent: (json['realized_pnl_percent'] as num).toDouble(),
+      currency: json['currency'] as String?,
     );
   }
 }
