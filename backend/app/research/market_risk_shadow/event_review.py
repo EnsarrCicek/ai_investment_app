@@ -79,7 +79,8 @@ def _upto(df, session: date):
     return df[[ts.date() <= session for ts in df.index]]
 
 
-def default_technical(asset_df: pd.DataFrame, index_close_by_date: pd.Series, session: date, symbol: str) -> dict:
+def default_technical(asset_df: pd.DataFrame, index_close_by_date: pd.Series, session: date, symbol: str,
+                      include_components: bool = False) -> dict:
     """Üretim teknik hattı, T anına göre. Girdi zaten T'ye kadar kesilmiştir."""
     from app.engines.technical.data_quality import check_data_quality, check_raw_ohlcv_integrity, check_trading_day_continuity
     from app.engines.technical.engine import MIN_HISTORY_DAYS, compute_technical_analysis
@@ -102,7 +103,11 @@ def default_technical(asset_df: pd.DataFrame, index_close_by_date: pd.Series, se
         )
     except Exception as exc:  # noqa: BLE001 — teknik kanal bu T için yok; uydurulmaz
         return {"status": "TECHNICAL_UNAVAILABLE", "reason": f"{type(exc).__name__}: {str(exc)[:160]}"}
-    return {"status": "OK", "technical_score": analysis.technical_score}
+    out = {"status": "OK", "technical_score": analysis.technical_score}
+    if include_components:  # yalnızca ek alan; skor hesabı aynı
+        out |= {"components": analysis.components, "family_scores": analysis.family_scores,
+                "evidence_coverage": analysis.evidence_coverage, "confidence": analysis.confidence}
+    return out
 
 
 def frozen_v2_scoring():

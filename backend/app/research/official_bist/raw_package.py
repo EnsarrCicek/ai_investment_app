@@ -92,7 +92,13 @@ def evaluable_sessions(rows: list[dict]) -> list[str]:
     return out
 
 
-def readiness(symbol: str, rows: list[dict], identity: dict | None, explained: set, events: list) -> dict:
+# Teknik kullanımı belgelenmiş olarak incelenen seans aralıkları (yalnızca bunlar READY olabilir).
+# Kaynak: official_bist/runs/history_extension_20260929 (required_history.json "evaluation", technical_recompute.json).
+REVIEWED_WINDOWS = {"BSOKE": [("2024-11-22", "2024-12-20")], "FENER": [("2025-06-11", "2025-07-11")]}
+
+
+def readiness(symbol: str, rows: list[dict], identity: dict | None, explained: set, events: list,
+              reviewed_windows: list[tuple[str, str]] | None = None) -> dict:
     counts = Counter(r["status"] for r in rows)
     flags = [r["trade_date"] for r in rows if r["corporate_action_flag"]]
     evaluable = evaluable_sessions(rows) if counts["OK"] else []
@@ -114,6 +120,10 @@ def readiness(symbol: str, rows: list[dict], identity: dict | None, explained: s
         blockers.append("CORPORATE_ACTION_SCAN_NOT_DONE")
     hard = {"NO_OFFICIAL_ROWS_FOR_CODE", "INSUFFICIENT_CONTINUOUS_HISTORY", "IDENTITY_NOT_VERIFIED",
             "UNEXPLAINED_CORPORATE_ACTION_FLAGS", "RESEARCH_TRANSFORMATION_NOT_AVAILABLE", "CORPORATE_ACTION_SCAN_NOT_DONE"}
+    ready_sessions = [d for d in evaluable if any(a <= d <= b for a, b in (reviewed_windows or []))]
+    if not (hard & set(blockers)) and not ready_sessions:
+        blockers.append("REVIEW_SCOPE_NOT_DEFINED")  # READY hiçbir zaman incelenmemiş seanslara yayılmaz
+        hard.add("REVIEW_SCOPE_NOT_DEFINED")
     status = "NOT_READY" if hard & set(blockers) else "READY_FOR_RESEARCH_WITH_LIMITS"
     return {"symbol": symbol, "raw_coverage": {k: counts.get(k, 0) for k in ("OK", "MISSING", "ZERO_PRICE", "INVALID", "PARSE_ERROR")},
             "first_ok": next((r["trade_date"] for r in rows if r["status"] == "OK"), None),
@@ -126,6 +136,7 @@ def readiness(symbol: str, rows: list[dict], identity: dict | None, explained: s
             "identity": identity["result"] if identity else "CODE_MATCH_ONLY_NOT_VERIFIED",
             "research_transformation": [f"{e.rights_start} n2={e.n2} R={e.subscription_price}" for e in events] or None,
             "technical_use_reviewed": bool(identity and identity.get("result") == "MATCH" and events),
+            "ready_scope": reviewed_windows or [], "ready_sessions": ready_sessions if status != "NOT_READY" else [],
             "blockers": blockers, "status": status}
 
 
@@ -152,7 +163,7 @@ def main(out: Path) -> int:
             w.writeheader()
             w.writerows(rows)
         outputs[path.name] = sha(path)
-        table.append(readiness(sym, rows, identities.get(sym), EXPLAINED_FLAGS, EVENTS.get(sym, [])))
+        table.append(readiness(sym, rows, identities.get(sym), EXPLAINED_FLAGS, EVENTS.get(sym, []), REVIEWED_WINDOWS.get(sym)))
     blockers = Counter(b for t in table for b in t["blockers"])
     status = Counter(t["status"] for t in table)
     manifest = {"created_utc": datetime.now(timezone.utc).isoformat(), "network_calls": 0, "price_basis": PRICE_BASIS,

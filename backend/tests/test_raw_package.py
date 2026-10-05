@@ -49,5 +49,16 @@ def test_unexplained_flag_blocks_and_explained_with_identity_is_limited_ready():
     r = readiness("ABC", ok_rows(flags=("2024-12-10",)), {"result": "MATCH"}, set(), [])
     assert "UNEXPLAINED_CORPORATE_ACTION_FLAGS" in r["blockers"] and r["status"] == "NOT_READY"
     ev = [RightsEvent("ABC", date(2024, 12, 10), Decimal(3), Decimal(1), "x")]
-    r2 = readiness("ABC", ok_rows(flags=("2024-12-10",)), {"result": "MATCH"}, {("ABC", "2024-12-10")}, ev)
+    r2 = readiness("ABC", ok_rows(flags=("2024-12-10",)), {"result": "MATCH"}, {("ABC", "2024-12-10")}, ev,
+                   [("2024-11-22", "2024-12-20")])
     assert r2["status"] == "READY_FOR_RESEARCH_WITH_LIMITS" and r2["blockers"] == []
+
+
+def test_ready_is_limited_to_reviewed_sessions():
+    ev = [RightsEvent("ABC", date(2024, 12, 10), Decimal(3), Decimal(1), "x")]
+    args = ("ABC", ok_rows(flags=("2024-12-10",)), {"result": "MATCH"}, {("ABC", "2024-12-10")}, ev)
+    unscoped = readiness(*args)
+    assert unscoped["status"] == "NOT_READY" and "REVIEW_SCOPE_NOT_DEFINED" in unscoped["blockers"]
+    scoped = readiness(*args, [("2024-12-02", "2024-12-06")])
+    assert scoped["ready_sessions"] == ["2024-12-02", "2024-12-03", "2024-12-04", "2024-12-05", "2024-12-06"]
+    assert scoped["evaluable_sessions"] > len(scoped["ready_sessions"])

@@ -57,33 +57,40 @@ def to_frame(view_rows: list[dict]) -> pd.DataFrame:
                          "Volume": [float(r["total_traded_quantity_raw"]) for r in view_rows]}, index=idx)
 
 
-def evaluate_symbol(sym: str, rows: list[dict], flags: list[dict], index_close: pd.Series, sessions: list[date]) -> list[dict]:
+def evaluate_symbol(sym: str, rows: list[dict], flags: list[dict], index_close: pd.Series, sessions: list[date],
+                    events: list | None = None, explained_flags: set | None = None, include_components: bool = False) -> list[dict]:
+    events = EVENTS.get(sym, []) if events is None else events
+    explained_flags = EXPLAINED_FLAGS if explained_flags is None else explained_flags
     out = []
     first_row = date.fromisoformat(min(r["trade_date"] for r in rows))
     for t in sessions:
         rec = {"session": t.isoformat()}
         need_start = compute_history_window(completion_moment(t)).provider_request_start
         unexplained = [f for f in flags if need_start.isoformat() <= f["trade_date"] <= t.isoformat()
-                       and (sym, f["trade_date"]) not in EXPLAINED_FLAGS]
+                       and (sym, f["trade_date"]) not in explained_flags]
         if need_start < first_row:
             rec |= {"status": "HESAPLANAMADI", "reason": f"RESMI_GECMIS_YETERSIZ: gereken {need_start}, eldeki ilk {first_row}"}
         elif unexplained:
             rec |= {"status": "HESAPLANAMADI", "reason": f"ACIKLANAMAYAN_KURUMSAL_ISLEM_ISARETI: {unexplained}"}
         else:
             try:
-                view = price_view_as_of(rows, EVENTS[sym], t, KNOWLEDGE)
+                view = price_view_as_of(rows, events, t, KNOWLEDGE)
             except AdjustmentError as exc:
                 rec |= {"status": "HESAPLANAMADI", "reason": f"FIYAT_GORUNUMU: {exc}"}
                 out.append(rec)
                 continue
             df = to_frame(view["rows"])
-            tech = default_technical(df, index_close[index_close.index <= t], t, sym)
+            tech = default_technical(df, index_close[index_close.index <= t], t, sym, include_components=include_components)
             rec["applied_events"] = [f"{a['rights_start']} DK={Decimal(a['dk']):.6f}" for a in view["applied_events"]]
             if tech["status"] != "OK":
                 rec |= {"status": "HESAPLANAMADI", "reason": f"TEKNIK_HAT: {tech['reason']}"}
+            elif tech["technical_score"] is None:  # tüm bileşenler kullanılamaz; sınıf uydurulmaz
+                rec |= {"status": "HESAPLANAMADI", "reason": "TEKNIK_SKOR_YOK"}
             else:
                 rec |= {"status": "OK", "technical_score": tech["technical_score"],
                         "raw_class": _classify(float(tech["technical_score"]), DEFAULT_THRESHOLDS)}
+                if include_components:
+                    rec |= {k: tech[k] for k in ("components", "family_scores", "evidence_coverage", "confidence")}
         out.append(rec)
     return out
 
