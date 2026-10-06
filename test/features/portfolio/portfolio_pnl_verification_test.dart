@@ -42,7 +42,7 @@ void main() {
     expect(find.text(pnlUnverifiedNote), findsOneWidget);
     expect(find.text('+10 TL'), findsNothing);
     expect(find.textContaining('+10'), findsNothing);
-    expect(find.text('Ort. Alış: 10.00 TL   Güncel: 12.00 TL'), findsOneWidget); // para birimi kuralları korunur
+    expect(find.text('Girilen Ort. Alış: 10.00 TL   Güncel: 12.00 TL'), findsOneWidget); // para birimi kuralları korunur
   });
 
   testWidgets('2: eski backend (alan yok / null) → doğrulanmadı', (tester) async {
@@ -65,7 +65,7 @@ void main() {
     expect(find.text(pnlUnverifiedTotalText), findsOneWidget);
     expect(find.text('+20 TL'), findsNothing);
     expect(find.text('%20.0'), findsNothing);
-    expect(find.text('Toplam Yatırım: 100 TL'), findsOneWidget); // yatırım/güncel değer değişmedi
+    expect(find.text('Girilen Toplam Yatırım: 100 TL'), findsOneWidget); // yatırım/güncel değer değişmedi
   });
 
   testWidgets('4b: değerlenemeyen pozisyon toplamdan sessizce çıkarılıp doğrulanmış sayılmaz', (tester) async {

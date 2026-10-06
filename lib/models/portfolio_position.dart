@@ -32,6 +32,10 @@ class PortfolioPosition {
   final bool? pnlBasisVerified;
   final String? pnlUnverifiedReason;
 
+  /// true = kayıtlı adet ve alış maliyeti tabanı kurumsal işlemler açısından doğrulandı. false/null = doğrulanmadı.
+  final bool? positionBasisVerified;
+  final String? positionBasisUnverifiedReason;
+
   PortfolioPosition({
     required this.asset,
     required this.buyPrice,
@@ -51,7 +55,14 @@ class PortfolioPosition {
     this.currentPriceBasis,
     this.pnlBasisVerified,
     this.pnlUnverifiedReason,
+    this.positionBasisVerified,
+    this.positionBasisUnverifiedReason,
   });
+
+  /// Güncel değer (adet × güncel fiyat) yalnız adet/maliyet tabanı doğrulanmış, fiyat kimliği MATCH ve fiyat mevcutsa
+  /// güvenilir. Güncel FİYATIN kendisi bundan bağımsızdır (adetten bağımsız piyasa fiyatı).
+  bool get currentValueVerified =>
+      error == null && positionBasisVerified == true && currentPriceIdentityCheck == 'MATCH' && currentPrice != null;
 
   /// Yalnız backend açıkça true gönderdiyse; alan yok/null ise doğrulanmamış (fail-closed).
   bool get pnlVerified => pnlBasisVerified == true;
@@ -90,6 +101,8 @@ class PortfolioPosition {
       currentPriceBasis: json['current_price_basis'] as String?,
       pnlBasisVerified: json['pnl_basis_verified'] as bool?,
       pnlUnverifiedReason: json['pnl_unverified_reason'] as String?,
+      positionBasisVerified: json['position_basis_verified'] as bool?,
+      positionBasisUnverifiedReason: json['position_basis_unverified_reason'] as String?,
     );
   }
 }
@@ -133,3 +146,10 @@ class PortfolioSummary {
 /// Değerlenemeyen bir pozisyon toplamdan sessizce çıkarılıp kalanlar "doğrulanmış toplam" yapılmaz.
 bool summaryPnlVerified(List<PortfolioPosition> positions) =>
     positions.isNotEmpty && positions.every((p) => p.error == null && p.pnlVerified);
+
+/// Toplam güncel değer yalnız TÜM pozisyonların güncel değeri doğrulanmış ve ortak (bilinen) birimdeyse doğrulanmış.
+/// Değerlenemeyen/doğrulanmamış pozisyon toplamdan sessizce çıkarılıp kalanlar doğrulanmış sayılmaz.
+bool summaryCurrentValueVerified(List<PortfolioPosition> positions) =>
+    positions.isNotEmpty &&
+    positions.every((p) => p.currentValueVerified) &&
+    summaryUnits(positions).current != null;

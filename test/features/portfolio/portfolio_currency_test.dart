@@ -28,6 +28,7 @@ PortfolioPosition pos({String? currency, String? cur = 'TRY', String? identity =
       'current_price_currency': cur,
       'current_price_identity_check': identity,
       'pnl_basis_verified': verified,
+      'position_basis_verified': verified,
     });
 
 PriceQuote quote({String? identity, String? currency}) => PriceQuote(
@@ -69,20 +70,20 @@ void main() {
   group('pozisyon kartı', () {
     testWidgets('1+3+5: kayıtlı TRY + güncel MATCH/TRY → alış, güncel ve K/Z TL', (tester) async {
       await pumpTile(tester, pos(currency: 'TRY'));
-      expect(find.text('Ort. Alış: 10.00 TL   Güncel: 12.00 TL'), findsOneWidget);
+      expect(find.text('Girilen Ort. Alış: 10.00 TL   Güncel: 12.00 TL'), findsOneWidget);
       expect(find.text('+10 TL'), findsOneWidget);
     });
 
     testWidgets('2+6: kayıtlı birim yok → alışta ve K/Z\'de TL yok; güncel MATCH ise TL', (tester) async {
       await pumpTile(tester, pos());
-      expect(find.text('Ort. Alış: 10.00   Güncel: 12.00 TL'), findsOneWidget);
+      expect(find.text('Girilen Ort. Alış: 10.00   Güncel: 12.00 TL'), findsOneWidget);
       expect(find.text('+10'), findsOneWidget);
       expect(find.text('+10 TL'), findsNothing);
     });
 
     testWidgets('4: UNVERIFIED + TRY → güncel fiyatta ve K/Z\'de TL yok', (tester) async {
       await pumpTile(tester, pos(currency: 'TRY', identity: 'UNVERIFIED'));
-      expect(find.text('Ort. Alış: 10.00 TL   Güncel: 12.00'), findsOneWidget);
+      expect(find.text('Girilen Ort. Alış: 10.00 TL   Güncel: 12.00'), findsOneWidget);
       expect(find.text('+10'), findsOneWidget);
     });
 
@@ -100,8 +101,8 @@ void main() {
     testWidgets('10: karışık/bilinmeyen birim → toplamlarda TL yok', (tester) async {
       final mixed = [pos(currency: 'TRY'), pos()];
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: PortfolioSummaryCard(summary: summary, positions: mixed))));
-      expect(find.text('Toplam Yatırım: 100'), findsOneWidget);
-      expect(find.text('Güncel Değer: 120 TL'), findsOneWidget); // ikisinde de güncel MATCH/TRY
+      expect(find.text('Girilen Toplam Yatırım: 100'), findsOneWidget);
+      expect(find.text('Toplam Güncel Değer: 120 TL'), findsOneWidget); // ikisinde de güncel MATCH/TRY
       expect(find.text('+20'), findsOneWidget);
       expect(summaryUnits([pos(currency: 'TRY'), pos(currency: 'TRY', identity: 'UNVERIFIED')]).current, isNull);
       expect(summaryUnits([pos(currency: 'TRY'), pos(currency: 'USD', cur: 'USD')]).invested, isNull);
@@ -110,7 +111,7 @@ void main() {
     testWidgets('tümü TRY ve doğrulanmış → toplamlarda TL; hatalı pozisyon toplam dışı', (tester) async {
       final all = [pos(currency: 'TRY'), pos(currency: 'TRY'), pos(error: 'veri yok')];
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: PortfolioSummaryCard(summary: summary, positions: all))));
-      expect(find.text('Toplam Yatırım: 100 TL'), findsOneWidget);
+      expect(find.text('Girilen Toplam Yatırım: 100 TL'), findsOneWidget);
       expect(summaryUnits(all).pnl, 'TL'); // birim kuralı: hatalı pozisyon birim kararına katılmaz
       // Ancak değerlenemeyen pozisyon varken toplam K/Z doğrulanmış sayı olarak gösterilmez (fail-closed).
       expect(find.text('+20 TL'), findsNothing);

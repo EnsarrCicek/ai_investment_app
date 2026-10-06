@@ -298,6 +298,7 @@ class PortfolioSummaryCard extends StatelessWidget {
     final color = summary.totalProfitLoss >= 0 ? Colors.green : Colors.red;
     final units = summaryUnits(positions);
     final pnlVerified = summaryPnlVerified(positions);
+    final currentValueVerified = summaryCurrentValueVerified(positions);
     return Card(
       margin: const EdgeInsets.all(12),
       child: Padding(
@@ -305,14 +306,21 @@ class PortfolioSummaryCard extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Toplam Yatırım: ${withUnit(summary.totalInvested.toStringAsFixed(0), units.invested)}'),
-                Text('Güncel Değer: ${withUnit(summary.totalCurrentValue.toStringAsFixed(0), units.current)}'),
-              ],
+            // Uzun "Doğrulanmadı" metinleri dar ekranda taşmasın diye iki sütun da esnek (metin sarar).
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Girilen Toplam Yatırım: ${withUnit(summary.totalInvested.toStringAsFixed(0), units.invested)}'),
+                  Text(currentValueVerified
+                      ? 'Toplam Güncel Değer: ${withUnit(summary.totalCurrentValue.toStringAsFixed(0), units.current)}'
+                      : currentValueUnverifiedTotalText),
+                ],
+              ),
             ),
-            Column(
+            const SizedBox(width: 12),
+            Flexible(
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 if (pnlVerified) ...[
@@ -325,8 +333,10 @@ class PortfolioSummaryCard extends StatelessWidget {
                     style: TextStyle(color: color),
                   ),
                 ] else
-                  const Text(pnlUnverifiedTotalText, style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(pnlUnverifiedTotalText,
+                      textAlign: TextAlign.end, style: TextStyle(fontWeight: FontWeight.bold)),
               ],
+              ),
             ),
           ],
         ),
@@ -362,7 +372,7 @@ class PortfolioPositionTile extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Ort. Alış: ${withUnit(position.buyPrice.toStringAsFixed(2), position.buyPriceUnit)}   '
+                    'Girilen Ort. Alış: ${withUnit(position.buyPrice.toStringAsFixed(2), position.buyPriceUnit)}   '
                     'Güncel: ${position.currentPrice == null ? '-' : withUnit(position.currentPrice!.toStringAsFixed(2), position.currentPriceUnit)}',
                   ),
                   if (pnl != null && !position.pnlVerified) ...[
@@ -405,3 +415,4 @@ String _labelWithUnit(String label, String? unit) => unit == null ? label : '$la
 const pnlUnverifiedText = 'Kâr/Zarar: Doğrulanmadı';
 const pnlUnverifiedTotalText = 'Toplam Kâr/Zarar: Doğrulanmadı';
 const pnlUnverifiedNote = 'Fiyat temeli ve kurumsal işlem etkileri doğrulanmadı.';
+const currentValueUnverifiedTotalText = 'Toplam Güncel Değer: Doğrulanmadı';
