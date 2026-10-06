@@ -902,3 +902,38 @@ def test_historical_stored_signal_class_is_consumed_as_is_not_reclassified(monke
         token_repo=_FakeTokenRepo("tok"), new_opportunity_log_repo=_FakeNewOpportunityLogRepo(),
     )
     assert sent is False and old.signal_class == "BULLISH_CONFIRMED" and old.engine_version == "1.14.0"
+
+
+def test_new_opportunity_default_provider_identity_mismatch_sends_nothing(monkeypatch):
+    """Varsayılan sağlayıcı kaynak bilgisi/kimlik kontrollü sağlayıcıdır; yanlış kimlikte bildirim gönderilmez."""
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from app.services.market_data import bist_provenance_provider as pp
+    from app.services.market_data import bist_provider as bp
+
+    class MismatchTicker:
+        def __init__(self):
+            self._price_history = SimpleNamespace(_history_metadata=None)
+            self.fast_info = {"previousClose": 99.0}
+
+        def history(self, period=None, interval="1d", **kw):
+            self._price_history._history_metadata = {"symbol": "THYAO.IS", "exchangeName": "IST", "currency": "USD"}
+            idx = pd.DatetimeIndex([pd.Timestamp("2026-10-05 11:55", tz="Europe/Istanbul")])
+            return pd.DataFrame({"Open": [100.0], "High": [100.0], "Low": [100.0], "Close": [100.0], "Volume": [1]}, index=idx)
+
+    sent_messages = []
+    monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
+    monkeypatch.setattr(bp.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(pp.yf, "Ticker", lambda _s: MismatchTicker())
+    log_repo = _FakeNewOpportunityLogRepo()
+    sent = fcm_sender.notify_if_new_opportunity(
+        "u1",
+        _decision(decision="BUY", asset="THYAO"),
+        analysis_repo=_FakeAnalysisRepo(_strong_analysis()),
+        config_repo=_FakeSettingsConfigRepo({"default_trade_budget_tl": 1000.0}),
+        token_repo=_FakeTokenRepo("tok"),
+        new_opportunity_log_repo=log_repo,
+    )
+    assert sent is False and sent_messages == [] and log_repo._docs == {}

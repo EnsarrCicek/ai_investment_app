@@ -1,8 +1,18 @@
 from app.models.portfolio_position import PortfolioPosition
 from app.services.market_data.base import MarketDataProvider
 from app.models.market_data import MarketData
-from app.services.market_data.bist_provider import BistProvider
+from app.services.market_data.bist_provenance_provider import ProvenanceBistProvider
 from app.services.portfolio.position_review import RAW_BASIS
+
+
+def position_basis_verification(corporate_actions_verified: bool = False) -> tuple[bool, str | None]:
+    """(position_basis_verified, position_basis_unverified_reason).
+
+    True = kayıtlı adet ve alış maliyeti tabanı, en erken lot tarihinden değerleme seansına kadar adet/maliyet etkili
+    kurumsal işlemler açısından doğrulanmıştır. Üretimde kurumsal işlem kapsamı olmadığı için her zaman False."""
+    if not corporate_actions_verified:
+        return False, "CORPORATE_ACTIONS_UNVERIFIED"
+    return True, None
 
 
 def pnl_verification(position_currency: str | None, latest: MarketData,
@@ -22,8 +32,9 @@ def pnl_verification(position_currency: str | None, latest: MarketData,
         return False, "CURRENCY_MISMATCH"
     if latest.price_basis != RAW_BASIS:
         return False, "PRICE_BASIS_UNVERIFIED"
-    if not corporate_actions_verified:
-        return False, "CORPORATE_ACTIONS_UNVERIFIED"
+    basis_ok, basis_reason = position_basis_verification(corporate_actions_verified)
+    if not basis_ok:  # doğrulanmış K/Z, doğrulanmamış adet/maliyet tabanı üzerinden üretilemez
+        return False, basis_reason
     return True, None
 
 
@@ -31,7 +42,7 @@ def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | No
                   corporate_actions_verified: bool = False) -> dict:
     """Hesap formülleri değişmedi. `corporate_actions_verified` yalnız doğrulanmış bir kaynak bağlandığında True
     olabilir; bugün hiçbir üretim çağıranı bunu vermiyor."""
-    provider = provider or BistProvider()
+    provider = provider or ProvenanceBistProvider()
     latest = provider.get_latest(position.asset)
     current_price = latest.close
 
@@ -53,6 +64,9 @@ def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | No
         "current_price_basis": latest.price_basis,
         **dict(zip(("pnl_basis_verified", "pnl_unverified_reason"),
                    pnl_verification(position.currency, latest, corporate_actions_verified))),
+        # Adet/maliyet tabanı doğrulaması; current_value (adet × güncel fiyat) bu olmadan doğrulanmış sayılamaz.
+        **dict(zip(("position_basis_verified", "position_basis_unverified_reason"),
+                   position_basis_verification(corporate_actions_verified))),
     }
 
 

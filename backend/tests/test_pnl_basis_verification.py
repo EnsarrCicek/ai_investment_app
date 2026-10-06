@@ -12,6 +12,7 @@ from app.api import portfolio as portfolio_api
 from app.core.auth import get_current_user_id
 from app.models.market_data import MarketData
 from app.models.portfolio_position import PortfolioPosition
+from app.services.market_data import bist_provenance_provider as pp
 from app.services.market_data import bist_provider as bp
 from app.services.portfolio import pnl_calculator
 from app.services.portfolio.pnl_calculator import calculate_pnl, pnl_verification
@@ -26,7 +27,7 @@ def position(currency="TRY", buy_price=100.0, quantity=10.0):
                              created_at=NOW, currency=currency)
 
 
-def md(close=120.0, currency="TRY", identity="MATCH", basis=bp.YAHOO_PRICE_BASIS):
+def md(close=120.0, currency="TRY", identity="MATCH", basis=pp.YAHOO_PRICE_BASIS):
     return MarketData(asset_id="AAA", timestamp=NOW, open=1, high=1, low=1, close=close, volume=1, source="fake",
                       currency=currency, exchange="IST" if currency else None, identity_check=identity, price_basis=basis)
 
@@ -53,7 +54,7 @@ class FakeTicker:
 def test_yahoo_adjusted_price_is_never_verified(monkeypatch):
     monkeypatch.setattr(bp.time, "sleep", lambda *_a, **_k: None)
     monkeypatch.setattr(bp.yf, "Ticker", lambda _s: FakeTicker(GOOD))
-    out = calculate_pnl(position(), provider=bp.BistProvider())
+    out = calculate_pnl(position(), provider=pp.ProvenanceBistProvider())
     assert out["current_price_basis"] == "PROVIDER_ADJUSTED_YFINANCE_AUTO_ADJUST"
     assert out["current_price_identity_check"] == "MATCH"
     assert out["pnl_basis_verified"] is False and out["pnl_unverified_reason"] == "PRICE_BASIS_UNVERIFIED"
@@ -98,7 +99,8 @@ def test_positions_response_carries_fields_and_old_records_work(monkeypatch):
             return [("id0", PortfolioPosition(**old))]
 
     monkeypatch.setattr(portfolio_api, "PortfolioRepository", Repo)
-    monkeypatch.setattr(pnl_calculator, "BistProvider", lambda: Provider(md()))
+    monkeypatch.setattr(portfolio_api, "PortfolioLedgerRepository", lambda: SimpleNamespace(sales_for_user=lambda _u: []))
+    monkeypatch.setattr(pnl_calculator, "ProvenanceBistProvider", lambda: Provider(md()))
     app = FastAPI()
     app.include_router(portfolio_api.router)
     app.dependency_overrides[get_current_user_id] = lambda: "u1"
@@ -106,3 +108,40 @@ def test_positions_response_carries_fields_and_old_records_work(monkeypatch):
     assert row["currency"] is None and row["profit_loss"] == round(5 * 120.0 - 50.0, 2)
     assert row["current_price_basis"] == "PROVIDER_ADJUSTED_YFINANCE_AUTO_ADJUST"
     assert row["pnl_basis_verified"] is False and row["pnl_unverified_reason"] == "POSITION_CURRENCY_UNKNOWN"
+
+
+# --- position_basis_verified ---------------------------------------------------------------------------------------
+
+from app.services.portfolio.pnl_calculator import position_basis_verification  # noqa: E402
+
+
+def test_production_style_position_basis_unverified():
+    out = calculate_pnl(position(), provider=Provider(md()))
+    assert out["position_basis_verified"] is False
+    assert out["position_basis_unverified_reason"] == "CORPORATE_ACTIONS_UNVERIFIED"
+
+
+def test_current_value_formula_unchanged_with_basis_fields():
+    out = calculate_pnl(position(buy_price=50.0, quantity=7), provider=Provider(md(close=61.37)))
+    assert out["current_value"] == round(7 * 61.37, 2) and out["current_price"] == 61.37
+
+
+def test_old_position_and_old_provenance_fail_closed(fake_provider):
+    out = calculate_pnl(position(currency=None), provider=fake_provider(close_price=10.0))
+    assert out["position_basis_verified"] is False
+
+
+def test_verified_corporate_action_fixture_sets_position_basis_true_contract_only():
+    assert position_basis_verification(corporate_actions_verified=True) == (True, None)
+    out = calculate_pnl(position(), provider=Provider(md()), corporate_actions_verified=True)
+    assert out["position_basis_verified"] is True
+    assert out["pnl_basis_verified"] is False  # Yahoo temeli hâlâ doğrulanmış değil
+
+
+@pytest.mark.parametrize("data,ca", [(md(basis=RAW_BASIS), False), (md(basis=RAW_BASIS), True), (md(), True), (md(), False)])
+def test_verified_pnl_implies_verified_position_basis(data, ca):
+    out = calculate_pnl(position(), provider=Provider(data), corporate_actions_verified=ca)
+    if out["pnl_basis_verified"]:
+        assert out["position_basis_verified"] is True
+    if not out["position_basis_verified"]:
+        assert out["pnl_basis_verified"] is False

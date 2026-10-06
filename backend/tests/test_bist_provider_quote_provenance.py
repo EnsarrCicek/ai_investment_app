@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from app.services.market_data import bist_provenance_provider as pp
 from app.services.market_data import bist_provider as bp
-from app.services.market_data.bist_provider import BistProvider
+
 
 IST = "Europe/Istanbul"
 GOOD_META = {"symbol": "ABC.IS", "exchangeName": "IST", "currency": "TRY"}
@@ -41,7 +42,7 @@ def _no_sleep(monkeypatch):
 
 def quote(monkeypatch, ticker):
     monkeypatch.setattr(bp.yf, "Ticker", lambda _s: ticker)
-    return BistProvider().get_quote("ABC")
+    return pp.ProvenanceBistProvider().get_quote("ABC")
 
 
 INTRA = _df(pd.to_datetime(["2026-10-05 11:50", "2026-10-05 11:55"]).tz_localize(IST), [12.0, 12.5])

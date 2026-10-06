@@ -46,6 +46,20 @@ class PortfolioRepository:
         lots = [PortfolioPosition(**doc.to_dict()) for doc in docs]
         quantity = sum(lot.quantity for lot in lots)
         avg_buy_price = round(sum(lot.quantity * lot.buy_price for lot in lots) / quantity, 2)
+        # Kısmi satış uygulanmışsa kalan adet/maliyet satış defterinden (bkz. app/services/portfolio/sale_ledger.py).
+        from app.repositories.portfolio_ledger_repository import TRANSACTIONS
+        from app.models.portfolio_transaction import PortfolioTransaction
+        from app.services.portfolio.sale_ledger import ledger_totals
+
+        sale_docs = (self._db.collection(TRANSACTIONS).where(filter=FieldFilter("user_id", "==", user_id))
+                     .where(filter=FieldFilter("asset", "==", asset)).stream())
+        rem_qty, rem_cost, sale_ids = ledger_totals([(d.id, l) for d, l in zip(docs, lots)],
+                                                    [(d.id, PortfolioTransaction(**d.to_dict())) for d in sale_docs])
+        if sale_ids:
+            if rem_qty <= 0:
+                return None
+            quantity = float(rem_qty)
+            avg_buy_price = round(float(rem_cost / rem_qty), 2)
         return PortfolioPosition(
             user_id=user_id,
             asset=asset,

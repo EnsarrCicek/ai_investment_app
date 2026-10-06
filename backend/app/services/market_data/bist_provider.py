@@ -1,5 +1,4 @@
 import time
-from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import yfinance as yf
@@ -9,67 +8,6 @@ from app.services.market_data.base import MarketDataProvider
 
 DEFAULT_RETRY_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY_SECONDS = 2.0
-
-
-EXPECTED_EXCHANGE = "IST"
-# yfinance `history()` varsayılanı auto_adjust=True: geçmiş kurumsal işlemlere göre DÜZELTİLMİŞ seri.
-YAHOO_PRICE_BASIS = "PROVIDER_ADJUSTED_YFINANCE_AUTO_ADJUST"
-EXPECTED_CURRENCY = "TRY"
-INTRADAY_INTERVAL = "5m"
-INTRADAY_BAR = timedelta(minutes=5)
-
-
-def _response_metadata(ticker) -> dict:
-    """Son `history()` yanıtının Yahoo 'meta' bölümü — EK İSTEK YAPMADAN. yfinance 1.5.2'nin genel
-    `history_metadata` özelliği eksik alan olduğunda yeni bir gün içi istek atabildiği için kullanılmaz;
-    aynı yanıtta saklanan iç sözlük okunur. Bulunamazsa {} (alanlar bilinmiyor kalır)."""
-    meta = getattr(getattr(ticker, "_price_history", None), "_history_metadata", None)
-    return dict(meta) if isinstance(meta, dict) else {}
-
-
-class ProviderIdentityError(ValueError):
-    """Sağlayıcının bildirdiği sembol/borsa/para birimi beklenenle açıkça uyuşmuyor (ValueError alt sınıfı:
-    mevcut çağıranların ValueError yakalama davranışı değişmez)."""
-
-
-def _identity(symbol: str, meta: dict) -> tuple[str | None, str | None, str]:
-    """(currency, exchange, identity_check). Uyuşmazlıkta ProviderIdentityError; eksikse UNVERIFIED (varsayılan
-    yazılmaz). Beklenen değerler yalnız karşılaştırma içindir, sonuç alanını doldurmaz."""
-    reported = {"symbol": meta.get("symbol"), "exchange": meta.get("exchangeName"), "currency": meta.get("currency")}
-    expected = {"symbol": f"{symbol}.IS", "exchange": EXPECTED_EXCHANGE, "currency": EXPECTED_CURRENCY}
-    wrong = {k: v for k, v in reported.items() if v is not None and v != expected[k]}
-    if wrong:
-        raise ProviderIdentityError(f"'{symbol}' için sağlayıcı kimliği beklenenle uyuşmuyor: {wrong}")
-    status = "MATCH" if all(v is not None for v in reported.values()) else "UNVERIFIED"
-    return reported["currency"], reported["exchange"], status
-
-
-def _to_utc(value) -> datetime | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, tz=timezone.utc)
-    ts = pd.Timestamp(value)
-    return ts.tz_convert("UTC").to_pydatetime() if ts.tzinfo else None
-
-
-def _verified_last_trade(meta: dict, price: float, bar_start: datetime) -> datetime | None:
-    """Son işlem zamanı yalnız AYNI yanıtta, AYNI fiyatla ve bar aralığı içinde bildirilmişse."""
-    if bar_start.tzinfo is None:
-        return None
-    start = bar_start.astimezone(timezone.utc)
-    candidates = []
-    lt = meta.get("lastTrade")
-    if isinstance(lt, dict):
-        candidates.append((lt.get("Price"), lt.get("Time")))
-    candidates.append((meta.get("regularMarketPrice"), meta.get("regularMarketTime")))
-    for cand_price, cand_time in candidates:
-        at = _to_utc(cand_time)
-        if cand_price is None or at is None:
-            continue
-        if abs(float(cand_price) - price) < 1e-9 and start <= at < start + INTRADAY_BAR:
-            return at
-    return None
 
 
 def _fetch_with_retry(fetch_fn, attempts: int = DEFAULT_RETRY_ATTEMPTS, delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS):
@@ -115,7 +53,6 @@ class BistProvider(MarketDataProvider):
         history = _fetch_with_retry(lambda: ticker.history(period="5d"))
         if history.empty:
             raise ValueError(f"'{symbol}' için market data bulunamadı")
-        currency, exchange, identity_check = _identity(symbol, _response_metadata(ticker))
 
         row = history.iloc[-1]
         return MarketData(
@@ -127,16 +64,11 @@ class BistProvider(MarketDataProvider):
             close=float(row["Close"]),
             volume=int(row["Volume"]),
             source=self.SOURCE,
-            currency=currency,
-            exchange=exchange,
-            identity_check=identity_check,
-            price_basis=YAHOO_PRICE_BASIS,
         )
 
     def get_quote(self, symbol: str) -> Quote:
         ticker = yf.Ticker(f"{symbol}.IS")
-        intraday = _fetch_with_retry(lambda: ticker.history(period="1d", interval=INTRADAY_INTERVAL))
-        retrieved_at = datetime.now(timezone.utc)
+        intraday = _fetch_with_retry(lambda: ticker.history(period="1d", interval="5m"))
         daily = None
 
         if not intraday.empty:
@@ -146,10 +78,6 @@ class BistProvider(MarketDataProvider):
             high = float(intraday["High"].max())
             low = float(intraday["Low"].min())
             volume = int(intraday["Volume"].sum())
-            meta = _response_metadata(ticker)
-            provenance = {"price_type": "INTRADAY_BAR_CLOSE", "interval": INTRADAY_INTERVAL, "fallback_used": False,
-                          "fallback_reason": None,
-                          "last_trade_at": _verified_last_trade(meta, last_price, timestamp)}
         else:
             # Yahoo'nun 5 dakikalık gün-içi verisi ara sıra (özellikle seans
             # açılışında) boş dönebiliyor — bu GERÇEK bir delisting değil
@@ -157,12 +85,8 @@ class BistProvider(MarketDataProvider):
             # düşülür; timestamp yine verinin GERÇEK ait olduğu günü gösterir,
             # sahte bir "şimdi" değeri üretilmez.
             daily = _fetch_with_retry(lambda: ticker.history(period="5d"))
-            retrieved_at = datetime.now(timezone.utc)
             if daily.empty:
                 raise ValueError(f"'{symbol}' için güncel fiyat bulunamadı")
-            meta = _response_metadata(ticker)
-            provenance = {"price_type": "DAILY_BAR_CLOSE", "interval": "1d", "fallback_used": True,
-                          "fallback_reason": "INTRADAY_EMPTY", "last_trade_at": None}
             row = daily.iloc[-1]
             last_price = float(row["Close"])
             timestamp = daily.index[-1].to_pydatetime()
@@ -170,8 +94,6 @@ class BistProvider(MarketDataProvider):
             high = float(row["High"])
             low = float(row["Low"])
             volume = int(row["Volume"])
-
-        currency, exchange, identity_check = _identity(symbol, meta)  # fiyat yanıtının kendi meta bilgisi
 
         previous_close = ticker.fast_info.get("previousClose")
         if previous_close is None:
@@ -198,31 +120,7 @@ class BistProvider(MarketDataProvider):
             low=low,
             volume=volume,
             source=self.SOURCE,
-            bar_start=timestamp,
-            retrieved_at=retrieved_at,
-            currency=currency,
-            exchange=exchange,
-            identity_check=identity_check,
-            **provenance,
         )
-
-    def get_history_with_provenance(self, symbol: str, period: str = "6mo", interval: str = "1d") -> tuple[pd.DataFrame, dict]:
-        """`get_history(period=...)` ile aynı tek istek + aynı yanıtın kimlik meta bilgisi (EK İSTEK YOK).
-
-        Döner: (OHLCV DataFrame, provenance). provenance: requested_symbol, provider_symbol, currency, exchange,
-        identity_check (MATCH | UNVERIFIED), source, retrieved_at (bu çağrının yanıt alındığı UTC anı). Kimlik
-        uyuşmazlığında ProviderIdentityError. Fiyat temeli hakkında İDDİA TAŞIMAZ (yfinance varsayılanı düzeltilmiş seri)."""
-        ticker = yf.Ticker(f"{symbol}.IS")
-        history = _fetch_with_retry(lambda: ticker.history(period=period, interval=interval))
-        retrieved_at = datetime.now(timezone.utc)
-        if history.empty:
-            raise ValueError(f"'{symbol}' için geçmiş veri bulunamadı (period={period}, interval={interval})")
-        meta = _response_metadata(ticker)
-        currency, exchange, identity_check = _identity(symbol, meta)
-        provenance = {"requested_symbol": symbol, "provider_symbol": meta.get("symbol"), "currency": currency,
-                      "exchange": exchange, "identity_check": identity_check, "source": self.SOURCE,
-                      "retrieved_at": retrieved_at}
-        return history[["Open", "High", "Low", "Close", "Volume"]], provenance
 
     def get_history(
         self,

@@ -52,7 +52,7 @@ from app.repositories.notification_record_repository import NotificationRecordRe
 from app.repositories.system_config_repository import SystemConfigRepository
 from app.repositories.technical_analysis_repository import TechnicalAnalysisRepository
 from app.services.market_data.base import MarketDataProvider
-from app.services.market_data.bist_provider import BistProvider
+from app.services.market_data.bist_provenance_provider import ProvenanceBistProvider
 from app.utils.decision_score_format import format_decision_score
 from app.utils.percent_format import format_percent_fraction, format_percent_value
 
@@ -258,7 +258,7 @@ def notify_if_new_opportunity(
     if not analysis.signal_breakout_event_id:
         return False
 
-    provider = provider or BistProvider()
+    provider = provider or ProvenanceBistProvider()  # kimlik uyuşmazlığında ValueError -> bildirim yok
     try:
         quote = provider.get_quote(decision.asset)
     except ValueError:

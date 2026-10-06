@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.models.market_data import Quote
+from app.services.market_data.bist_provenance_provider import ProvenanceBistProvider
 from app.services.market_data.bist_provider import BistProvider
 from app.services.market_data.changes import compute_period_changes
 
@@ -12,7 +13,7 @@ _ALLOWED_INTERVALS = {"5m", "15m", "30m", "1h", "1d", "1wk", "1mo", "3mo"}
 @router.get("/{symbol}/quote", response_model=Quote)
 def get_quote(symbol: str):
     try:
-        return BistProvider().get_quote(symbol.upper())
+        return ProvenanceBistProvider().get_quote(symbol.upper())  # fiyat türü/zaman/kimlik kaynak bilgisi
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

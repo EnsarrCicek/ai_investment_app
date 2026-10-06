@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import get_current_user_id
 from app.models.portfolio_position import PortfolioPosition, merged_currency
-from app.models.portfolio_transaction import PortfolioTransaction
+from app.repositories.portfolio_ledger_repository import PortfolioLedgerRepository
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.repositories.portfolio_transaction_repository import PortfolioTransactionRepository
 from app.schemas.portfolio import (
@@ -12,11 +12,13 @@ from app.schemas.portfolio import (
     PortfolioPositionCreate,
     PortfolioPositionUpdate,
     PositionLimitCheckRequest,
+    PositionSaleRequest,
 )
-from app.services.market_data.bist_provider import BistProvider
+from app.services.market_data.bist_provenance_provider import ProvenanceBistProvider
 from app.services.portfolio import position_review
 from app.services.portfolio.limit_check import check_limits, position_version
-from app.services.portfolio.pnl_calculator import calculate_pnl, calculate_realized_pnl
+from app.services.portfolio.pnl_calculator import calculate_pnl
+from app.services.portfolio.sale_ledger import SaleError, ledger_totals, plan_sale
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -33,6 +35,9 @@ def create_position(payload: PortfolioPositionCreate, user_id: str = Depends(get
 @router.get("/positions")
 def list_positions(user_id: str = Depends(get_current_user_id)):
     records = PortfolioRepository().list_for_user(user_id)
+    sales_by_asset: dict[str, list] = {}
+    for sale_id, sale in PortfolioLedgerRepository().sales_for_user(user_id):
+        sales_by_asset.setdefault(sale.asset, []).append((sale_id, sale))
 
     lots_by_asset: dict[str, list[PortfolioPosition]] = {}
     records_by_asset: dict[str, list[tuple[str, PortfolioPosition]]] = {}
@@ -45,10 +50,17 @@ def list_positions(user_id: str = Depends(get_current_user_id)):
     total_current = 0.0
     for asset in sorted(lots_by_asset):
         lots = lots_by_asset[asset]
-        version = position_version(records_by_asset[asset])
         currency = merged_currency(lots)  # kayıtlı alış fiyatının birimi; güncel fiyatınkiyle karıştırılmaz
-        quantity = sum(lot.quantity for lot in lots)
-        avg_buy_price = round(sum(lot.quantity * lot.buy_price for lot in lots) / quantity, 2)
+        rem_qty, rem_cost, sale_ids = ledger_totals(records_by_asset[asset], sales_by_asset.get(asset, []))
+        version = position_version(records_by_asset[asset], sale_ids)
+        if sale_ids:  # kısmi satış uygulanmış: kalan adet/maliyet defterden (tam hassasiyet), gösterim yuvarlaması aynı
+            if rem_qty <= 0:
+                continue
+            quantity = float(rem_qty)
+            avg_buy_price = round(float(rem_cost / rem_qty), 2)
+        else:  # satış yok: önceki davranış birebir
+            quantity = sum(lot.quantity for lot in lots)
+            avg_buy_price = round(sum(lot.quantity * lot.buy_price for lot in lots) / quantity, 2)
         merged = PortfolioPosition(
             user_id=user_id,
             asset=asset,
@@ -93,7 +105,8 @@ def limit_check(asset: str, payload: PositionLimitCheckRequest, user_id: str = D
     gönderilmez, hiçbir kayıt yazılmaz (bkz. `app/services/portfolio/limit_check.py`)."""
     limits = {"profit_target_pct": payload.profit_target_pct, "max_loss_pct": payload.max_loss_pct}
     try:
-        return check_limits(user_id, asset, payload.position_version, limits, PortfolioRepository(), BistProvider())
+        return check_limits(user_id, asset, payload.position_version, limits, PortfolioRepository(), ProvenanceBistProvider(),
+                            ledger_repo=PortfolioLedgerRepository())
     except position_review.InputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -125,29 +138,34 @@ def close_position(asset: str, payload: PortfolioPositionClose, user_id: str = D
     hesaplanıp immutable bir PortfolioTransaction olarak kaydediliyor,
     sonra pozisyon lotları silinir.
     """
-    portfolio_repo = PortfolioRepository()
-    position = portfolio_repo.get_position_for_asset(user_id, asset)
-    if position is None:
-        raise HTTPException(status_code=404, detail=f"'{asset}' için açık bir pozisyon bulunamadı")
+    # İstek sözleşmesi aynı; muhasebe artık `/sell` ile ortak çekirdekten (kalan adedin TAMAMI, sürüm kontrolü yok —
+    # eski istemciler sürüm göndermiyor), tek Firestore işleminde kayıt + lot silme.
+    return _execute_sale(user_id, asset, quantity=None, sell_price=payload.sell_price, sell_date=payload.sell_date,
+                         expected_version=None, request_currency=None)
 
-    pnl = calculate_realized_pnl(position.quantity, position.buy_price, payload.sell_price)
+
+def _execute_sale(user_id: str, asset: str, *, quantity, sell_price, sell_date, expected_version, request_currency):
     now = datetime.now(timezone.utc)
-    transaction = PortfolioTransaction(
-        user_id=user_id,
-        asset=asset,
-        quantity=position.quantity,
-        buy_price=position.buy_price,
-        buy_date=position.buy_date,
-        sell_price=payload.sell_price,
-        sell_date=payload.sell_date or now,
-        realized_pnl=pnl["realized_pnl"],
-        realized_pnl_percent=pnl["realized_pnl_percent"],
-        created_at=now,
-        currency=position.currency,
-    )
-    PortfolioTransactionRepository().add(transaction)
-    portfolio_repo.delete_for_asset(user_id, asset)
-    return transaction
+
+    def plan(lots, sales):
+        return plan_sale(user_id, asset, lots, sales, quantity=quantity, sell_price=sell_price, sell_date=sell_date,
+                         expected_version=expected_version, request_currency=request_currency, now=now)
+
+    try:
+        _, sale_plan = PortfolioLedgerRepository().execute_sale(user_id, asset, plan)
+    except SaleError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.message}) from exc
+    return sale_plan.transaction
+
+
+@router.post("/positions/{asset}/sell")
+def sell_position(asset: str, payload: PositionSaleRequest, user_id: str = Depends(get_current_user_id)):
+    """Kısmi/tam satış — ağırlıklı ortalama maliyet, açık adet ve pozisyon sürümüyle (bayat ekran: 409
+    POSITION_CHANGED). Alış lotları değiştirilmez; satış değişmez bir kayıttır; kalan adet tamamen satılırsa lotlar
+    silinir. Kurumsal işlem doğrulaması olmadığından `basis_verified=false` (satış yine kaydedilir)."""
+    return _execute_sale(user_id, asset, quantity=payload.quantity, sell_price=payload.sell_price,
+                         sell_date=payload.sell_date, expected_version=payload.position_version,
+                         request_currency=payload.currency)
 
 
 @router.get("/history")

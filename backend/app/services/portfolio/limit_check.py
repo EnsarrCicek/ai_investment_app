@@ -20,8 +20,9 @@ from typing import Callable
 
 from app.engines.technical.session_timing import ISTANBUL_TZ
 from app.models.portfolio_position import PortfolioPosition
-from app.services.market_data.bist_provider import ProviderIdentityError
+from app.services.market_data.bist_provenance_provider import ProviderIdentityError
 from app.services.portfolio import position_review as pr
+from app.services.portfolio.sale_ledger import ledger_totals, remaining_review_lots
 
 PROVIDER_PRICE_BASIS = "PROVIDER_ADJUSTED_YFINANCE_AUTO_ADJUST"
 HISTORY_PERIOD = "1mo"
@@ -76,13 +77,19 @@ def _lot_key(lot_id: str, lot: PortfolioPosition) -> str:
     return f"{lot_id}|{lot.asset.upper()}|{float(lot.quantity)!r}|{float(lot.buy_price)!r}|{when}"
 
 
-def position_version(lots: list[tuple[str, PortfolioPosition]]) -> str:
+def position_version(lots: list[tuple[str, PortfolioPosition]], sale_ids: list[str] | tuple = ()) -> str:
     """Pozisyon sürümü: her lotun belge kimliği + miktar + alış fiyatı + alış tarihi; lot sırasından bağımsız.
 
     Uygulama yolları içerikte değişiklikte zaten yeni belge yazar (`replace_for_asset` = sil + ekle; kapatma lotları
     siler; yeni lot rastgele kimlik alır). İçerik alanları, aynı belgenin yerinde değiştirilmesine (ör. yönetici
-    SDK'sı/konsol) karşı da sürümün değişmesi için dahil edilir."""
-    return hashlib.sha256(";".join(sorted(_lot_key(i, p) for i, p in lots)).encode()).hexdigest()[:16]
+    SDK'sı/konsol) karşı da sürümün değişmesi için dahil edilir.
+
+    `sale_ids`: pozisyona uygulanan kısmi satış kayıtları (bkz. `sale_ledger`). Satış yoksa sürüm öncekiyle aynıdır;
+    varsa her satış sürümü değiştirir (bayat satış ekranı/sınır ayarı korunması)."""
+    key = ";".join(sorted(_lot_key(i, p) for i, p in lots))
+    if sale_ids:
+        key += "|sales:" + ",".join(sorted(sale_ids))
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 def _price_records(history, retrieved_at: datetime, source: str, basis: str) -> list[dict]:
@@ -107,10 +114,15 @@ def _blocked(out: dict, code: str) -> dict:
 
 def check_limits(user_id: str, asset: str, client_version: str, limits: dict, portfolio_repo, provider,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 price_basis: str = PROVIDER_PRICE_BASIS, corporate_action_check: dict | None = None) -> dict:
+                 price_basis: str = PROVIDER_PRICE_BASIS, corporate_action_check: dict | None = None,
+                 ledger_repo=None) -> dict:
     """limits: {"profit_target_pct": float|None, "max_loss_pct": float|None}. Sınır doğrulaması position_review'da
     (geçersizse pr.InputError). `price_basis`/`corporate_action_check` yalnız sunucu tarafı kaynak beyanıdır; API
-    uç noktası bunları istemciden ALMAZ ve mevcut sağlayıcı için varsayılanlar (düzeltilmiş, kontrol yok) kullanılır."""
+    uç noktası bunları istemciden ALMAZ ve mevcut sağlayıcı için varsayılanlar (düzeltilmiş, kontrol yok) kullanılır.
+
+    `ledger_repo` (satış defteri): kısmi satışlar kanonik `ledger_totals` ile düşülür; sürüm `/positions` ve `/sell`
+    ile aynı algoritmadır (lotlar + uygulanan satış kimlikleri) ve review'e kalan adet/kesin kalan maliyet gider.
+    Verilmezse satış yok sayılır (yalnız satış defteri olmayan testler; API her zaman verir)."""
     asset = asset.upper()
     pr._parse_limits(limits)  # erken doğrulama; hata -> InputError
     out = _base(asset, None, limits)
@@ -120,9 +132,15 @@ def check_limits(user_id: str, asset: str, client_version: str, limits: dict, po
     lots = [(i, p) for i, p in portfolio_repo.list_for_user(user_id) if p.asset.upper() == asset]
     if not lots:
         return _blocked(out, POSITION_NOT_FOUND)
-    out["position_version"] = position_version(lots)
+    sales = ([(i, s) for i, s in ledger_repo.sales_for_user(user_id) if s.asset.upper() == asset]
+             if ledger_repo is not None else [])
+    remaining_qty, _, sale_ids = ledger_totals(lots, sales)
+    out["position_version"] = position_version(lots, sale_ids)
     if out["position_version"] != client_version:
         return _blocked(out, POSITION_CHANGED)
+    if remaining_qty <= 0:  # tamamen satılmış: açık pozisyon yok, değerlendirme yapılmaz
+        return _blocked(out, POSITION_NOT_FOUND)
+    review_lots = remaining_review_lots(lots, sales)  # kanonik kalan durum (ham lot toplamı DEĞİL)
     try:
         history, provenance = provider.get_history_with_provenance(asset, period=HISTORY_PERIOD)
     except ProviderIdentityError:
@@ -135,7 +153,7 @@ def check_limits(user_id: str, asset: str, client_version: str, limits: dict, po
     records = _price_records(history, provenance["retrieved_at"], provenance["source"], price_basis)
     for r in records:
         r["symbol"] = asset
-    report = pr.review({"evaluated_at": now, "positions": [p.model_dump() for _, p in lots], "price_records": records,
+    report = pr.review({"evaluated_at": now, "positions": [p.model_dump() for p in review_lots], "price_records": records,
                         "corporate_action_checks": {asset: corporate_action_check} if corporate_action_check else {},
                         "limits": {k: v for k, v in limits.items() if v is not None}})
     (row,) = report["positions"]

@@ -15,6 +15,7 @@ from app.models.market_data import MarketData
 from app.models.portfolio_position import PortfolioPosition, merged_currency
 from app.models.portfolio_transaction import PortfolioTransaction
 from app.schemas.portfolio import PortfolioPositionCreate
+from app.services.market_data import bist_provenance_provider as pp
 from app.services.market_data import bist_provider as bp
 from app.services.portfolio import pnl_calculator
 
@@ -61,7 +62,7 @@ def _no_sleep(monkeypatch):
 def latest(monkeypatch, meta):
     t = FakeTicker(meta)
     monkeypatch.setattr(bp.yf, "Ticker", lambda _s: t)
-    return bp.BistProvider().get_latest("AAA"), t
+    return pp.ProvenanceBistProvider().get_latest("AAA"), t
 
 
 def test_get_latest_match_try_from_same_response(monkeypatch):
@@ -109,17 +110,40 @@ class FakeTxRepo:
         FakeTxRepo.added.append(tx)
 
 
+class DocsLedger:
+    """Satış defteri sahtesi (FakeRepo belgeleri üzerinde): /close artık ortak satış çekirdeğini kullanıyor."""
+
+    def __init__(self, repo):
+        self.repo, self.sales = repo, []
+
+    def _lots(self, user_id, asset):
+        return [(f"id{i}", PortfolioPosition(**d)) for i, d in enumerate(self.repo.docs)
+                if d["user_id"] == user_id and d["asset"] == asset]
+
+    def sales_for_user(self, user_id):
+        return [(f"s{i}", t) for i, t in enumerate(self.sales) if t.user_id == user_id]
+
+    def execute_sale(self, user_id, asset, plan_fn):
+        plan = plan_fn(self._lots(user_id, asset), [x for x in self.sales_for_user(user_id) if x[1].asset == asset])
+        self.sales.append(plan.transaction)
+        if plan.full:
+            self.repo.docs = [d for d in self.repo.docs if not (d["user_id"] == user_id and d["asset"] == asset)]
+        return f"s{len(self.sales) - 1}", plan
+
+
 def client(monkeypatch, docs, meta_currency="TRY", identity="MATCH"):
     repo = FakeRepo(docs)
+    repo.ledger = DocsLedger(repo)
     monkeypatch.setattr(portfolio_api, "PortfolioRepository", lambda: repo)
     monkeypatch.setattr(portfolio_api, "PortfolioTransactionRepository", FakeTxRepo)
+    monkeypatch.setattr(portfolio_api, "PortfolioLedgerRepository", lambda: repo.ledger)
 
     class FakeProvider:
         def get_latest(self, symbol):
             return MarketData(asset_id=symbol, timestamp=NOW, open=1, high=1, low=1, close=12.0, volume=1, source="fake",
                               currency=meta_currency, exchange="IST" if meta_currency else None, identity_check=identity)
 
-    monkeypatch.setattr(pnl_calculator, "BistProvider", FakeProvider)
+    monkeypatch.setattr(pnl_calculator, "ProvenanceBistProvider", FakeProvider)
     app = FastAPI()
     app.include_router(portfolio_api.router)
     app.dependency_overrides[get_current_user_id] = lambda: "u1"
@@ -147,10 +171,9 @@ def test_transaction_currency_carried_from_position_and_backward_compatible(monk
     old_tx = {"user_id": "u1", "asset": "AAA", "quantity": 1.0, "buy_price": 1.0, "buy_date": NOW, "sell_price": 2.0,
               "sell_date": NOW, "realized_pnl": 1.0, "realized_pnl_percent": 100.0, "created_at": NOW}
     assert PortfolioTransaction(**old_tx).currency is None
-    FakeTxRepo.added = []
-    c, _ = client(monkeypatch, [OLD_DOC | {"currency": "TRY"}])
+    c, repo = client(monkeypatch, [OLD_DOC | {"currency": "TRY"}])
     assert c.post("/portfolio/positions/AAA/close", json={"sell_price": 11.0}).status_code == 200
-    assert FakeTxRepo.added[-1].currency == "TRY"
+    assert repo.ledger.sales[-1].currency == "TRY"
     c2, _ = client(monkeypatch, [OLD_DOC])
     assert c2.post("/portfolio/positions/AAA/close", json={"sell_price": 11.0}).json()["currency"] is None
 

@@ -38,3 +38,16 @@ class PositionLimitCheckRequest(BaseModel):
     position_version: str
     profit_target_pct: float | None = None
     max_loss_pct: float | None = None
+
+
+class PositionSaleRequest(BaseModel):
+    """Kısmi/tam satış (ağırlıklı ortalama maliyet). Adet ve istemcinin gördüğü pozisyon sürümü zorunlu; maliyet,
+    doğrulama bayrağı vb. kabul edilmez (fazla alan 422)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    quantity: float = Field(gt=0)
+    sell_price: float = Field(gt=0)
+    sell_date: datetime | None = None
+    position_version: str = Field(min_length=1)
+    currency: str | None = Field(default=None, pattern=CURRENCY_PATTERN)

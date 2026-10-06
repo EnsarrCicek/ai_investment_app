@@ -25,3 +25,18 @@ class PortfolioTransaction(BaseModel):
     immutable: bool = True
     # Pozisyonun kayıtlı para birimi taşınır; pozisyonda yoksa None (eski işlemler de None). TRY varsayılmaz.
     currency: str | None = None
+    # Satış defteri alanları (bkz. app/services/portfolio/sale_ledger.py). Eski kayıtlarda None.
+    # `quantity` = satılan adet; `buy_price` = satış anındaki ağırlıklı ortalama maliyet (float gösterim).
+    # Kesin değerler Decimal metni olarak saklanır (float sapması yok).
+    disposal_method: str | None = None  # WEIGHTED_AVERAGE
+    average_cost_at_sale: str | None = None
+    disposed_cost_basis: str | None = None
+    sale_proceeds: str | None = None
+    realized_pnl_exact: str | None = None
+    remaining_quantity: str | None = None
+    remaining_cost_basis: str | None = None
+    position_version_before: str | None = None
+    # False = gerçekleşen K/Z, adet/maliyet tabanı kurumsal işlemler açısından doğrulanmadan hesaplandı.
+    basis_verified: bool | None = None
+    # Satış anındaki lot kimlikleri; satış yalnız bu lotların tamamı hâlâ mevcutsa pozisyona uygulanır.
+    ledger_lot_ids: list[str] | None = None

@@ -8,6 +8,7 @@ import pytest
 
 from app.engines.technical.session_timing import ISTANBUL_TZ
 from app.models.portfolio_position import PortfolioPosition
+from app.services.market_data import bist_provenance_provider as pp
 from app.services.market_data import bist_provider as bp
 from app.services.portfolio import limit_check as lc
 from app.services.portfolio import position_review as pr
@@ -39,13 +40,13 @@ class FakeTicker:
 @pytest.fixture(autouse=True)
 def _patch(monkeypatch):
     monkeypatch.setattr(bp.time, "sleep", lambda *_a, **_k: None)
-    monkeypatch.setattr(bp, "datetime", FixedDatetime)
+    monkeypatch.setattr(pp, "datetime", FixedDatetime)
 
 
 def provider_with(monkeypatch, meta):
     t = FakeTicker(meta)
     monkeypatch.setattr(bp.yf, "Ticker", lambda _s: t)
-    return bp.BistProvider(), t
+    return pp.ProvenanceBistProvider(), t
 
 
 def test_full_metadata_is_match_and_carried(monkeypatch):
@@ -67,7 +68,7 @@ def test_missing_identity_field_is_unverified_without_defaults(monkeypatch, miss
 @pytest.mark.parametrize("wrong", [{"symbol": "AAB.IS"}, {"exchangeName": "NMS"}, {"currency": "USD"}])
 def test_identity_mismatch_fails_closed(monkeypatch, wrong):
     p, _ = provider_with(monkeypatch, GOOD | wrong)
-    with pytest.raises(bp.ProviderIdentityError):
+    with pytest.raises(pp.ProviderIdentityError):
         p.get_history_with_provenance("AAA")
 
 
