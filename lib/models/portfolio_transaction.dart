@@ -11,6 +11,16 @@ class PortfolioTransaction {
   /// Pozisyonun kayıtlı para birimi; eski işlemlerde null = bilinmiyor.
   final String? currency;
 
+  /// true = gerçekleşen K/Z, kurumsal işlemler açısından doğrulanmış adet/maliyet tabanından hesaplandı.
+  /// false/null (eski kayıt) = doğrulanmadı; sayısal değer modelde kalır ama doğrulanmış sonuç değildir.
+  final bool? basisVerified;
+
+  /// Ör. WEIGHTED_AVERAGE (kısmi satış defteri); eski kayıtlarda null.
+  final String? disposalMethod;
+
+  /// `quantity` satılan adettir (kısmi satışta yalnız satılan kısım).
+  bool get realizedVerified => basisVerified == true;
+
   PortfolioTransaction({
     required this.asset,
     required this.quantity,
@@ -21,6 +31,8 @@ class PortfolioTransaction {
     required this.realizedPnl,
     required this.realizedPnlPercent,
     this.currency,
+    this.basisVerified,
+    this.disposalMethod,
   });
 
   factory PortfolioTransaction.fromJson(Map<String, dynamic> json) {
@@ -34,6 +46,8 @@ class PortfolioTransaction {
       realizedPnl: (json['realized_pnl'] as num).toDouble(),
       realizedPnlPercent: (json['realized_pnl_percent'] as num).toDouble(),
       currency: json['currency'] as String?,
+      basisVerified: json['basis_verified'] as bool?,
+      disposalMethod: json['disposal_method'] as String?,
     );
   }
 }

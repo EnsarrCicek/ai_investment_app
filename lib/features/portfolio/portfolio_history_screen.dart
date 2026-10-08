@@ -8,7 +8,10 @@ import '../../services/api/portfolio_api.dart';
 import '../../utils/currency_label.dart';
 
 class PortfolioHistoryScreen extends StatefulWidget {
-  const PortfolioHistoryScreen({super.key});
+  /// Testlerde sahte API verilebilir; üretimde varsayılan kullanılır.
+  final PortfolioApi? api;
+
+  const PortfolioHistoryScreen({super.key, this.api});
 
   @override
   State<PortfolioHistoryScreen> createState() => _PortfolioHistoryScreenState();
@@ -25,7 +28,7 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
 
   /// Açık pozisyonlar alınamazsa liste null döner: açık K/Z bilinmiyor (0 sayılmaz, doğrulanmamış gösterilir).
   Future<(PortfolioHistorySummary, double, List<PortfolioPosition>?)> _load() async {
-    final api = PortfolioApi();
+    final api = widget.api ?? PortfolioApi();
     final history = await api.fetchHistory();
     var unrealized = 0.0;
     List<PortfolioPosition>? positions;
@@ -67,6 +70,8 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
             final units = historyUnits(history.transactions, positions ?? const []);
             // Gerçekleşen K/Z kullanıcının kayıtlı alış/satış fiyatlarından; açık K/Z piyasa fiyatına dayanır.
             final openVerified = openPnlVerified(positions);
+            // Gerçekleşen K/Z yalnız TÜM işlemlerin adet/maliyet tabanı doğrulanmışsa sayısal gösterilir.
+            final realizedVerified = realizedPnlVerified(history.transactions);
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -82,6 +87,7 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
                           label: 'Gerçekleşen K/Z (satılanlar)',
                           value: history.totalRealizedPnl,
                           unit: units.realized,
+                          unverified: !realizedVerified,
                         ),
                         const SizedBox(height: 4),
                         _SummaryRow(
@@ -96,7 +102,7 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
                           value: total,
                           unit: units.total,
                           big: true,
-                          unverified: !openVerified,
+                          unverified: !openVerified || !realizedVerified,
                         ),
                       ],
                     ),
@@ -111,7 +117,7 @@ class _PortfolioHistoryScreenState extends State<PortfolioHistoryScreen> {
                     child: Center(child: Text('Henüz kapatılmış (satılmış) bir pozisyon yok.')),
                   )
                 else
-                  ...history.transactions.map((t) => _TransactionCard(transaction: t)),
+                  ...history.transactions.map((t) => PortfolioTransactionCard(transaction: t)),
               ],
             );
           },
@@ -159,13 +165,21 @@ String _fmtDate(DateTime d) {
   return '$day.$month.${local.year}';
 }
 
-class _TransactionCard extends StatelessWidget {
+const realizedUnverifiedText = 'Gerçekleşen K/Z: Doğrulanmadı';
+const realizedUnverifiedNote = 'Pozisyonun adet/maliyet tabanı kurumsal işlemler açısından doğrulanmadı.';
+
+String _qty(double q) => q == q.roundToDouble() ? q.toStringAsFixed(0) : q.toString();
+
+String? _methodLabel(String? method) => method == 'WEIGHTED_AVERAGE' ? 'Maliyet yöntemi: Ağırlıklı Ortalama' : null;
+
+class PortfolioTransactionCard extends StatelessWidget {
   final PortfolioTransaction transaction;
-  const _TransactionCard({required this.transaction});
+  const PortfolioTransactionCard({super.key, required this.transaction});
 
   @override
   Widget build(BuildContext context) {
     final t = transaction;
+    if (!t.realizedVerified) return _unverified(context, t);
     final isProfit = t.realizedPnl >= 0;
     final color = isProfit ? Colors.green : Colors.red;
     final direction = isProfit ? 'yükseldi' : 'düştü';
@@ -200,11 +214,47 @@ class _TransactionCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${_fmtDate(t.buyDate)} tarihinde ${amount(t.buyPrice)} fiyatla ${t.quantity.toStringAsFixed(0)} adet alındı, '
+              '${_fmtDate(t.buyDate)} tarihinde ${amount(t.buyPrice)} fiyatla ${_qty(t.quantity)} adet alındı, '
               '${_fmtDate(t.sellDate)} tarihinde ${amount(t.sellPrice)} fiyatla satıldı. '
               'Fiyat %${t.realizedPnlPercent.abs().toStringAsFixed(1)} $direction, $result.',
               style: const TextStyle(fontSize: 13),
             ),
+            if (_methodLabel(t.disposalMethod) != null)
+              Text(_methodLabel(t.disposalMethod)!, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Doğrulanmamış (false/null/eski kayıt): sayısal K/Z, yüzde ve kâr/zarar yorumu gösterilmez.
+  Widget _unverified(BuildContext context, PortfolioTransaction t) {
+    final unit = currencyUnit(t.currency);
+    final method = _methodLabel(t.disposalMethod);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(t.asset, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const Spacer(),
+                const Flexible(
+                  child: Text(realizedUnverifiedText, textAlign: TextAlign.end, style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_fmtDate(t.sellDate)} tarihinde ${_qty(t.quantity)} adet '
+              '${withUnit(t.sellPrice.toStringAsFixed(2), unit)} fiyatla satıldı.',
+              style: const TextStyle(fontSize: 13),
+            ),
+            if (method != null) Text(method, style: Theme.of(context).textTheme.bodySmall),
+            Text(realizedUnverifiedNote, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
       ),
@@ -236,3 +286,6 @@ class _TransactionCard extends StatelessWidget {
 /// gerçekten 0'dır; varsa tümü doğrulanmış olmalı (bkz. `summaryPnlVerified`).
 bool openPnlVerified(List<PortfolioPosition>? positions) =>
     positions != null && (positions.isEmpty || summaryPnlVerified(positions));
+
+/// Gerçekleşen K/Z toplamı yalnız tüm işlemler doğrulanmışsa (boşsa değer gerçekten 0) doğrulanmış sayılır.
+bool realizedPnlVerified(List<PortfolioTransaction> transactions) => transactions.every((t) => t.realizedVerified);

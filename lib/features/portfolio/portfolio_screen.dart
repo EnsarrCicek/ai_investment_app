@@ -10,16 +10,21 @@ import '../../services/position_limit_store.dart';
 import '../../utils/currency_label.dart';
 import 'portfolio_history_screen.dart';
 import 'position_limits_sheet.dart';
+import 'position_sell_dialog.dart';
 
 class PortfolioScreen extends StatefulWidget {
-  const PortfolioScreen({super.key});
+  /// Testlerde sahte API ve sembol listesi verilebilir; üretimde varsayılanlar kullanılır.
+  final PortfolioApi? api;
+  final Future<List<String>> Function()? loadSymbols;
+
+  const PortfolioScreen({super.key, this.api, this.loadSymbols});
 
   @override
   State<PortfolioScreen> createState() => _PortfolioScreenState();
 }
 
 class _PortfolioScreenState extends State<PortfolioScreen> {
-  final _api = PortfolioApi();
+  late final PortfolioApi _api = widget.api ?? PortfolioApi();
   final _limitStore = PositionLimitStore();
   late Future<(List<PortfolioPosition>, PortfolioSummary)> _future;
   List<String> _availableSymbols = [];
@@ -28,8 +33,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   void initState() {
     super.initState();
     _future = _api.fetchPositions();
-    AssetApi().fetchAssets().then((assets) {
-      if (mounted) setState(() => _availableSymbols = assets.map((a) => a.symbol).toList());
+    final loadSymbols =
+        widget.loadSymbols ?? () => AssetApi().fetchAssets().then((assets) => assets.map((a) => a.symbol).toList());
+    loadSymbols().then((symbols) {
+      if (mounted) setState(() => _availableSymbols = symbols);
     });
   }
 
@@ -148,79 +155,21 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     );
   }
 
+  /// Kısmi/tam satış (`/sell`). Başarı veya POSITION_CHANGED sonrası portföy backend'den yeniden yüklenir;
+  /// kalan adet istemcide hesaplanmaz, bayat durumda otomatik yeniden deneme yapılmaz.
   Future<void> _showClosePositionDialog(PortfolioPosition position) async {
-    final priceController = TextEditingController(text: position.currentPrice?.toStringAsFixed(2));
-    bool saving = false;
-
-    final closed = await showDialog<bool>(
+    final result = await showDialog<SellDialogResult>(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: Text('${position.asset} — Sattım'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${position.quantity.toStringAsFixed(0)} adet, ort. alış '
-                      '${withUnit(position.buyPrice.toStringAsFixed(2), position.buyPriceUnit)}'),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: priceController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(labelText: _labelWithUnit('Satış Fiyatı', position.buyPriceUnit)),
-                    autofocus: true,
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.pop(dialogContext, false),
-                  child: const Text('İptal'),
-                ),
-                FilledButton(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          final sellPrice = double.tryParse(priceController.text);
-                          if (sellPrice == null) return;
-                          setDialogState(() => saving = true);
-                          try {
-                            await _api.closePosition(asset: position.asset, sellPrice: sellPrice);
-                            if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                          } catch (e) {
-                            setDialogState(() => saving = false);
-                            if (dialogContext.mounted) {
-                              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                SnackBar(content: Text('Kapatılamadı: $e')),
-                              );
-                            }
-                          }
-                        },
-                  child: saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text('Sattım'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => PositionSellDialog(position: position, sell: _api.sellPosition),
     );
-
-    if (closed == true) {
-      _reload();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${position.asset} kapatıldı — Geçmiş\'te görebilirsiniz.')),
-        );
-      }
-    }
+    if (result == null || !mounted) return;
+    _reload();
+    final message = switch (result) {
+      SellCompleted(:final transaction) => '${position.asset}: ${_qtyText(transaction.quantity)} adet satış kaydedildi — '
+          "Geçmiş'te görebilirsiniz.",
+      SellPositionChanged(:final message) => message,
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -416,3 +365,5 @@ const pnlUnverifiedText = 'Kâr/Zarar: Doğrulanmadı';
 const pnlUnverifiedTotalText = 'Toplam Kâr/Zarar: Doğrulanmadı';
 const pnlUnverifiedNote = 'Fiyat temeli ve kurumsal işlem etkileri doğrulanmadı.';
 const currentValueUnverifiedTotalText = 'Toplam Güncel Değer: Doğrulanmadı';
+
+String _qtyText(double q) => q == q.roundToDouble() ? q.toStringAsFixed(0) : q.toString();
