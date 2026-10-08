@@ -1,0 +1,19 @@
+# `gcloud run deploy --source` YÜKLEME filtresi (Cloud Build'e giden zip). .dockerignore yalnız imajı süzer;
+# bu dosya yoksa yerel araştırma çıktıları (runs/, ~260 MB, lisansı doğrulanmamış veri dahil) GCS'e yüklenir.
+# .dockerignore ile aynı kapsam; araştırma KAYNAK kodu ve app/research/resources/** dahildir.
+.gcloudignore
+.git
+.gitignore
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+scripts/
+.env
+.env.example
+firebase-service-account.json
+*service-account*.json
+app/research/**/data/*.json.gz
+app/research/**/runs/
+*.log

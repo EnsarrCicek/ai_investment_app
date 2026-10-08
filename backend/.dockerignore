@@ -1,10 +1,21 @@
 .venv
 __pycache__
+**/__pycache__
 *.pyc
+**/*.pyc
 .pytest_cache
+**/.pytest_cache
 tests
 scripts
 .env
 .env.example
+.git
+# Local credentials: never part of the image (Cloud Run uses the attached service account).
+firebase-service-account.json
+**/*service-account*.json
 # Research raw market-data snapshots: never part of the production image.
 app/research/**/data/*.json.gz
+# Generated research run outputs (local caches, third-party/official raw data, logs). Research SOURCE,
+# app/research/resources/** and committed results/manifests stay in the context.
+app/research/**/runs
+**/*.log
