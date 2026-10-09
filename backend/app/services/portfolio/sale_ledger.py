@@ -149,11 +149,16 @@ class SalePlan:
 def plan_sale(user_id: str, asset: str, lots: list[tuple[str, PortfolioPosition]],
               sales: list[tuple[str, PortfolioTransaction]], *, quantity, sell_price, sell_date: datetime | None,
               expected_version: str | None, request_currency: str | None, now: datetime,
-              corporate_actions_verified: bool = False) -> SalePlan:
+              corporate_action_provider=None) -> SalePlan:
     """Satış planı (saf). `quantity=None` -> kalan adedin tamamı. `expected_version=None` -> sürüm kontrolü yok
-    (yalnız eski `/close` uyumu için; yeni `/sell` her zaman sürüm ister)."""
+    (yalnız eski `/close` uyumu için; yeni `/sell` her zaman sürüm ister).
+
+    `basis_verified` kanonik kurumsal işlem doğrulamasından gelir (lotların alış tarihi kanıtı → satış tarihi;
+    `corporate_action_provider=None` → üretim varsayılanı, kaynak yok → COVERAGE_MISSING → False; alış tarihi
+    doğrulanmamışsa ACQUISITION_DATE_UNVERIFIED). Doğrulama satışı ENGELLEMEZ; yalnız kayda anlık görüntü olarak
+    yazılır."""
+    from app.services.portfolio.corporate_action_verifier import acquisition_evidence, verify_corporate_actions
     from app.services.portfolio.limit_check import position_version
-    from app.services.portfolio.pnl_calculator import position_basis_verification
 
     if not lots:
         raise SaleError("POSITION_NOT_FOUND", 404, f"'{asset}' için açık bir pozisyon bulunamadı")
@@ -165,7 +170,9 @@ def plan_sale(user_id: str, asset: str, lots: list[tuple[str, PortfolioPosition]
         raise SaleError("NO_AVAILABLE_QUANTITY", 404, "Satılabilir adet yok.")
     currency = resolve_currency(merged_currency([p for _, p in lots]), request_currency)
     acc = weighted_average_sale(total_qty, total_cost, total_qty if quantity is None else quantity, sell_price)
-    basis_verified, _ = position_basis_verification(corporate_actions_verified)
+    first_buy = min(p.buy_date for _, p in lots)
+    verification = verify_corporate_actions(asset, acquisition_evidence([p for _, p in lots]), sell_date or now,
+                                            corporate_action_provider)
     with localcontext() as ctx:
         ctx.prec = PRECISION
         pct = (acc["realized_pnl"] / acc["disposed_cost_basis"] * 100) if acc["disposed_cost_basis"] else Decimal(0)
@@ -173,7 +180,7 @@ def plan_sale(user_id: str, asset: str, lots: list[tuple[str, PortfolioPosition]
         user_id=user_id, asset=asset,
         quantity=float(acc["sold_quantity"]),
         buy_price=float(acc["average_cost_at_sale"]),
-        buy_date=min(p.buy_date for _, p in lots),
+        buy_date=first_buy,
         sell_price=float(dec(sell_price)),
         sell_date=sell_date or now,
         realized_pnl=float(acc["realized_pnl"].quantize(Decimal("0.01"))),
@@ -188,7 +195,13 @@ def plan_sale(user_id: str, asset: str, lots: list[tuple[str, PortfolioPosition]
         remaining_quantity=str(acc["remaining_quantity"]),
         remaining_cost_basis=str(acc["remaining_cost_basis"]),
         position_version_before=version,
-        basis_verified=basis_verified,
+        basis_verified=verification.verified,
+        basis_verification_reason=verification.reason,
+        corporate_action_checked_from=verification.checked_from.isoformat() if verification.checked_from else None,
+        corporate_action_checked_through=(verification.checked_through.isoformat()
+                                          if verification.checked_through else None),
+        corporate_action_source=verification.source,
+        corporate_action_verifier_version=verification.verifier_version,
         ledger_lot_ids=sorted(lot_id for lot_id, _ in lots),
     )
     return SalePlan(transaction=tx, full=acc["remaining_quantity"] == 0, lot_ids=sorted(lot_id for lot_id, _ in lots))

@@ -22,6 +22,11 @@ from app.engines.technical.session_timing import ISTANBUL_TZ
 from app.models.portfolio_position import PortfolioPosition
 from app.services.market_data.bist_provenance_provider import ProviderIdentityError
 from app.services.portfolio import position_review as pr
+from app.services.portfolio.corporate_action_verifier import (
+    acquisition_evidence,
+    position_review_check,
+    verify_corporate_actions,
+)
 from app.services.portfolio.sale_ledger import ledger_totals, remaining_review_lots
 
 PROVIDER_PRICE_BASIS = "PROVIDER_ADJUSTED_YFINANCE_AUTO_ADJUST"
@@ -104,7 +109,7 @@ def _price_records(history, retrieved_at: datetime, source: str, basis: str) -> 
 def _base(asset: str, version: str | None, limits: dict) -> dict:
     return {"asset": asset, "position_version": version, "limits": limits, "state": None, "block_code": None,
             "block_message": None, "evaluated_at": None, "expected_session": None, "price_used": None,
-            "checks": None, "price_provenance": None, "notes": NOTES}
+            "checks": None, "price_provenance": None, "corporate_action_verification": None, "notes": NOTES}
 
 
 def _blocked(out: dict, code: str) -> dict:
@@ -115,14 +120,18 @@ def _blocked(out: dict, code: str) -> dict:
 def check_limits(user_id: str, asset: str, client_version: str, limits: dict, portfolio_repo, provider,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
                  price_basis: str = PROVIDER_PRICE_BASIS, corporate_action_check: dict | None = None,
-                 ledger_repo=None) -> dict:
+                 ledger_repo=None, corporate_action_provider=None) -> dict:
     """limits: {"profit_target_pct": float|None, "max_loss_pct": float|None}. Sınır doğrulaması position_review'da
     (geçersizse pr.InputError). `price_basis`/`corporate_action_check` yalnız sunucu tarafı kaynak beyanıdır; API
     uç noktası bunları istemciden ALMAZ ve mevcut sağlayıcı için varsayılanlar (düzeltilmiş, kontrol yok) kullanılır.
 
     `ledger_repo` (satış defteri): kısmi satışlar kanonik `ledger_totals` ile düşülür; sürüm `/positions` ve `/sell`
     ile aynı algoritmadır (lotlar + uygulanan satış kimlikleri) ve review'e kalan adet/kesin kalan maliyet gider.
-    Verilmezse satış yok sayılır (yalnız satış defteri olmayan testler; API her zaman verir)."""
+    Verilmezse satış yok sayılır (yalnız satış defteri olmayan testler; API her zaman verir).
+
+    Kurumsal işlem kapısı: `corporate_action_check` (yalnız testlerin sunucu tarafı beyanı) verilmemişse kanonik
+    `verify_corporate_actions` sonucu (en erken lot alışı → değerleme seansı) `position_review` girdisine çevrilir;
+    satış ve açık K/Z ile aynı algoritma. Kapı sırası (kimlik → fiyat temeli → kurumsal işlem) değişmez."""
     asset = asset.upper()
     pr._parse_limits(limits)  # erken doğrulama; hata -> InputError
     out = _base(asset, None, limits)
@@ -153,6 +162,15 @@ def check_limits(user_id: str, asset: str, client_version: str, limits: dict, po
     records = _price_records(history, provenance["retrieved_at"], provenance["source"], price_basis)
     for r in records:
         r["symbol"] = asset
+    session = pr.valuation_session(now)
+    # Kurumsal işlem kaynağına yalnız kimlik ve ham fiyat temeli kapıları geçilebilecekse gidilir; aksi halde sonuç
+    # zaten o kapılarda engellenir (review: fiyat temeli kurumsal işlemden önce; kimlik kapısı review'den sonra).
+    gates_passable = provenance.get("identity_check") == "MATCH" and price_basis == pr.RAW_BASIS
+    if corporate_action_check is None and session is not None and gates_passable:
+        verification = verify_corporate_actions(asset, acquisition_evidence(review_lots), session,
+                                                corporate_action_provider)
+        out["corporate_action_verification"] = verification.summary()
+        corporate_action_check = position_review_check(verification)
     report = pr.review({"evaluated_at": now, "positions": [p.model_dump() for p in review_lots], "price_records": records,
                         "corporate_action_checks": {asset: corporate_action_check} if corporate_action_check else {},
                         "limits": {k: v for k, v in limits.items() if v is not None}})

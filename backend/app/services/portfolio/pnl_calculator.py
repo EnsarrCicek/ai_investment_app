@@ -1,3 +1,4 @@
+from app.models.corporate_action import CorporateActionVerification
 from app.models.portfolio_position import PortfolioPosition
 from app.services.market_data.base import MarketDataProvider
 from app.models.market_data import MarketData
@@ -39,9 +40,13 @@ def pnl_verification(position_currency: str | None, latest: MarketData,
 
 
 def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | None = None,
-                  corporate_actions_verified: bool = False) -> dict:
-    """Hesap formülleri değişmedi. `corporate_actions_verified` yalnız doğrulanmış bir kaynak bağlandığında True
-    olabilir; bugün hiçbir üretim çağıranı bunu vermiyor."""
+                  corporate_actions_verified: bool = False,
+                  corporate_action_verification: CorporateActionVerification | None = None) -> dict:
+    """Hesap formülleri değişmedi. Kurumsal işlem kapısı: `corporate_action_verification` verilmişse YALNIZ onun
+    sonucu (bkz. `corporate_action_verifier`; üretim kaynağı yok → COVERAGE_MISSING → False); verilmemişse
+    `corporate_actions_verified` (varsayılan False)."""
+    if corporate_action_verification is not None:
+        corporate_actions_verified = corporate_action_verification.verified
     provider = provider or ProvenanceBistProvider()
     latest = provider.get_latest(position.asset)
     current_price = latest.close
@@ -67,6 +72,8 @@ def calculate_pnl(position: PortfolioPosition, provider: MarketDataProvider | No
         # Adet/maliyet tabanı doğrulaması; current_value (adet × güncel fiyat) bu olmadan doğrulanmış sayılamaz.
         **dict(zip(("position_basis_verified", "position_basis_unverified_reason"),
                    position_basis_verification(corporate_actions_verified))),
+        "corporate_action_verification": (corporate_action_verification.summary()
+                                          if corporate_action_verification is not None else None),
     }
 
 

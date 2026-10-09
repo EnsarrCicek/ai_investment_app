@@ -38,5 +38,13 @@ class PortfolioTransaction(BaseModel):
     position_version_before: str | None = None
     # False = gerçekleşen K/Z, adet/maliyet tabanı kurumsal işlemler açısından doğrulanmadan hesaplandı.
     basis_verified: bool | None = None
+    # Satış anındaki kurumsal işlem doğrulamasının anlık görüntüsü (bkz. corporate_action_verifier). Eski kayıtlarda
+    # None. Tarihler ISO metni (Firestore `date` saklamaz). Sonradan doğrulama bu kaydı DEĞİŞTİRMEZ; ayrı
+    # `TransactionBasisVerification` kaydı eklenir.
+    basis_verification_reason: str | None = None
+    corporate_action_checked_from: str | None = None
+    corporate_action_checked_through: str | None = None
+    corporate_action_source: str | None = None
+    corporate_action_verifier_version: str | None = None
     # Satış anındaki lot kimlikleri; satış yalnız bu lotların tamamı hâlâ mevcutsa pozisyona uygulanır.
     ledger_lot_ids: list[str] | None = None

@@ -13,6 +13,12 @@ class PortfolioPosition(BaseModel):
     # Kayıtlı `buy_price` değerinin para birimi (ISO 4217). Eski kayıtlarda yok/None = BİLİNMİYOR;
     # TRY varsayılmaz. Güncel piyasa fiyatının para birimiyle (pnl yanıtındaki current_price_currency) karıştırılmaz.
     currency: str | None = None
+    # `buy_date`'in kaynağı (kurumsal işlem doğrulamasında elde tutma başlangıcı). Eski kayıtlarda yok → doğrulanmamış.
+    # İstek şemaları bu alanları KABUL ETMEZ; yalnız sunucu, doğrulanmış bir işlem kaynağından True yazabilir (bugün
+    # böyle bir yol yok). Uygulamadaki ekle/düzenle/hızlı al kaydın oluşturulduğu anı yazar: doğrulanmış DEĞİL.
+    acquisition_date_verified: bool = False
+    acquisition_date_source: str | None = None
+    acquisition_date_reference: str | None = None
 
 
 def merged_currency(lots: list[PortfolioPosition]) -> str | None:

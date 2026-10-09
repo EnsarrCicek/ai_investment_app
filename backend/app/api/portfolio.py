@@ -16,6 +16,8 @@ from app.schemas.portfolio import (
 )
 from app.services.market_data.bist_provenance_provider import ProvenanceBistProvider
 from app.services.portfolio import position_review
+from app.models.corporate_action import ACQUISITION_SOURCE_APP_RECORDED
+from app.services.portfolio.corporate_action_verifier import acquisition_evidence, verify_corporate_actions
 from app.services.portfolio.limit_check import check_limits, position_version
 from app.services.portfolio.pnl_calculator import calculate_pnl
 from app.services.portfolio.sale_ledger import SaleError, ledger_totals, plan_sale
@@ -25,8 +27,10 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
 @router.post("/positions")
 def create_position(payload: PortfolioPositionCreate, user_id: str = Depends(get_current_user_id)):
+    # `buy_date` istemcinin kaydettiği an (işlem zamanı kanıtı değil) → alış tarihi doğrulanmamış.
     position = PortfolioPosition(
-        user_id=user_id, **payload.model_dump(), created_at=datetime.now(timezone.utc)
+        user_id=user_id, **payload.model_dump(), created_at=datetime.now(timezone.utc),
+        acquisition_date_verified=False, acquisition_date_source=ACQUISITION_SOURCE_APP_RECORDED,
     )
     position_id = PortfolioRepository().add(position)
     return {"id": position_id, **position.model_dump()}
@@ -70,8 +74,10 @@ def list_positions(user_id: str = Depends(get_current_user_id)):
             created_at=datetime.now(timezone.utc),
             currency=currency,
         )
+        # Kurumsal işlem doğrulaması: lotların alış tarihi kanıtı → bugün (üretimde kaynak yok → COVERAGE_MISSING).
+        verification = verify_corporate_actions(asset, acquisition_evidence(lots), datetime.now(timezone.utc))
         try:
-            pnl = calculate_pnl(merged)
+            pnl = calculate_pnl(merged, corporate_action_verification=verification)
         except ValueError as exc:
             results.append(
                 {"asset": asset, "quantity": quantity, "buy_price": avg_buy_price, "lot_count": len(lots),
@@ -120,7 +126,9 @@ def update_position(asset: str, payload: PortfolioPositionUpdate, user_id: str =
     if "currency" not in payload.model_fields_set:
         existing = repo.get_position_for_asset(user_id, asset)
         data["currency"] = existing.currency if existing is not None else None
-    position = PortfolioPosition(user_id=user_id, asset=asset, **data, created_at=datetime.now(timezone.utc))
+    position = PortfolioPosition(user_id=user_id, asset=asset, **data, created_at=datetime.now(timezone.utc),
+                                 acquisition_date_verified=False,
+                                 acquisition_date_source=ACQUISITION_SOURCE_APP_RECORDED)
     position_id = repo.replace_for_asset(user_id, asset, position)
     return {"id": position_id, **position.model_dump()}
 
