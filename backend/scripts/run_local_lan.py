@@ -12,6 +12,10 @@ Kullanım (backend klasöründen):
 - Anahtar yine de yüklenmişse başlatma reddedilir.
 - Yalnızca verilen yerel IP'ye bağlanır (internete port açmaz). Firestore
   bağlantısı .env'deki FIREBASE_PROJECT_ID projesine gider.
+- LOCAL_LAN_DEV=1 ayarlanır (bkz. app/core/local_dev.py): Firestore kotası
+  dolarsa yalnız varlık listesi seed listesinden gelir ve dashboard satırları
+  açıkça "UNAVAILABLE / FIRESTORE_QUOTA_EXHAUSTED" döner. Portföy/işlem
+  verisi için yedek yoktur (503). Cloud Run'da (K_SERVICE) bu mod hiç açılmaz.
 """
 
 import argparse
@@ -21,6 +25,7 @@ from pathlib import Path
 
 for name in ("OPENAI_API_KEY", "DAILY_JOB_SECRET", "TECHNICAL_V1_JOB_SECRET"):
     os.environ[name] = ""
+os.environ["LOCAL_LAN_DEV"] = "1"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

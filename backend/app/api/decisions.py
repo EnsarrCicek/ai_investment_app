@@ -7,9 +7,19 @@ from app.engines.journal.outcome_evaluator import dominant_factor, evaluate_deci
 from app.repositories.ai_decision_repository import AIDecisionRepository
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.services.market_data.bist_provider import BistProvider
+from app.services.assets.asset_catalog import ASSET_CATALOG
+from app.services.decisions.dashboard import build_dashboard
 from app.services.notifications.fcm_sender import notify_if_new_opportunity, notify_if_strong_decision
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
+
+
+@router.get("/dashboard")
+def get_dashboard():
+    """Toplu, salt-okunur dashboard özeti (bkz. app/services/decisions/dashboard.py). `/{symbol}`'dan ÖNCE
+    tanımlı olmalı. Kullanıcıya bağlı değildir: portföy okunmaz, bildirim tetiklenmez, hiçbir şey yazılmaz."""
+    assets, source = ASSET_CATALOG.list_active()
+    return build_dashboard([a.symbol for a in assets], source)
 
 
 @router.get("/{symbol}")

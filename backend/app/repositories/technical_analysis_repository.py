@@ -37,6 +37,14 @@ class TechnicalAnalysisRepository:
         latest_id, latest = records[0]
         return latest, latest_id
 
+    def list_created_since(self, cutoff) -> list[tuple[str, TechnicalAnalysis]]:
+        """Toplu dashboard için: `created_at >= cutoff` olan TÜM varlıkların analizleri, tek sorguda. Tek alanlı aralık
+        filtresi otomatik indeksle çalışır (composite index gerekmez). `get_latest_with_id` her çağrıda o varlığın TÜM
+        geçmişini okur; cache tazelik penceresinden eski kayıt zaten cache hit olamayacağı için pencereli okuma
+        sonucu değiştirmez (bkz. app/services/decisions/dashboard.py)."""
+        docs = self._db.collection(COLLECTION).where(filter=FieldFilter("created_at", ">=", cutoff)).stream()
+        return [(doc.id, TechnicalAnalysis(**doc.to_dict())) for doc in docs]
+
     def get_by_id(self, analysis_id: str) -> TechnicalAnalysis | None:
         """HATA 18C: `ExplanationEngine`'in decision-bound (historical) modu
         için -- persisted `AIDecision.technical_analysis_id` referansını

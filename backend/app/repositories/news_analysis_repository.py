@@ -1,4 +1,4 @@
-from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud.firestore_v1.base_query import BaseQuery, FieldFilter
 
 from app.core.firebase import get_firestore_client
 from app.models.news_analysis import NewsAnalysis
@@ -17,6 +17,22 @@ class NewsAnalysisRepository:
     def add(self, analysis: NewsAnalysis) -> str:
         _, doc_ref = self._db.collection(COLLECTION).add(analysis.model_dump())
         return doc_ref.id
+
+    def count_all(self) -> int:
+        """Koleksiyondaki toplam kayıt sayısı (Firestore aggregation: 1000 indeks girdisi başına 1 okuma). Koleksiyon
+        yalnız eklemeli olduğundan sayı değişmediyse içerik de değişmemiştir — dashboard haber önbelleğinin
+        geçerlilik anahtarı (bkz. app/services/decisions/dashboard.py)."""
+        (result,) = self._db.collection(COLLECTION).count().get()
+        return int(result[0].value)
+
+    def latest_marker(self) -> tuple[str, object] | None:
+        """En yeni kaydın (belge kimliği, created_at) çifti — tek alanlı sıralama (otomatik indeks), 1 okuma. Sayımla
+        birlikte önbellek anahtarıdır: koleksiyon dışarıdan (ör. konsol) "1 sil + 1 ekle" ile değiştirilirse sayı aynı
+        kalsa bile yeni kayıt bu işareti değiştirir."""
+        docs = list(self._db.collection(COLLECTION).order_by("created_at", direction=BaseQuery.DESCENDING).limit(1).stream())
+        if not docs:
+            return None
+        return docs[0].id, docs[0].to_dict().get("created_at")
 
     def get_by_news_id(self, news_id: str, asset: str) -> NewsAnalysis | None:
         """`asset` de filtreye dahildir: Foreks gibi TEK bir haberin BİRDEN ÇOK

@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 
+from app.core import firestore_errors
+
 from app.api import (
     analysis,
     analysts,
@@ -20,6 +22,7 @@ from app.api import (
 )
 
 app = FastAPI(title="AI Yatirim Analiz Backend")
+firestore_errors.register(app)  # Firestore kota hatası → 503 FIRESTORE_QUOTA_EXHAUSTED (yedek veri yok)
 
 app.include_router(assets.router)
 app.include_router(analysis.router)

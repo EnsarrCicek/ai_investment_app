@@ -139,16 +139,13 @@ class AuthGate extends StatelessWidget {
 }
 
 class RootScreen extends StatefulWidget {
-  const RootScreen({super.key});
+  /// Testler için enjekte edilebilir sekme ekranları ve bildirim başlatma.
+  final List<Widget> screens;
+  final bool initializeNotifications;
 
-  @override
-  State<RootScreen> createState() => _RootScreenState();
-}
+  const RootScreen({super.key, this.screens = defaultScreens, this.initializeNotifications = true});
 
-class _RootScreenState extends State<RootScreen> {
-  int _index = 0;
-
-  static const _screens = [
+  static const defaultScreens = [
     DashboardScreen(),
     PortfolioScreen(),
     FundsScreen(),
@@ -157,8 +154,24 @@ class _RootScreenState extends State<RootScreen> {
   ];
 
   @override
+  State<RootScreen> createState() => _RootScreenState();
+}
+
+class _RootScreenState extends State<RootScreen> {
+  int _index = 0;
+
+  // Analiz sekmesi (0) bir kez kurulur ve durumu korunur (IndexedStack): sekmeye geri dönmek veriyi yeniden çekmez
+  // (eskiden her dönüşte sıfırdan kurulup ~101 istek atıyordu); yenileme yalnız açık "çek-yenile" ile. Diğer
+  // sekmeler önceki gibi yalnız seçiliyken kurulur, böylece her ziyarette güncel veri çeker (ör. Analiz'den hızlı
+  // alım sonrası Portföy) ve açılışta istek tetiklemez.
+  static const _persistentTabs = {0};
+
+  bool _isBuilt(int i) => i == _index || _persistentTabs.contains(i);
+
+  @override
   void initState() {
     super.initState();
+    if (!widget.initializeNotifications) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) NotificationService.initialize(context);
     });
@@ -167,7 +180,13 @@ class _RootScreenState extends State<RootScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_index],
+      body: IndexedStack(
+        index: _index,
+        children: [
+          for (var i = 0; i < widget.screens.length; i++)
+            _isBuilt(i) ? widget.screens[i] : const SizedBox.shrink(),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [

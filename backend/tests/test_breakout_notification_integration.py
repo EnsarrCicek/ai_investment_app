@@ -92,6 +92,30 @@ class _FakeAnalysisRepo:
         return self._analysis
 
 
+class _FakeRecordRepo:
+    def __init__(self):
+        self.added = []
+
+    def add(self, record):
+        self.added.append(record)
+        return "fake-record-id"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_firestore_in_notification_path(monkeypatch):
+    # Bu modülde fcm_sender'ın hiçbir varsayılan deposu gerçek Firestore'a DÜŞMEMELİ: eskiden enjekte edilmeyen
+    # `SystemConfigRepository().get()` (doküman yoksa yazar) ve `NotificationRecordRepository().add()` gerçek
+    # projeye gidiyordu. Kurulursa test açıkça başarısız olur.
+    def forbidden(name):
+        def _raise(*_a, **_k):
+            raise AssertionError(f"{name} gerçek Firestore'a gider; testte enjekte edilmeli")
+        return _raise
+
+    for name in ("SystemConfigRepository", "NotificationRecordRepository", "FcmTokenRepository",
+                 "NotificationLogRepository", "NewOpportunityNotificationRepository", "TechnicalAnalysisRepository"):
+        monkeypatch.setattr(fcm_sender, name, forbidden(name))
+
+
 class _FakeTokenRepo:
     def get(self, user_id):
         return "tok"
@@ -226,6 +250,7 @@ def test_end_to_end_new_opportunity_notification_from_real_pipeline(monkeypatch,
     sent_messages = []
     monkeypatch.setattr(fcm_sender.messaging, "send", lambda message: sent_messages.append(message))
     log_repo = _FakeNewOpportunityLogRepo()
+    record_repo = _FakeRecordRepo()
 
     def _notify(event_id):
         # HATA 9B-FIX: dedupe artık `signal_breakout_event_id` kullanır --
@@ -237,6 +262,7 @@ def test_end_to_end_new_opportunity_notification_from_real_pipeline(monkeypatch,
         return fcm_sender.notify_if_new_opportunity(
             "u1", _decision(), analysis_repo=_FakeAnalysisRepo(a), provider=_FakeProvider(pd.DataFrame()),
             token_repo=_FakeTokenRepo(), new_opportunity_log_repo=log_repo,
+            config_repo=_FakeConfigRepo(), record_repo=record_repo,
         )
 
     event1 = real_event_id
@@ -252,6 +278,7 @@ def test_end_to_end_new_opportunity_notification_from_real_pipeline(monkeypatch,
     assert sent_event2 is True
     assert sent_event1_fallback is False
     assert len(sent_messages) == 2
+    assert len(record_repo.added) == 2  # bildirim kayıtları yalnız bellekte
 
 
 # ---------------------------------------------------------------------------

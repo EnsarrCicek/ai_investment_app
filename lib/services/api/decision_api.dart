@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/decision.dart';
+import '../../models/decision_dashboard.dart';
 import '../../models/decision_journal_entry.dart';
 import '../../models/explanation.dart';
 import 'api_config.dart';
@@ -28,6 +29,26 @@ class DecisionApi {
     }
     final json = jsonDecode(utf8.decode(response.bodyBytes));
     return Decision.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// Dashboard: tek istek (eskiden `/assets` + varlık başına `/decisions/{symbol}`).
+  Future<DecisionDashboard> fetchDashboard() async {
+    final response = await http.get(Uri.parse('$baseUrl/decisions/dashboard'));
+    if (response.statusCode != 200) throw Exception(dashboardErrorMessage(response.statusCode, response.body));
+    return DecisionDashboard.fromJson(jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>);
+  }
+
+  /// 503 FIRESTORE_QUOTA_EXHAUSTED → anlaşılır mesaj; diğerleri HTTP kodu.
+  static String dashboardErrorMessage(int statusCode, String body) {
+    try {
+      final detail = (jsonDecode(body) as Map<String, dynamic>)['detail'];
+      if (detail is Map<String, dynamic> && detail['code'] == 'FIRESTORE_QUOTA_EXHAUSTED') {
+        return 'Veri tabanı kotası geçici olarak doldu; daha sonra tekrar deneyin.';
+      }
+    } catch (_) {
+      // gövde JSON değil: genel mesaj
+    }
+    return 'Piyasa analizi alınamadı (HTTP $statusCode)';
   }
 
   Future<List<Decision>> fetchHistory(String symbol, {int limit = 20}) async {

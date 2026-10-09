@@ -3,24 +3,25 @@ import 'package:flutter/material.dart';
 import '../../widgets/gradient_app_bar.dart';
 import '../../widgets/explanation_content.dart';
 
-import '../../models/decision.dart';
+import '../../models/decision_dashboard.dart';
 import '../../models/explanation.dart';
-import '../../services/api/asset_api.dart';
 import '../../services/api/decision_api.dart';
 import '../../utils/decision_style.dart';
 import '../../utils/percent_format.dart';
 import '../asset_detail/asset_detail_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  /// Testler için enjekte edilebilir; varsayılan tek `GET /decisions/dashboard` isteği.
+  final Future<DecisionDashboard> Function()? loadDashboard;
+
+  const DashboardScreen({super.key, this.loadDashboard});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _api = DecisionApi();
-  late Future<List<_AssetResult>> _future;
+  late Future<DecisionDashboard> _future;
   final _searchController = TextEditingController();
   bool _searching = false;
   String _query = '';
@@ -52,44 +53,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  // Gerçek bulut backend'ine (Cloud Run) karşı 100 sembolü TAMAMEN eşzamanlı
-  // istemek bağlantı katmanında kopmalara yol açıyordu (SocketException:
-  // connection abort — 100 eşzamanlı yeni TLS bağlantısı açılmaya çalışılınca).
-  // Bu yüzden istekler küçük gruplar hâlinde, art arda gönderiliyor.
-  static const int _batchSize = 10;
-
-  Future<List<_AssetResult>> _loadAll() async {
-    // BIST100'ün tamamı — backend'deki assets koleksiyonundan dinamik çekilir,
-    // sabit bir test listesi değil (bkz. KURULUM_GUNLUGU AŞAMA 43).
-    final assets = await AssetApi().fetchAssets();
-    final symbols = assets.map((a) => a.symbol).toList();
-
-    final results = <_AssetResult>[];
-    for (var i = 0; i < symbols.length; i += _batchSize) {
-      final batch = symbols.skip(i).take(_batchSize);
-      final batchResults = await Future.wait(
-        batch.map((symbol) async {
-          try {
-            final decision = await _api.fetchDecision(symbol);
-            return _AssetResult(symbol: symbol, decision: decision);
-          } catch (e) {
-            return _AssetResult(symbol: symbol, error: e.toString());
-          }
-        }),
-      );
-      results.addAll(batchResults);
-    }
-
-    // En güçlü AL sinyali üstte, en güçlü SAT sinyali altta — final_score'a göre
-    // azalan sıralama. Veri alınamayan (hata) varlıklar sıralanamaz, en altta kalır.
-    results.sort((a, b) {
-      if (a.decision == null && b.decision == null) return 0;
-      if (a.decision == null) return 1;
-      if (b.decision == null) return -1;
-      return b.decision!.finalScore.compareTo(a.decision!.finalScore);
-    });
-    return results;
-  }
+  // Tek istek: backend BIST100'ün tamamı için kararları toplu ve salt-okunur üretir (eskiden `/assets` + 100 ayrı
+  // `/decisions/{symbol}` isteği, her biri ortak Firestore verisini yeniden okuyup kayıt yazıyordu). Sıralama
+  // (en güçlü AL üstte, karar üretilemeyenler en altta) backend'de yapılır.
+  Future<DecisionDashboard> _loadAll() => (widget.loadDashboard ?? DecisionApi().fetchDashboard)();
 
   Future<void> _refresh() async {
     setState(() {
@@ -122,24 +89,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: FutureBuilder<List<_AssetResult>>(
+        child: FutureBuilder<DecisionDashboard>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            final allResults = snapshot.data ?? [];
+            if (snapshot.hasError) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(child: Text('${snapshot.error}'.replaceFirst('Exception: ', ''))),
+                  ),
+                ],
+              );
+            }
+            final dashboard = snapshot.data!;
+            final allResults = dashboard.items;
             final results = _query.isEmpty
                 ? allResults
-                : allResults.where((r) => r.symbol.contains(_query)).toList();
+                : allResults.where((r) => r.asset.contains(_query)).toList();
+            final header = _DashboardHeader(dashboard: dashboard);
 
             if (results.isEmpty) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
+                  header,
                   Padding(
                     padding: const EdgeInsets.only(top: 80),
-                    child: Center(child: Text('"$_query" için sonuç bulunamadı.')),
+                    child: Center(
+                      child: Text(_query.isEmpty ? 'Gösterilecek varlık yok.' : '"$_query" için sonuç bulunamadı.'),
+                    ),
                   ),
                 ],
               );
@@ -148,9 +131,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
-              itemCount: results.length,
+              itemCount: results.length + 1,
               separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (context, index) => _AssetCard(result: results[index]),
+              itemBuilder: (context, index) => index == 0 ? header : _AssetCard(item: results[index - 1]),
             );
           },
         ),
@@ -159,46 +142,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-class _AssetResult {
-  final String symbol;
-  final Decision? decision;
-  final String? error;
+const quotaUnavailableText = 'Veri şu an alınamıyor (veri tabanı kotası doldu). Skor gösterilmiyor.';
 
-  _AssetResult({required this.symbol, this.decision, this.error});
-}
+class _DashboardHeader extends StatelessWidget {
+  final DecisionDashboard dashboard;
 
-class _AssetCard extends StatelessWidget {
-  final _AssetResult result;
-
-  const _AssetCard({required this.result});
+  const _DashboardHeader({required this.dashboard});
 
   @override
   Widget build(BuildContext context) {
-    if (result.error != null) {
+    final t = dashboard.generatedAt.toLocal();
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Güncellendi: $hh:$mm', style: Theme.of(context).textTheme.bodySmall),
+        if (dashboard.degraded)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Yerel geliştirme modu: bazı veriler eksik ve açıkça işaretlendi.',
+              style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AssetCard extends StatelessWidget {
+  final DashboardItem item;
+
+  const _AssetCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!item.hasDecision) {
+      final text = item.status == 'UNAVAILABLE'
+          ? quotaUnavailableText
+          : 'Veri alınamadı: ${item.reason ?? 'bilinmeyen hata'}';
       return Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(result.symbol, style: Theme.of(context).textTheme.titleLarge),
+              Text(item.asset, style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              Text('Veri alınamadı: ${result.error}', style: const TextStyle(color: Colors.orange)),
+              Text(text, style: const TextStyle(color: Colors.orange)),
             ],
           ),
         ),
       );
     }
 
-    final decision = result.decision!;
-    final label = decisionLabel(decision.decision);
-    final color = decisionColor(decision.decision);
+    final label = decisionLabel(item.decision!);
+    final color = decisionColor(item.decision!);
 
     return Card(
       child: InkWell(
         onTap: () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => AssetDetailScreen(symbol: result.symbol)),
+          MaterialPageRoute(builder: (context) => AssetDetailScreen(symbol: item.asset)),
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -208,7 +214,7 @@ class _AssetCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(result.symbol, style: Theme.of(context).textTheme.titleLarge),
+                  Text(item.asset, style: Theme.of(context).textTheme.titleLarge),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
@@ -227,17 +233,17 @@ class _AssetCard extends StatelessWidget {
               // (final kararla yönsel uyum) + ayrı "Veri Kapsamı" (kaç kanal
               // mevcuttu) -- ikisi ASLA tek sayıya birleştirilmez, karışıklığı
               // önlemek için birlikte gösterilir (bkz. only-one-channel case).
-              Text('Sinyal Mutabakatı: ${formatDecisionConfidencePercent(decision.confidence)}'),
-              Text('Veri Kapsamı: ${formatCoveragePercent(decision.channelCompleteness)}'),
+              Text('Sinyal Mutabakatı: ${formatDecisionConfidencePercent(item.confidence!)}'),
+              Text('Veri Kapsamı: ${formatCoveragePercent(item.channelCompleteness)}'),
               const SizedBox(height: 4),
-              Text('Technical: ${_fmtScore(decision.technicalScore)}'),
-              Text('News: ${_fmtScore(decision.newsScore)}'),
-              Text('Macro: ${_fmtScore(decision.macroScore)}'),
+              Text('Technical: ${_fmtScore(item.technicalScore)}'),
+              Text('News: ${_fmtScore(item.newsScore)}'),
+              Text('Macro: ${_fmtScore(item.macroScore)}'),
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () => _showExplanationDialog(context, result.symbol),
+                  onPressed: () => _showExplanationDialog(context, item.asset),
                   child: Text('Neden $label?'),
                 ),
               ),
