@@ -42,6 +42,19 @@ class NewsRawRepository:
             return None
         return NewsRawItem(**doc.to_dict())
 
+    def get_many(self, external_ids: list[str], chunk_size: int = 100) -> dict[str, NewsRawItem | None]:
+        """`get_by_external_id`'nin toplu karşılığı (`get_all`; belge başına 1 okuma, parça başına 1 RPC). Olmayan
+        belge `None` döner — tekil okumayla aynı sözleşme."""
+        out: dict[str, NewsRawItem | None] = {}
+        ids = list(dict.fromkeys(external_ids))
+        for start in range(0, len(ids), chunk_size):
+            refs = [self._db.collection(COLLECTION).document(i) for i in ids[start:start + chunk_size]]
+            for snap in self._db.get_all(refs):
+                out[snap.id] = NewsRawItem(**snap.to_dict()) if snap.exists else None
+        for i in ids:
+            out.setdefault(i, None)
+        return out
+
     def get_recent(self, symbol: str, limit: int = 20) -> list[NewsRawItem]:
         docs = (
             self._db.collection(COLLECTION)

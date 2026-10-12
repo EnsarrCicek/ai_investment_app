@@ -97,37 +97,65 @@ def raw(external_id, title, published_at):
                        published_at=published_at, received_at=published_at)
 
 
+def doc_id(a):
+    return f"doc-{a.asset}-{a.news_id}"
+
+
 class News:
+    """news_analyses sahtesi: belge kimliği = doc-{asset}-{news_id}. Toplu/artımlı/tekil okumaları sayar."""
+
     def __init__(self, by_asset, count=None, fail_assets=()):
         self.by_asset, self.count, self.fail_assets = by_asset, count, set(fail_assets)
         self.list_calls, self.count_calls, self.marker_calls = Counter(), 0, 0
+        self.full_calls, self.incremental_calls, self.docs_read = 0, 0, 0
+
+    def _docs(self):
+        return [(doc_id(a), a) for v in self.by_asset.values() for a in v]
 
     def count_all(self):
         self.count_calls += 1
-        return self.count if self.count is not None else sum(len(v) for v in self.by_asset.values())
+        return self.count if self.count is not None else len(self._docs())
 
     def latest_marker(self):
         self.marker_calls += 1
-        records = [a for v in self.by_asset.values() for a in v]
-        if not records:
+        docs = self._docs()
+        if not docs:
             return None
-        latest = max(records, key=lambda a: (a.created_at, a.news_id))
-        return latest.news_id, latest.created_at
+        latest_id, latest = max(docs, key=lambda d: (d[1].created_at, d[0]))
+        return latest_id, latest.created_at
 
-    def list_for_asset(self, asset, limit=None):
-        self.list_calls[asset] += 1
-        if asset in self.fail_assets:
+    def list_all_with_ids(self):
+        self.full_calls += 1
+        if self.fail_assets:
             raise ResourceExhausted("quota")
+        docs = self._docs()
+        self.docs_read += len(docs)
+        return docs
+
+    def list_created_since_with_ids(self, cutoff):
+        self.incremental_calls += 1
+        docs = [d for d in self._docs() if d[1].created_at >= cutoff]
+        self.docs_read += len(docs)
+        return docs
+
+    def list_for_asset(self, asset, limit=None):  # tekil karar yolu (dashboard kullanmaz)
+        self.list_calls[asset] += 1
         return list(self.by_asset.get(asset, []))
 
 
 class Raw:
     def __init__(self, raws):
-        self.raws, self.calls = raws, Counter()
+        self.raws, self.calls, self.batch_calls = raws, Counter(), 0
 
     def get_by_external_id(self, external_id):
         self.calls[external_id] += 1
         return self.raws.get(external_id)
+
+    def get_many(self, external_ids):
+        self.batch_calls += 1
+        for i in external_ids:
+            self.calls[i] += 1
+        return {i: self.raws.get(i) for i in external_ids}
 
 
 class FakeTechnical:
@@ -181,9 +209,9 @@ def test_100_symbols_global_reads_once_and_no_writes():
                                     TECH_KEYS[0]: 1, TECH_KEYS[1]: 1})
     assert macro.reads == 1 and bench.reads == 1 and len(tech.calls) == 1
     assert news_repo.count_calls == 1 and news_repo.marker_calls == 1  # istek başına, varlık başına değil
-    # Varlık başına: haber listesi bir kez; ham kayıt analiz başına bir kez (eskiden iki kez).
-    assert set(news_repo.list_calls.values()) == {1} and len(news_repo.list_calls) == 100
-    assert set(raw_repo.calls.values()) == {1}
+    # Haber: tek toplu sorgu (varlık başına sorgu yok); ham kayıtlar tek toplu okumada, her kimlik bir kez.
+    assert news_repo.full_calls == 1 and not news_repo.list_calls and news_repo.docs_read == 100
+    assert set(raw_repo.calls.values()) == {1} and len(raw_repo.calls) == 100 and raw_repo.batch_calls == 1
     assert bench.writes == 0  # yazma yok (karar yazımı fixture ile ayrıca engelli)
     # Teknik cache penceresi: TTL + pay kadar geri.
     assert tech.calls[0] == NOW - timedelta(seconds=TECHNICAL_CACHE_TTL_SECONDS) - db.TECHNICAL_WINDOW_MARGIN
@@ -197,21 +225,25 @@ def test_second_request_reuses_news_cache_and_count_change_invalidates():
     raw_repo = Raw({"a1": raw("a1", "AAA kâr", NOW - timedelta(hours=3))})
     for _ in range(3):
         db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, raw_repo, cache=cache), now=NOW)
-    assert news_repo.list_calls["AAA"] == 1 and raw_repo.calls["a1"] == 1 and news_repo.count_calls == 3
-    news_repo.by_asset["AAA"].append(news("AAA", "a2", -30.0))  # yeni analiz → sayı değişti
+    assert news_repo.full_calls == 1 and raw_repo.calls["a1"] == 1 and news_repo.count_calls == 3
+    assert news_repo.incremental_calls == 0  # anahtar değişmedi: okuma yok
+    news_repo.by_asset["AAA"].append(news("AAA", "a2", -30.0, NOW - timedelta(minutes=30)))  # yeni analiz
     out = db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, raw_repo, cache=cache), now=NOW)
-    assert news_repo.list_calls["AAA"] == 2
+    assert news_repo.full_calls == 1 and news_repo.incremental_calls == 1  # yalnız artımlı okuma
     assert out["items"][0]["news_score"] is not None
 
 
-def test_news_cache_expires_by_ttl():
+def test_raw_cache_expires_by_ttl_but_analyses_are_not_reread():
     clock = [0.0]
-    cache = db.NewsReadCache(ttl_seconds=10, clock=lambda: clock[0])
-    news_repo = News({"AAA": [news("AAA", "a1", 30.0)]})
-    db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, Raw({}), cache=cache), now=NOW)
-    clock[0] = 11.0
-    db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, Raw({}), cache=cache), now=NOW)
-    assert news_repo.list_calls["AAA"] == 2
+    cache = db.NewsReadCache(ttl_seconds=10, clock=lambda: clock[0], reconcile_seconds=100)
+    news_repo, raw_repo = News({"AAA": [news("AAA", "a1", 30.0)]}), Raw({})
+    db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, raw_repo, cache=cache), now=NOW)
+    clock[0] = 11.0  # ham haber TTL'i doldu (upsert ile değişebilir) → yeniden okunur; analizler okunmaz
+    db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, raw_repo, cache=cache), now=NOW)
+    assert raw_repo.calls["a1"] == 2 and news_repo.full_calls == 1
+    clock[0] = 101.0  # uzlaştırma aralığı → tam yeniden yükleme (uygulama dışı değişikliklerin etkisi sınırlı)
+    db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, raw_repo, cache=cache), now=NOW)
+    assert news_repo.full_calls == 2
 
 
 def test_dashboard_result_equals_single_symbol_engine():
@@ -300,11 +332,25 @@ def test_local_degraded_mode_marks_unavailable_without_numbers(monkeypatch):
 
 
 def test_local_row_quota_marks_only_that_row(monkeypatch):
+    """Satır içinde (ör. teknik motorun Firestore okuması) kota hatası yalnız o satırı etkiler."""
     local_mode(monkeypatch)
-    out = db.build_dashboard(["AAA", "BBB"], "FIRESTORE", deps(News({}, fail_assets={"AAA"})), now=NOW)
+
+    def score(symbol):
+        if symbol == "AAA":
+            raise ResourceExhausted("quota")
+        return 10.0
+
+    out = db.build_dashboard(["AAA", "BBB"], "FIRESTORE", deps(score=score), now=NOW)
     by = {i["asset"]: i for i in out["items"]}
     assert by["AAA"]["status"] == "UNAVAILABLE" and by["AAA"]["final_score"] is None
     assert by["BBB"]["status"] == "OK" and out["mode"] == "LOCAL_DEGRADED"
+
+
+def test_local_news_load_quota_marks_all_unavailable(monkeypatch):
+    """Haber toplu yüklemesi tüm varlıklar için ortaktır: kota hatası yerelde tüm satırları açıkça UNAVAILABLE yapar."""
+    local_mode(monkeypatch)
+    out = db.build_dashboard(["AAA", "BBB"], "FIRESTORE", deps(News({}, fail_assets={"AAA"})), now=NOW)
+    assert {i["status"] for i in out["items"]} == {"UNAVAILABLE"} and out["mode"] == "LOCAL_DEGRADED"
 
 
 def test_cloud_run_never_degrades_even_with_flag(monkeypatch):
@@ -475,7 +521,7 @@ def test_delete_plus_add_with_same_count_invalidates_news_cache():
     db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, Raw({}), cache=cache), now=NOW)
     news_repo.by_asset["AAA"] = [news("AAA", "a2", -30.0, NOW - timedelta(hours=1))]  # sayı aynı (1)
     out = db.build_dashboard(["AAA"], "FIRESTORE", deps(news_repo, Raw({}), cache=cache), now=NOW)
-    assert news_repo.list_calls["AAA"] == 2 and out["items"][0]["news_score"] == pytest.approx(-30.0)
+    assert news_repo.full_calls == 2 and out["items"][0]["news_score"] == pytest.approx(-30.0)
 
 
 def test_windowed_latest_matches_full_history_latest_for_cache_decision():

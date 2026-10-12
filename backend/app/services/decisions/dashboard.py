@@ -13,7 +13,7 @@ değişmez); yalnız bağımlılıklar istek ölçeğinde paylaşılır:
 * benchmark cache: istek başına en çok 1 okuma; yeniden çekilirse sonuç yalnız bu istekte tutulur (YAZILMAZ),
 * teknik analiz cache: tek aralık sorgusu (`created_at >= şimdi − TTL − pay`). Cache yalnız TTL içindeki kayıtla
   isabet edebildiğinden, daha eski kayıtları okumamak cache kararını değiştirmez,
-* haber: süreç içi önbellek (bkz. `NewsReadCache`), geçerlilik anahtarı koleksiyon sayımı (1 aggregation okuması),
+* haber: süreç içi önbellek (bkz. `NewsReadCache`): ilk yüklemede tek toplu sorgu, sonra artımlı; anahtar sayım + en yeni kayıt (2 okuma),
 * kararlar `persist=False` ile üretilir: dashboard hiçbir koleksiyona YAZMAZ (ai_decisions, technical_analyses,
   benchmark cache, bildirim kayıtları),
 * kullanıcı portföyü okunmaz, bildirim tetiklenmez (bunlar günlük job ve tekil karar uç noktasında kalır).
@@ -50,7 +50,10 @@ STATUS_UNAVAILABLE = "UNAVAILABLE"
 # eşzamanlılık altında boş/geçici hata döndürdüğünü belgeliyor. Fazla paralellik rate-limit riskini artırır.
 MAX_WORKERS = 8
 TECHNICAL_WINDOW_MARGIN = timedelta(seconds=60)
-NEWS_CACHE_TTL_SECONDS = TECHNICAL_CACHE_TTL_SECONDS
+NEWS_CACHE_TTL_SECONDS = TECHNICAL_CACHE_TTL_SECONDS  # ham haber önbelleği (upsert ile değişebilir)
+# Haber analizleri yalnız eklemeli olduğundan artımlı güncellenir; uygulama dışı (konsol) değişikliklerin etkisini
+# sınırlamak için bu aralıkta bir tam yeniden yükleme yapılır.
+NEWS_FULL_RECONCILE_SECONDS = 3600
 
 # İstek düzeyi süre bütçesi. Gerekçe (ölçüm + kod): sıcak/yerel tam istek ~7.5–8.5 sn; tek sembolün sağlayıcıdaki en
 # kötü zinciri 3 deneme × yfinance 10 sn zaman aşımı + 2 × 2 sn bekleme ≈ 34 sn. 45 sn, kuyrukta geç başlayan tek
@@ -166,66 +169,138 @@ class _NoWriteDecisionRepository:
 _MISSING = object()
 
 
+class NewsLoadTimeout(Exception):
+    """Başka bir isteğin süren haber yüklemesi bu isteğin bütçesi içinde bitmedi."""
+
+
+class NewsSnapshot:
+    """Bir isteğin değişmez haber girdileri: varlık başına analizler (tekil `list_for_asset` ile AYNI sıra) ve gereken
+    ham haber kayıtları. İşçiler yalnız bu nesneyi okur; süreç önbelleğine kilit almadan erişir."""
+
+    def __init__(self, by_asset: dict[str, tuple], raw: dict[str, object], raw_repo):
+        self._by_asset, self._raw, self._raw_repo = by_asset, raw, raw_repo
+
+    def analyses(self, asset: str) -> list:
+        return list(self._by_asset.get(asset, ()))
+
+    def raw(self, external_id: str):
+        value = self._raw.get(external_id, _MISSING)
+        if value is _MISSING:  # savunma: önceden çekilmemiş kimlik (olağan akışta olmaz) → tekil okuma
+            value = self._raw_repo.get_by_external_id(external_id)
+        return value
+
+
 class NewsReadCache:
-    """Haber seçim girdilerinin süreç içi önbelleği.
+    """Haber seçim girdilerinin süreç içi önbelleği — seçim algoritması (`select_recent_unique_news_analyses`)
+    DEĞİŞMEZ, yalnız girdileri buradan gelir; sonuç tekil `/decisions/{symbol}` ile aynı veride birebir aynıdır.
 
-    `news_analyses` uygulamada yalnız eklemelidir: tek yazan `NewsAnalysisRepository.add` (yeni rastgele kimlikli
-    belge); update/delete/set yolu yok, istemci kuralları tüm yazmaları reddeder. İstek başında anahtar okunur:
-    (toplam sayı, en yeni kaydın kimliği + created_at) — 2 okuma. Anahtar değiştiyse veya TTL dolduysa önbellek
-    tamamen temizlenir. Uygulama dışı (konsol) yerinde güncelleme anahtarı değiştirmez; etkisi TTL ile sınırlıdır.
-    Varlık analizleri ve ham
-    haber kayıtları (ham kayıtlar upsert ile değişebildiği için yalnız TTL süresince) ihtiyaç anında okunup tutulur.
-    Seçim algoritması (`select_recent_unique_news_analyses`) aynen çalışır; yalnız girdileri buradan gelir. Bu yüzden
-    sonuç, tekil `/decisions/{symbol}` ile aynı veri üzerinde birebir aynıdır."""
+    `news_analyses` uygulamada yalnız eklemelidir (tek yazan `NewsAnalysisRepository.add`; update/delete/set yolu yok,
+    istemci kuralları tüm yazmaları reddeder). Bu yüzden:
+    * İlk yükleme koleksiyonu TEK sorguda okur (varlık başına 100 sorgu yerine) ve varlığa göre gruplar.
+    * Sonraki isteklerde anahtar (toplam sayı, en yeni kaydın kimliği + created_at; 2 okuma) değişmediyse okuma yok;
+      değiştiyse yalnız `created_at >= son görülen` kayıtlar çekilir (sınır dahil, kimlikle tekilleştirilir). Birleşik
+      küme sayımla ve en yeni kayıt işaretiyle tutmazsa (geç yazılmış eski zaman damgalı kayıt, silme, yeniden
+      yükleme) tam yeniden yükleme yapılır.
+    * Uygulama dışı (konsol) yerinde güncelleme anahtarı değiştirmez; `reconcile_seconds`'ta bir tam yeniden yükleme
+      bunun etkisini sınırlar.
+    Ham haberler upsert ile güncellenebildiğinden (başlık/özet/güvenilirlik/yayın zamanı) yalnız `ttl_seconds`
+    süresince tutulur ve gereken kimlikler toplu (`get_many`) okunur.
 
-    def __init__(self, ttl_seconds: float = NEWS_CACHE_TTL_SECONDS, clock: Callable[[], float] = time.monotonic):
-        self._ttl, self._clock = ttl_seconds, clock
-        self._lock = threading.Lock()
+    Yükleme tek uçuşludur: aynı anda gelen istekler yüklemeyi bekler (kendi bütçeleri kadar), koleksiyonu tekrar
+    okumaz. Bekleme bütçeyi aşarsa `NewsLoadTimeout`. Geçmiş haberler atılmaz (kümeleme sıraya bağlı olduğundan
+    pencereleme skoru değiştirebilir); bellek koleksiyon boyutuyla büyür."""
+
+    def __init__(self, ttl_seconds: float = NEWS_CACHE_TTL_SECONDS, clock: Callable[[], float] = time.monotonic,
+                 reconcile_seconds: float = NEWS_FULL_RECONCILE_SECONDS):
+        self._ttl, self._clock, self._reconcile = ttl_seconds, clock, reconcile_seconds
+        self._load_lock = threading.Lock()
+        self._docs: dict[str, object] | None = None
         self._key = _MISSING
-        self._expires_at = 0.0
-        self._analyses: dict[str, list] = {}
+        self._loaded_at = 0.0
+        self._by_asset: dict[str, tuple] = {}
         self._raw: dict[str, object] = {}
+        self._raw_expires_at = 0.0
+        self.stats = {"full_loads": 0, "incremental_loads": 0, "incremental_docs": 0, "raw_fetched": 0}
 
-    def validate(self, key) -> None:
-        with self._lock:
-            if self._key != key or self._clock() >= self._expires_at:
-                self._key, self._expires_at = key, self._clock() + self._ttl
-                self._analyses, self._raw = {}, {}
+    def prepare(self, news_repo, raw_repo, symbols: list[str], timeout: float) -> NewsSnapshot:
+        if not self._load_lock.acquire(timeout=max(0.0, timeout)):
+            raise NewsLoadTimeout()
+        try:
+            self._sync_analyses(news_repo)
+            by_asset = {s: self._by_asset.get(s, ()) for s in symbols}
+            needed = [a.news_id for s in symbols for a in by_asset[s]]
+            return NewsSnapshot(by_asset, self._sync_raw(raw_repo, needed), raw_repo)
+        finally:
+            self._load_lock.release()
 
-    def analyses(self, asset: str, load: Callable[[], list]) -> list:
-        with self._lock:
-            cached = self._analyses.get(asset)
-        if cached is None:
-            cached = list(load())
-            with self._lock:
-                self._analyses[asset] = cached
-        return list(cached)
+    def _sync_analyses(self, news_repo) -> None:
+        key = (news_repo.count_all(), news_repo.latest_marker())
+        if self._docs is None or self._clock() - self._loaded_at >= self._reconcile:
+            self._full_load(news_repo, key)
+            return
+        if key == self._key:
+            return
+        count, marker = key
+        cutoff = max((a.created_at for a in self._docs.values()), default=None)
+        if cutoff is None:
+            self._full_load(news_repo, key)
+            return
+        new = news_repo.list_created_since_with_ids(cutoff)
+        docs = dict(self._docs)
+        docs.update((doc_id, a) for doc_id, a in new if doc_id not in docs)
+        if len(docs) != count or not self._marker_matches(marker, docs):
+            self._full_load(news_repo, key)
+            return
+        self.stats["incremental_loads"] += 1
+        self.stats["incremental_docs"] += len(new)
+        self._install(docs, key, self._loaded_at)
 
-    def raw(self, external_id: str, load: Callable[[], object]):
-        with self._lock:
-            cached = self._raw.get(external_id, _MISSING)
-        if cached is _MISSING:
-            cached = load()
-            with self._lock:
-                self._raw[external_id] = cached
-        return cached
+    @staticmethod
+    def _marker_matches(marker, docs) -> bool:
+        if marker is None:
+            return not docs
+        doc_id, created_at = marker
+        latest = max(a.created_at for a in docs.values())
+        return doc_id in docs and docs[doc_id].created_at == created_at == latest
+
+    def _full_load(self, news_repo, key) -> None:
+        self.stats["full_loads"] += 1
+        self._install(dict(news_repo.list_all_with_ids()), key, self._clock())
+
+    def _install(self, docs: dict, key, loaded_at: float) -> None:
+        # `list_for_asset` ile aynı sıra: sorgu belge kimliğine göre artan döner, sonra created_at azalan kararlı sıralama.
+        grouped: dict[str, list] = {}
+        for doc_id in sorted(docs):
+            grouped.setdefault(docs[doc_id].asset, []).append(docs[doc_id])
+        self._by_asset = {asset: tuple(sorted(items, key=lambda a: a.created_at, reverse=True))
+                          for asset, items in grouped.items()}
+        self._docs, self._key, self._loaded_at = docs, key, loaded_at
+
+    def _sync_raw(self, raw_repo, needed: list[str]) -> dict[str, object]:
+        if self._clock() >= self._raw_expires_at:
+            self._raw, self._raw_expires_at = {}, self._clock() + self._ttl
+        missing = [i for i in dict.fromkeys(needed) if i not in self._raw]
+        if missing:
+            self._raw.update(raw_repo.get_many(missing))
+            self.stats["raw_fetched"] += len(missing)
+        return {i: self._raw[i] for i in needed}
 
 
 class CachedNewsRepository:
-    def __init__(self, inner, cache: NewsReadCache):
-        self._inner, self._cache = inner, cache
+    def __init__(self, snapshot: NewsSnapshot):
+        self._snapshot = snapshot
 
     def list_for_asset(self, asset: str, limit: int | None = 20):
-        records = self._cache.analyses(asset, lambda: self._inner.list_for_asset(asset, limit=None))
+        records = self._snapshot.analyses(asset)
         return records if limit is None else records[:limit]
 
 
 class CachedNewsRawRepository:
-    def __init__(self, inner, cache: NewsReadCache):
-        self._inner, self._cache = inner, cache
+    def __init__(self, snapshot: NewsSnapshot):
+        self._snapshot = snapshot
 
     def get_by_external_id(self, external_id: str):
-        return self._cache.raw(external_id, lambda: self._inner.get_by_external_id(external_id))
+        return self._snapshot.raw(external_id)
 
 
 NEWS_READ_CACHE = NewsReadCache()
@@ -294,14 +369,19 @@ def build_dashboard(symbols: list[str], asset_source: str, deps: DashboardDepend
         macro = FixedMacroRepository(deps.macro_repo.get_latest_with_id())
         cutoff = now - timedelta(seconds=TECHNICAL_CACHE_TTL_SECONDS) - TECHNICAL_WINDOW_MARGIN
         technical_repo = WindowedTechnicalAnalysisRepository(deps.technical_repo.list_created_since(cutoff))
-        deps.news_cache.validate((deps.news_repo.count_all(), deps.news_repo.latest_marker()))
+        news_started = clock()
+        news_snapshot = deps.news_cache.prepare(deps.news_repo, deps.news_raw_repo, symbols,
+                                                timeout=deadline - clock())
+        news_prepare_ms = int((clock() - news_started) * 1000)
     except ResourceExhausted:
         if local:
             return degraded(FIRESTORE_QUOTA_EXHAUSTED)
         raise
+    except NewsLoadTimeout:  # başka isteğin haber yüklemesi bütçe içinde bitmedi: hiçbir iş başlatılmaz
+        news_snapshot, news_prepare_ms = None, -1
     benchmark_repo = RequestBenchmarkCacheRepository(deps.benchmark_cache_repo)
-    news_repo = CachedNewsRepository(deps.news_repo, deps.news_cache)
-    news_raw_repo = CachedNewsRawRepository(deps.news_raw_repo, deps.news_cache)
+    news_repo = CachedNewsRepository(news_snapshot) if news_snapshot else None
+    news_raw_repo = CachedNewsRawRepository(news_snapshot) if news_snapshot else None
     engine = DecisionEngine(config_repo=config_repo, decision_repo=_NoWriteDecisionRepository())
 
     cache_hits = []  # teknik analiz Firestore cache isabeti (persist=False hesaplamada kimlik yoktur)
@@ -328,7 +408,7 @@ def build_dashboard(symbols: list[str], asset_source: str, deps: DashboardDepend
     # Python'da durdurulamaz: süreç genelindeki havuzda en çok `MAX_WORKERS` iş, sağlayıcının kendi zaman aşımı/deneme
     # zinciriyle sınırlı biter ve sonucu atılır. Dashboard salt-okunur olduğundan geç biten iş hiçbir şey yazmaz.
     workers_started_at = clock()
-    remaining = deadline - workers_started_at
+    remaining = deadline - workers_started_at if news_snapshot is not None else 0.0
     futures = []
     done = set()
     if remaining > 0:
@@ -352,11 +432,12 @@ def build_dashboard(symbols: list[str], asset_source: str, deps: DashboardDepend
     mode = MODE_LOCAL_DEGRADED if any(i["status"] == STATUS_UNAVAILABLE for i in items) else MODE_NORMAL
     statuses = [i["status"] for i in items]
     logger.info("dashboard built: symbols=%d ok=%d error=%d unavailable=%d deadline_exceeded=%d "
-                "technical_cache_hits=%d budget_s=%g elapsed_before_workers_ms=%d worker_wait_ms=%d duration_ms=%d",
+                "technical_cache_hits=%d budget_s=%g elapsed_before_workers_ms=%d news_prepare_ms=%d news_cache=%s "
+                "worker_wait_ms=%d duration_ms=%d",
                 len(items), statuses.count(STATUS_OK), statuses.count(STATUS_ERROR),
                 statuses.count(STATUS_UNAVAILABLE), sum(1 for i in items if i["reason"] == DEADLINE_EXCEEDED),
-                len(cache_hits), budget, int((workers_started_at - started) * 1000), worker_wait_ms,
-                int((clock() - started) * 1000))
+                len(cache_hits), budget, int((workers_started_at - started) * 1000), news_prepare_ms,
+                getattr(deps.news_cache, "stats", {}), worker_wait_ms, int((clock() - started) * 1000))
     return {"generated_at": now.isoformat(), "mode": mode, "asset_source": asset_source,
             "reason": FIRESTORE_QUOTA_EXHAUSTED if mode == MODE_LOCAL_DEGRADED else None,
             "items": sorted(items, key=_sort_key)}

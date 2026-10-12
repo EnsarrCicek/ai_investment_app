@@ -25,6 +25,17 @@ class NewsAnalysisRepository:
         (result,) = self._db.collection(COLLECTION).count().get()
         return int(result[0].value)
 
+    def list_all_with_ids(self) -> list[tuple[str, NewsAnalysis]]:
+        """Toplu dashboard için tüm koleksiyon tek sorguda (belge kimliğiyle). Her kayıt tek bir varlığa aittir; bu
+        yüzden okunan belgeler varlık başına sorguların toplamıyla aynıdır, yalnız sorgu sayısı 1'e iner."""
+        return [(doc.id, NewsAnalysis(**doc.to_dict())) for doc in self._db.collection(COLLECTION).stream()]
+
+    def list_created_since_with_ids(self, cutoff) -> list[tuple[str, NewsAnalysis]]:
+        """`created_at >= cutoff` (sınır DAHİL — aynı zaman damgalı yeni kayıt kaçmaz; çağıran kimlikle tekilleştirir).
+        Tek alanlı aralık filtresi otomatik indeksle çalışır (composite index gerekmez)."""
+        docs = self._db.collection(COLLECTION).where(filter=FieldFilter("created_at", ">=", cutoff)).stream()
+        return [(doc.id, NewsAnalysis(**doc.to_dict())) for doc in docs]
+
     def latest_marker(self) -> tuple[str, object] | None:
         """En yeni kaydın (belge kimliği, created_at) çifti — tek alanlı sıralama (otomatik indeks), 1 okuma. Sayımla
         birlikte önbellek anahtarıdır: koleksiyon dışarıdan (ör. konsol) "1 sil + 1 ekle" ile değiştirilirse sayı aynı
