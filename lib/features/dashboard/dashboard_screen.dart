@@ -143,6 +143,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 }
 
 const quotaUnavailableText = 'Veri şu an alınamıyor (veri tabanı kotası doldu). Skor gösterilmiyor.';
+const deadlineExceededText = 'Veri alınamadı: zaman aşımı (piyasa verisi geç yanıt verdi). Skor gösterilmiyor.';
 
 class _DashboardHeader extends StatelessWidget {
   final DecisionDashboard dashboard;
@@ -181,7 +182,9 @@ class _AssetCard extends StatelessWidget {
     if (!item.hasDecision) {
       final text = item.status == 'UNAVAILABLE'
           ? quotaUnavailableText
-          : 'Veri alınamadı: ${item.reason ?? 'bilinmeyen hata'}';
+          : item.reason == 'DASHBOARD_DEADLINE_EXCEEDED'
+              ? deadlineExceededText
+              : 'Veri alınamadı: ${item.reason ?? 'bilinmeyen hata'}';
       return Card(
         child: Padding(
           padding: const EdgeInsets.all(16),

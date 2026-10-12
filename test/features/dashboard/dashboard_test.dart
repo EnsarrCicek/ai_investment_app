@@ -99,6 +99,16 @@ void main() {
     expect(find.textContaining('Technical:'), findsNothing);
   });
 
+  testWidgets('zaman aşımı satırı: skor/karar/Neden yok, diğer satırlar etkilenmez, sıralama korunur', (tester) async {
+    final timeout = {...unavailableItem('SLOW'), 'status': 'ERROR', 'reason': 'DASHBOARD_DEADLINE_EXCEEDED'};
+    await tester.pumpWidget(app(DashboardScreen(loadDashboard: Loader(dashboard([okItem('AAA', 55), timeout])).call)));
+    await tester.pumpAndSettle();
+    expect(find.text(deadlineExceededText), findsOneWidget);
+    expect(find.text('Technical: +55'), findsOneWidget);
+    expect(find.textContaining('Neden'), findsOneWidget); // yalnız AAA'da
+    expect(tester.getTopLeft(find.text('AAA')).dy, lessThan(tester.getTopLeft(find.text('SLOW')).dy));
+  });
+
   testWidgets('istek hatası mesajla gösterilir', (tester) async {
     Future<DecisionDashboard> fail() async => throw Exception(DecisionApi.dashboardErrorMessage(
         503, '{"detail": {"code": "FIRESTORE_QUOTA_EXHAUSTED", "message": "x"}}'));

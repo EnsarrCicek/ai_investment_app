@@ -24,9 +24,11 @@ Kota hatası (`ResourceExhausted`): üretimde yükselir → 503. Yalnız yerel L
 
 from __future__ import annotations
 
+import logging
+import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
@@ -37,14 +39,64 @@ from app.core.local_dev import local_lan_dev_enabled
 from app.engines.decision.engine import DecisionEngine
 from app.engines.technical.engine import TECHNICAL_CACHE_TTL_SECONDS, TechnicalAnalysisEngine
 
+logger = logging.getLogger(__name__)
+
 MODE_NORMAL = "NORMAL"
 MODE_LOCAL_DEGRADED = "LOCAL_DEGRADED"
 STATUS_OK = "OK"
 STATUS_ERROR = "ERROR"
 STATUS_UNAVAILABLE = "UNAVAILABLE"
+# Önceki istemci 10'arlı eşzamanlı istek atıyordu; sağlayıcı (frozen `bist_provider._fetch_with_retry`) Yahoo'nun
+# eşzamanlılık altında boş/geçici hata döndürdüğünü belgeliyor. Fazla paralellik rate-limit riskini artırır.
 MAX_WORKERS = 8
 TECHNICAL_WINDOW_MARGIN = timedelta(seconds=60)
 NEWS_CACHE_TTL_SECONDS = TECHNICAL_CACHE_TTL_SECONDS
+
+# İstek düzeyi süre bütçesi. Gerekçe (ölçüm + kod): sıcak/yerel tam istek ~7.5–8.5 sn; tek sembolün sağlayıcıdaki en
+# kötü zinciri 3 deneme × yfinance 10 sn zaman aşımı + 2 × 2 sn bekleme ≈ 34 sn. 45 sn, kuyrukta geç başlayan tek
+# yavaş sembolün bile zincirini bitirmesine izin verir ve Cloud Run'ın varsayılan 300 sn istek sınırının çok
+# altındadır. Bütçe aşılınca biten satırlar döner, bitmeyenler açık hata satırı olur (skor üretilmez).
+DEFAULT_DASHBOARD_TOTAL_BUDGET_SECONDS = 45.0
+DEADLINE_EXCEEDED = "DASHBOARD_DEADLINE_EXCEEDED"
+
+
+_wait = wait  # testler bekleme süresini gözlemlemek için değiştirebilir
+
+
+def dashboard_budget_seconds() -> float:
+    """`DASHBOARD_TOTAL_BUDGET_SECONDS` (opsiyonel) veya varsayılan. Geçersiz değer sessizce yok sayılmaz."""
+    raw = os.environ.get("DASHBOARD_TOTAL_BUDGET_SECONDS")
+    if raw is None:
+        return DEFAULT_DASHBOARD_TOTAL_BUDGET_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"DASHBOARD_TOTAL_BUDGET_SECONDS sayı olmalı: {raw!r}") from None
+    if not 0 < value <= MAX_DASHBOARD_TOTAL_BUDGET_SECONDS:
+        raise ValueError(f"DASHBOARD_TOTAL_BUDGET_SECONDS (0, {MAX_DASHBOARD_TOTAL_BUDGET_SECONDS:g}] aralığında "
+                         f"olmalı: {raw!r}")
+    return value
+
+
+# Bütçe isteğin BAŞINDAN sayılır (ön yükleme + işçiler). Ön yüklemedeki Firestore çağrıları yarıda kesilemediği için
+# 300 sn Cloud Run sınırına ön yükleme ve yanıt derleme payı bırakılır.
+MAX_DASHBOARD_TOTAL_BUDGET_SECONDS = 240.0
+
+_EXECUTOR_LOCK = threading.Lock()
+_EXECUTOR: ThreadPoolExecutor | None = None
+
+
+def dashboard_executor() -> ThreadPoolExecutor:
+    """Süreç genelinde TEK dashboard havuzu (en çok `MAX_WORKERS` thread). İstek başına havuz, süresi dolan isteğin
+    hâlâ çalışan işleri sürerken yeni isteğin yeni işçiler açmasına (8 → 16 → 24 eşzamanlı Yahoo isteği) izin
+    veriyordu. Tek havuzla, üst üste gelen istekler dahil, süreçteki dashboard kaynaklı aktif iş sayısı hiçbir zaman
+    `MAX_WORKERS`'ı aşmaz; yeni isteğin işleri kuyrukta bekler ve gerekirse kendi deadline'ında açık hata olur.
+    Havuz istek sonunda KAPATILMAZ; yalnız o isteğin başlamamış işleri iptal edilir."""
+    global _EXECUTOR
+    with _EXECUTOR_LOCK:
+        if _EXECUTOR is None:
+            _EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="dashboard")
+        return _EXECUTOR
 
 
 class RequestConfigRepository:
@@ -222,10 +274,16 @@ def _sort_key(item: dict):
 
 
 def build_dashboard(symbols: list[str], asset_source: str, deps: DashboardDependencies | None = None,
-                    now: datetime | None = None, max_workers: int = MAX_WORKERS) -> dict:
+                    now: datetime | None = None, budget_seconds: float | None = None,
+                    executor: ThreadPoolExecutor | None = None,
+                    clock: Callable[[], float] = time.monotonic) -> dict:
+    """`executor`/`clock` yalnız testler içindir; üretimde süreç genelindeki havuz ve monotonik saat kullanılır."""
     deps = deps or DashboardDependencies()
     now = now or datetime.now(timezone.utc)
     local = local_lan_dev_enabled()
+    budget = dashboard_budget_seconds() if budget_seconds is None else budget_seconds
+    started = clock()
+    deadline = started + budget
 
     def degraded(reason: str) -> dict:
         return {"generated_at": now.isoformat(), "mode": MODE_LOCAL_DEGRADED, "asset_source": asset_source,
@@ -246,6 +304,8 @@ def build_dashboard(symbols: list[str], asset_source: str, deps: DashboardDepend
     news_raw_repo = CachedNewsRawRepository(deps.news_raw_repo, deps.news_cache)
     engine = DecisionEngine(config_repo=config_repo, decision_repo=_NoWriteDecisionRepository())
 
+    cache_hits = []  # teknik analiz Firestore cache isabeti (persist=False hesaplamada kimlik yoktur)
+
     def decide(symbol: str) -> dict:
         try:
             technical = deps.technical_engine_factory(config_repo, technical_repo, benchmark_repo)
@@ -259,11 +319,44 @@ def build_dashboard(symbols: list[str], asset_source: str, deps: DashboardDepend
             return _item(symbol, STATUS_ERROR, str(exc))
         except Exception as exc:  # noqa: BLE001 — önceki davranış: tek sembolün hatası yalnız o satırı etkiler
             return _item(symbol, STATUS_ERROR, f"{type(exc).__name__}: {exc}")
+        if decision.technical_analysis_id is not None:
+            cache_hits.append(symbol)
         return _item(symbol, STATUS_OK, decision=decision)
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        items = list(pool.map(decide, symbols))
+    # Süre sınırı: tek mutlak deadline (istek başı + bütçe). Ön yükleme süresi işçi beklemesinden düşülür; bütçe ön
+    # yüklemede bittiyse hiçbir iş başlatılmaz (sağlayıcı çağrısı 0). Başlamış bir iş (süren bir Yahoo isteği)
+    # Python'da durdurulamaz: süreç genelindeki havuzda en çok `MAX_WORKERS` iş, sağlayıcının kendi zaman aşımı/deneme
+    # zinciriyle sınırlı biter ve sonucu atılır. Dashboard salt-okunur olduğundan geç biten iş hiçbir şey yazmaz.
+    workers_started_at = clock()
+    remaining = deadline - workers_started_at
+    futures = []
+    done = set()
+    if remaining > 0:
+        pool = executor or dashboard_executor()
+        futures = [(symbol, pool.submit(decide, symbol)) for symbol in symbols]
+        # `decide` üretimdeki kota hatası dışında her hatayı satıra çevirir; FIRST_EXCEPTION yalnız o durumda erken
+        # döner (503 için kalan sembolleri beklemeye gerek yok).
+        done, _ = _wait([f for _, f in futures], timeout=remaining, return_when=FIRST_EXCEPTION)
+        for _symbol, future in futures:
+            if future not in done:
+                future.cancel()  # yalnız BU isteğin başlamamış işleri; başka isteğinkiler etkilenmez
+    worker_wait_ms = int((clock() - workers_started_at) * 1000)
+    items = []
+    by_symbol = dict(futures)
+    for symbol in symbols:
+        future = by_symbol.get(symbol)
+        if future is not None and future in done:
+            items.append(future.result())  # üretimde kota hatası burada yükselir → 503
+        else:  # bekleme sonrası biten iş de ihtiyatlı olarak deadline sayılır (yarışta sonuç seçilmez)
+            items.append(_item(symbol, STATUS_ERROR, DEADLINE_EXCEEDED))
     mode = MODE_LOCAL_DEGRADED if any(i["status"] == STATUS_UNAVAILABLE for i in items) else MODE_NORMAL
+    statuses = [i["status"] for i in items]
+    logger.info("dashboard built: symbols=%d ok=%d error=%d unavailable=%d deadline_exceeded=%d "
+                "technical_cache_hits=%d budget_s=%g elapsed_before_workers_ms=%d worker_wait_ms=%d duration_ms=%d",
+                len(items), statuses.count(STATUS_OK), statuses.count(STATUS_ERROR),
+                statuses.count(STATUS_UNAVAILABLE), sum(1 for i in items if i["reason"] == DEADLINE_EXCEEDED),
+                len(cache_hits), budget, int((workers_started_at - started) * 1000), worker_wait_ms,
+                int((clock() - started) * 1000))
     return {"generated_at": now.isoformat(), "mode": mode, "asset_source": asset_source,
             "reason": FIRESTORE_QUOTA_EXHAUSTED if mode == MODE_LOCAL_DEGRADED else None,
             "items": sorted(items, key=_sort_key)}
