@@ -12,6 +12,7 @@ from app.api import (
     ipo,
     jobs,
     market_data,
+    momentum,
     news,
     news_analysis,
     notifications,
@@ -35,6 +36,7 @@ app.include_router(news_analysis.router)
 app.include_router(notifications.router)
 app.include_router(usage.router)
 app.include_router(market_data.router)
+app.include_router(momentum.router)
 app.include_router(funds.router)
 app.include_router(analysts.router)
 app.include_router(ipo.router)
