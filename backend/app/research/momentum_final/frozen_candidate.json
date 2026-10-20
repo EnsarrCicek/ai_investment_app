@@ -1,0 +1,70 @@
+{
+ "candidate": {
+  "alert_unit": "first alert per asset-session",
+  "benchmark": "XU100",
+  "comparison": ">=",
+  "confirmation": [
+   1,
+   1
+  ],
+  "evaluation": {
+   "event_runup": 0.05,
+   "lead_fraction": "(entry - run_low) / (session_high - run_low), caught only if alert <= peak",
+   "precision_horizon_mfe": 0.03
+  },
+  "extended_feature_config_sha256": "44f7a219974fbe01ca7357c83d5d9b3d559a482b51f8f77ce7c262c5a0372c48",
+  "feasibility_verdict": "MOMENTUM FEASIBILITY: CURRENT DATA SUFFICIENT",
+  "feature": "rel_ret_z_3",
+  "interval": "5m",
+  "level": "WATCH",
+  "missing_feature_policy": "no alert",
+  "pass_criteria": {
+   "false_positive_rate": [
+    "<=",
+    0.25
+   ],
+   "lead_fraction_median": [
+    "<=",
+    0.5
+   ],
+   "precision_vs_base": [
+    ">=",
+    1.5
+   ],
+   "recall": [
+    ">=",
+    0.4
+   ]
+  },
+  "provider_delay_minutes": 15,
+  "round1_engine_config_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab",
+  "selection": {
+   "aggregation": "median of fold-selected numeric thresholds",
+   "artifact": "momentum_round2/runs/merged_ref_d15.pkl",
+   "assets": 50,
+   "days": [
+    "2026-07-30",
+    "2026-09-25"
+   ],
+   "fold_quantiles": [
+    99.3,
+    99.5,
+    99.3
+   ],
+   "fold_thresholds": [
+    5.002456964284509,
+    5.409213934790832,
+    5.094139728812382
+   ],
+   "folds": 3,
+   "folds_passing": 3,
+   "scenario": "C15_d15_1of1",
+   "sessions": 2100
+  },
+  "status_gate": "Round 1 final engine status == OK",
+  "strong_rule": "unchanged Round 1 final GROUPS STRONG (reference only, not part of candidate)",
+  "threshold": 5.094139728812382,
+  "version": "momentum-watch-final-v1"
+ },
+ "sha256": "a9f943dcb53c6ade6e2a30658ab547ab3bfe3930d5f5e93c2908db1a67cad881"
+}

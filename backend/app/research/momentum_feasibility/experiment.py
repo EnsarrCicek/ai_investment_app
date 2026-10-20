@@ -26,6 +26,7 @@ import pandas as pd
 from app.engines.technical.session_timing import ISTANBUL_TZ
 from app.research.momentum_calibration import dataset as r1ds
 from app.research.momentum_calibration.labels import labels_for_session
+from app.research.momentum_feasibility import audit as au
 from app.research.momentum_feasibility import frontier as fr
 from app.research.momentum_round2 import dataset as ds2
 from app.research.momentum_round2 import experiment as r2
@@ -53,13 +54,19 @@ def selection_scope() -> tuple[list, set]:
     return sel_days, set(final_days)
 
 
+def guarded_load(name: str, loader=None):
+    """Round 2 artefakt okuyucusu; dokunulmamış final artefaktları istenirse RuntimeError."""
+    return (loader or r2.load_pkl)(au.guard_artifact(name))
+
+
 def load_selection_rows(loader=None) -> list[dict]:
-    """Yalnız referans evren × seçim seansları. Final tarihleri ve yeni varlıklar burada elenir ve denetlenir."""
-    loader = loader or r2.load_pkl
+    """Yalnız referans evren × seçim seansları. Final tarihleri elenir; dokunulmamış varlık görülürse durulur."""
     sel_days, final_days = selection_scope()
     sel = set(sel_days)
-    rows = [r for r in loader("merged_ref_d15.pkl") if r["day"] in sel]
-    assert not any(r["day"] in final_days for r in rows)
+    raw = guarded_load("merged_ref_d15.pkl", loader)
+    au.guard_rows(raw, ds2.UNTOUCHED_ASSETS, ())  # dokunulmamış varlık: süzme değil, hata
+    rows = [r for r in raw if r["day"] in sel]
+    au.guard_rows(rows, ds2.UNTOUCHED_ASSETS, final_days)
     assert {r["symbol"] for r in rows} <= set(ds2.REFERENCE_ASSETS)
     return rows
 
@@ -93,7 +100,8 @@ class Panel:
         self.persistent = np.array([bool(r["persistent"]) for r in rows])
         self.data_gap = np.array([bool(r["data_gap"]) for r in rows])
         for k in ("price_z", "ret_z_3", "ret_z_12", "accel", "accel_pos_3", "rel_ret_z_3", "xs_ret", "relvol_3",
-                  "session_ret_z", "gap_pct", "breakout_dist_atr", "vol_accel"):
+                  "session_ret_z", "gap_pct", "breakout_dist_atr", "vol_accel", "vwap_reclaim",
+                  "median_session_move_pct"):
             setattr(self, k, _f(rows, k))
         self.regime_shock = np.array([r.get("regime") == "SHOCK" for r in rows])
         self.locked = np.array([bool(r.get("recent_locked_regime")) for r in rows])
@@ -416,12 +424,482 @@ def summarize_frontier(points: list[dict], br: dict) -> dict:
     return out
 
 
+# ------------------------------------------------------------------ genişletilmiş denetim (aşama "audit")
+R1_FINAL_STRONG = {"price": 0.75, "score": 60, "xs": None}  # üretim GROUPS STRONG kuralı (Round 1 final)
+FPR_LIMITS = (0.25, 0.20, 0.15, 0.10)
+LEAD_LIMITS = (0.50, 0.40, 0.30)
+METRIC_KEYS = ("precision", "recall", "false_positive_rate", "specificity", "alert_day_ratio", "lead_fraction_median",
+               "median_first_alert_minute", "caught_events", "alert_sessions")
+
+
+def _hm(minute):
+    return None if minute is None else f"{int(minute) // 60:02d}:{int(minute) % 60:02d}"
+
+
+def brief_point(q: dict | None) -> dict | None:
+    if q is None:
+        return None
+    out = {"delay": q.get("delay"), "config": q.get("config")}
+    for k in METRIC_KEYS:
+        v = (1 - q["false_positive_rate"] if q.get("false_positive_rate") is not None else None) \
+            if k == "specificity" else q.get(k)
+        out[k] = round(v, 4) if isinstance(v, float) else v
+    out["median_first_alert_clock"] = _hm(q.get("median_first_alert_minute"))
+    return out
+
+
+def frontier_answers(points: list[dict], base: float) -> dict:
+    out = {}
+    for f in FPR_LIMITS:
+        out[f"max_recall_fpr_le_{f}"] = brief_point(fr.best_under(points, "recall", True,
+                                                                  {"false_positive_rate": ("<=", f)}))
+    for lead in LEAD_LIMITS:
+        out[f"min_fpr_lead_le_{lead}"] = brief_point(fr.best_under(points, "false_positive_rate", False,
+                                                                   {"lead_fraction_median": ("<=", lead)}))
+    for m in (2, 3):
+        out[f"min_lead_precision_ge_{m}x_base"] = brief_point(fr.best_under(
+            points, "lead_fraction_median", False, {"precision": (">=", m * base)}))
+    out["max_recall_fpr_le_0.25_lead_le_0.50"] = brief_point(fr.best_under(
+        points, "recall", True, {"false_positive_rate": ("<=", 0.25), "lead_fraction_median": ("<=", 0.5)}))
+    out["min_lead_fpr_le_0.25"] = brief_point(fr.best_under(points, "lead_fraction_median", False,
+                                                            {"false_positive_rate": ("<=", 0.25)}))
+    return out
+
+
+def frontier3(points: list[dict]) -> list[dict]:
+    """Görevdeki baskınlık tanımı: daha yüksek YPO + daha düşük duyarlılık + daha geç lead → çıkar."""
+    keep = fr.pareto_mask(points, maximize=("recall",), minimize=("false_positive_rate", "lead_fraction_median"))
+    return sorted([q for q, k in zip(points, keep) if k], key=lambda q: (q["false_positive_rate"], -q["recall"]))
+
+
+def frontier_block(points: list[dict], br: dict) -> dict:
+    out = {}
+    for d in DELAYS:
+        pts = [q for q in points if q["delay"] == d]
+        front = frontier3(pts)
+        out[d] = {"points": len(pts), "frontier3_size": len(front),
+                  "frontier4_size": int(fr.pareto_mask(pts).sum()), **frontier_answers(pts, br[d]),
+                  "frontier": [brief_point(q) for q in front[:: max(1, len(front) // 30)]]}
+    return out
+
+
+def strong_vs_watch(watch: list[dict], strong: list[dict], r1_watch_by_delay: dict) -> dict:
+    out = {}
+    for d in DELAYS:
+        wf = frontier3([q for q in watch if q["delay"] == d])
+        sf = frontier3([q for q in strong if q["delay"] == d])
+        rows, beats_same_recall, beats_r1 = [], 0, 0
+        for q in sf:
+            if q["precision"] is None:
+                continue
+            comp = [w["precision"] for w in wf if w["precision"] is not None and w["recall"] >= q["recall"]]
+            best_w = max(comp) if comp else None
+            a = best_w is None or q["precision"] > best_w
+            b = q["precision"] > (r1_watch_by_delay[d]["precision"] or 0)
+            beats_same_recall += a
+            beats_r1 += b
+            rows.append({**brief_point(q), "best_watch_precision_at_ge_recall": best_w,
+                         "strong_gt_watch_same_recall": a, "strong_gt_round1_watch": b})
+        out[d] = {"strong_frontier_points": len(rows), "strong_precision_gt_watch_at_same_or_higher_recall":
+                  beats_same_recall, "strong_precision_gt_round1_watch": beats_r1,
+                  "round1_watch_precision": r1_watch_by_delay[d]["precision"],
+                  "points": rows[:: max(1, len(rows) // 20)]}
+    return out
+
+
+def confirm_cost(p: Panel, raw: np.ndarray) -> list[dict]:
+    first_raw = dict(zip(*fr.first_alert_rows(raw, p.sess)))
+    out = []
+    for k, n in ((1, 1), (2, 3), (2, 2), (3, 3)):
+        final = fr.confirm(raw, p.seg_start, k, n)
+        uniq, rows = fr.first_alert_rows(final, p.sess)
+        added = [(p.t15_ns[r] - p.t15_ns[first_raw[s]]) / 6e10 for s, r in zip(uniq, rows)]
+        m15, m0 = fr.metrics(final, p.sess, p.labels[15], X), fr.metrics(final, p.sess, p.labels[0], X)
+        out.append({"confirm": f"{k}/{n}", **{kk: brief_point(m15)[kk] for kk in METRIC_KEYS},
+                    "lead_fraction_median_d0": m0["lead_fraction_median"],
+                    "added_delay_min_median": float(np.median(added)) if added else None,
+                    "added_delay_min_mean": round(float(np.mean(added)), 2) if added else None,
+                    "sessions_lost_vs_raw": len(first_raw) - len(uniq)})
+    return out
+
+
+def _session_arrays(p: Panel, delay: int):
+    lab = p.labels[delay]
+    span = lab.sess_high - lab.sess_run_low
+    lead = (lab.entry - lab.sess_run_low[p.sess]) / np.where(span > 0, span, np.nan)[p.sess]
+    before = lab.t_ns <= lab.sess_high_ns[p.sess]
+    return np.maximum(lead, 0.0), before
+
+
+def _move_start_ns(sym, day) -> int:
+    bars = r1ds.load(sym).bars
+    dbar = bars[bars.index.date == day].dropna()
+    j = int(np.argmax(dbar["High"].to_numpy()))
+    return int(dbar.index[int(np.argmin(dbar["Low"].to_numpy()[: j + 1]))].value)
+
+
+def evidence_masks(p: Panel, w_raw, w_final, s_final) -> dict[str, np.ndarray]:
+    part, struct = p.part_or_struct()
+    return {"price_evidence": p.ok & (p.price_impulse >= THR),
+            "positive_acceleration": p.ok & (p.accel > 0),
+            "strong_acceleration": p.ok & (p.accel >= 1.0) & (p.accel_pos_3 >= 2),
+            "volume_anomaly": p.ok & (p.volume_anomaly >= THR),
+            "relative_strength": p.ok & (p.rel_ret_z_3 >= 1.0),
+            "xs_top_decile": p.ok & (p.xs_ret >= 0.9),
+            "breakout": p.ok & (p.breakout >= THR),
+            "vwap_reclaim": p.ok & (p.vwap_reclaim == 1),
+            "raw_watch": w_raw, "confirmed_watch": w_final, "strong": s_final,
+            "_price_and_participation": p.ok & (p.price_impulse >= THR) & (part | struct)}
+
+
+def event_analysis(p: Panel, w_raw, w_final, s_final, gated_raw, sessions=None) -> dict:
+    lab0, lab15 = p.labels[0], p.labels[15]
+    lead0, before0 = _session_arrays(p, 0)
+    lead15, before15 = _session_arrays(p, 15)
+    masks = evidence_masks(p, w_raw, w_final, s_final)
+    seg_rows = defaultdict(list)
+    for i, s in enumerate(p.sess):
+        seg_rows[s].append(i)
+    targets = sessions if sessions is not None else np.flatnonzero(lab0.sess_event)
+    per = []
+    for s in targets:
+        sym, day = p.sessions[s]
+        idx = np.array(seg_rows[s])
+        ms, peak = _move_start_ns(sym, day), int(lab0.sess_high_ns[s])
+        info = lab0.t_ns[idx]
+        after = info > ms
+        tl = au.event_timeline(info, {k: m[idx] & after for k, m in masks.items() if not k.startswith("_")}, ms, peak)
+
+        def first_lead(mask, lead, before):
+            hit = idx[mask[idx] & before[idx] & after]
+            return (float(lead[hit[0]]) if np.isfinite(lead[hit[0]]) else None) if len(hit) else None
+        ev_lead = first_lead(masks["price_evidence"], lead0, before0)
+        d0_raw = first_lead(w_raw, lead0, before0)
+        d15_raw = first_lead(w_raw, lead15, before15)
+        d0_lead = first_lead(w_final, lead0, before0)
+        d15_lead = first_lead(w_final, lead15, before15)
+        cls = au.classify_timing(ev_lead, d0_raw, d15_raw, d15_lead)
+        sub = None
+        if cls == "MIXED":
+            sub = "provider_only" if d0_lead is not None and d0_lead < au.LEAD_TARGET else "provider_and_confirmation"
+        elif cls == "ENGINE_LATE":
+            sub = "threshold_gating" if not (d0_raw is not None and d0_raw < au.LEAD_TARGET) else "confirmation"
+        # Gecikme ayrıştırması: hareket başlangıcından sonraki ilk oluşumlar (tepe kısıtı yok)
+        firsts = {}
+        for k in ("price_evidence", "raw_watch", "confirmed_watch"):
+            hit = idx[masks[k][idx] & after]
+            firsts[k] = int(lab0.t_ns[hit[0]]) if len(hit) else None
+        dec = au.decompose_delay(ms, firsts["price_evidence"], firsts["raw_watch"], firsts["confirmed_watch"], 15)
+        # Yanlış negatif bayrakları (yeterince erken yakalanmayan)
+        early0 = before0 & (lead0 < au.LEAD_TARGET)
+        early15 = before15 & (lead15 < au.LEAD_TARGET)
+        win = idx[after & before0[idx]]
+        mv = idx[after]  # hareket başlangıcından önceki satırlar (sabah) olaya sayılmaz
+        fn = None
+        if cls != "EARLY_OK":
+            flags = {
+                # boş pencere (tepe açılış barında) taban eksikliği DEĞİL; ani sıçrama olarak sayılır
+                "BASELINE_UNAVAILABLE": len(win) > 0 and not (p.ok[win] & np.isfinite(p.price_impulse[win])).any(),
+                "ABRUPT_VERTICAL_JUMP": (peak - ms) / au.MIN_NS <= 15,
+                "NO_EARLY_PRICE_EVIDENCE": not (masks["price_evidence"][win] & early0[win]).any(),
+                "NO_VOLUME_CONFIRMATION": (masks["price_evidence"][win] & early0[win]).any()
+                and not (masks["_price_and_participation"][win] & early0[win]).any(),
+                "FEATURE_THRESHOLD": (masks["_price_and_participation"][win] & early0[win]).any()
+                and not (w_raw[win] & early0[win]).any(),
+                "PROVIDER_DELAY": (w_raw[win] & early0[win]).any() and not (w_raw[mv] & early15[mv]).any(),
+                "CONFIRMATION_DELAY": (w_raw[mv] & early15[mv]).any() and not (w_final[mv] & early15[mv]).any(),
+                "BENCHMARK/CROSS_SECTION_GATE": (w_raw[mv] & early15[mv]).any()
+                and not (gated_raw[mv] & early15[mv]).any(),
+            }
+            primary, secondary = au.classify_fn(flags)
+            fn = {"primary": primary, "secondary": secondary}
+        per.append({"symbol": sym, "day": str(day), "session": int(s),
+                    "runup_pct": round((lab0.sess_high[s] / lab0.sess_run_low[s] - 1) * 100, 2),
+                    "rise_minutes": (peak - ms) / au.MIN_NS, "timeline_ns": tl, "evidence_lead": ev_lead,
+                    "d0_raw_lead": d0_raw, "d15_raw_lead": d15_raw, "d0_alert_lead": d0_lead,
+                    "d15_alert_lead": d15_lead, "class": cls, "subclass": sub, "decomposition": dec,
+                    "fn": fn, "rows_before_peak": int(len(win)), "firsts_ns": firsts})
+    return {"events": per}
+
+
+def summarize_events(per: list[dict]) -> dict:
+    names = [k for k in per[0]["timeline_ns"] if k not in ("move_start", "peak")] if per else []
+    timeline = {}
+    for k in names:
+        mins = [(e["timeline_ns"][k] - e["timeline_ns"]["move_start"]) / au.MIN_NS for e in per
+                if e["timeline_ns"][k] is not None]
+        timeline[k] = {"share_before_peak": round(len(mins) / len(per), 3),
+                       "median_min_after_move_start_info_time": float(np.median(mins)) if mins else None,
+                       "median_min_after_move_start_visible_d15": float(np.median(mins)) + 15 if mins else None}
+    peak = [e["rise_minutes"] for e in per]
+    timeline["session_peak"] = {"median_min_after_move_start": float(np.median(peak)),
+                                "share_rise_le_15min": round(sum(m <= 15 for m in peak) / len(per), 3),
+                                "share_rise_le_30min": round(sum(m <= 30 for m in peak) / len(per), 3),
+                                "share_rise_le_60min": round(sum(m <= 60 for m in peak) / len(per), 3)}
+    timeline["session_peak"]["share_no_evaluation_before_peak"] = round(
+        sum(e["rows_before_peak"] == 0 for e in per) / len(per), 3)
+    classes = Counter(e["class"] for e in per)
+    subclasses = Counter(f"{e['class']}:{e['subclass']}" for e in per if e["subclass"])
+    decs = [e["decomposition"] for e in per if e["decomposition"]]
+    dec = {k: {"median": float(np.median([d[k] for d in decs])), "p25": float(np.percentile([d[k] for d in decs], 25)),
+               "p75": float(np.percentile([d[k] for d in decs], 75))} for k in (decs[0] if decs else {})}
+    late_vs_peak = sum(1 for e in per if e["decomposition"] and
+                       e["timeline_ns"]["move_start"] + e["decomposition"]["total"] * au.MIN_NS > e["timeline_ns"]["peak"])
+    fn = [e["fn"] for e in per if e["fn"]]
+    prim = Counter(f["primary"] for f in fn)
+    anyf = Counter(r for f in fn for r in [f["primary"], *f["secondary"]])
+    return {
+        "events": len(per), "timeline": timeline,
+        "classification": {k: {"count": v, "share": round(v / len(per), 3)} for k, v in classes.most_common()},
+        "subclassification": dict(subclasses.most_common()),
+        "delay_decomposition_minutes": {"events_with_confirmed_watch": len(decs), **dec,
+                                        "share_visible_alert_after_peak": round(late_vs_peak / len(decs), 3)
+                                        if decs else None},
+        "fn_taxonomy": {"not_caught_early": len(fn),
+                        "primary": {k: {"count": v, "share": round(v / len(fn), 3)} for k, v in prim.most_common()},
+                        "any_reason": {k: {"count": v, "share": round(v / len(fn), 3)} for k, v in anyf.most_common()}},
+    }
+
+
+def fp_taxonomy_v2(p: Panel, final: np.ndarray, delay: int = 15) -> dict:
+    lab = p.labels[delay]
+    uniq, rows = fr.first_alert_rows(final, p.sess)
+    prim, anyf, profiles = Counter(), Counter(), defaultdict(list)
+    for s, i in zip(uniq, rows):
+        if lab.sess_event[s]:
+            continue
+        nxt = [j for j in range(i + 1, min(i + 4, len(p.sess))) if p.sess[j] == s]
+        nxt_acc = np.nanmin(p.accel[nxt]) if nxt and np.isfinite(p.accel[nxt]).any() else np.nan
+        minute = float((lab.t_ns[i] // au.MIN_NS + 180) % 1440)
+        flags = au.fp_flags(locked=bool(p.locked[i]), volume_missing=bool(np.isnan(p.volume_anomaly[i])),
+                            regime_shock=bool(p.regime_shock[i]), rel_ret_z_3=p.rel_ret_z_3[i], gap_pct=p.gap_pct[i],
+                            ret_close=lab.ret_close[i], breakout=p.breakout[i], volume_anomaly=p.volume_anomaly[i],
+                            relvol_3=p.relvol_3[i], mfe_close=lab.mfe_close[i], accel=p.accel[i],
+                            accel_next_min=nxt_acc, visible_minute=minute, evidence_threshold=THR, x=X)
+        primary, secondary = au.classify_fp(flags)
+        prim[primary] += 1
+        for r in [primary, *secondary]:
+            anyf[r] += 1
+        profiles[primary].append({"price_z": p.price_z[i], "ret_z_3": p.ret_z_3[i], "accel": p.accel[i],
+                                  "rel_ret_z_3": p.rel_ret_z_3[i], "xs_ret": p.xs_ret[i], "relvol_3": p.relvol_3[i],
+                                  "gap_pct": p.gap_pct[i], "score": p.score[i], "mfe_close": lab.mfe_close[i],
+                                  "ret_close": lab.ret_close[i], "visible_minute": minute})
+    total = sum(prim.values())
+
+    def med(rows):
+        return {k: (round(float(np.nanmedian([r[k] for r in rows])), 3)
+                    if np.isfinite([r[k] for r in rows]).any() else None) for k in rows[0]}
+    return {"fp_sessions": total,
+            "primary": {k: {"count": v, "share": round(v / total, 3), "median_profile": med(profiles[k])}
+                        for k, v in prim.most_common()},
+            "any_reason": {k: {"count": v, "share": round(v / total, 3)} for k, v in anyf.most_common()}}
+
+
+def _clock(ns):
+    return None if ns is None else _hhmm(ns)
+
+
+def ktlev_case(day=None) -> dict:
+    """Yalnız açıklama: KTLEV 8 Ekim. Hiçbir eşik/ızgara noktası buradan seçilmez."""
+    from datetime import date as _date
+    day = day or _date(2026, 10, 8)
+    rows = [r for r in guarded_load("merged_ktlev_d15.pkl") if r["day"] == day]
+    k = Panel(rows)
+    for d in (0, 15):
+        k.build_labels(d)
+    w_raw = k.watch_raw(R1_FINAL_WATCH)
+    w_final = fr.confirm(w_raw, k.seg_start, 3, 3)
+    s_final = fr.confirm(k.strong_raw(R1_FINAL_STRONG), k.seg_start, 3, 3)
+    gated = k.watch_raw({**R1_FINAL_WATCH, "xs": 0.9, "rel": 1.0})
+    w_23 = fr.confirm(w_raw, k.seg_start, 2, 3)
+    ev = event_analysis(k, w_raw, w_final, s_final, gated, sessions=[0])["events"][0]
+    tl = ev["timeline_ns"]
+    lab0, lab15 = k.labels[0], k.labels[15]
+
+    def first(mask, lab):
+        hit = np.flatnonzero(mask & (lab0.t_ns > tl["move_start"]))
+        return None if not len(hit) else {"info_time": _clock(lab0.t_ns[hit[0]]),
+                                          "visible_time": _clock(lab.t_ns[hit[0]]),
+                                          "lead_fraction": au.lead_fraction(lab.entry[hit[0]], lab.sess_run_low[0],
+                                                                            lab.sess_high[0]),
+                                          "entry": round(float(lab.entry[hit[0]]), 3)}
+    bars = r1ds.load("KTLEV").bars
+    dbar = bars[bars.index.date == day].dropna()
+    leg = dbar[(dbar.index.time >= datetime.strptime("15:50", "%H:%M").time())
+               & (dbar.index.time <= datetime.strptime("16:45", "%H:%M").time())]
+    return {"symbol": "KTLEV", "day": str(day), "used_for_tuning": False,
+            "bars_15_50_16_45": [{"start": t.strftime("%H:%M"), "close": round(float(b["Close"]), 3),
+                                  "high": round(float(b["High"]), 3), "volume": int(b["Volume"])}
+                                 for t, b in leg.iterrows()],
+            "session_high": round(float(lab0.sess_high[0]), 3), "run_low": round(float(lab0.sess_run_low[0]), 3),
+            "runup_pct": ev["runup_pct"], "move_start": _clock(tl["move_start"]), "peak": _clock(tl["peak"]),
+            "rise_minutes": ev["rise_minutes"],
+            "timeline_info_time": {kk: _clock(v) for kk, v in tl.items()},
+            "theoretical_d0": {"raw_1of1": first(w_raw, lab0), "confirmed_2of3": first(w_23, lab0),
+                               "confirmed_3of3": first(w_final, lab0)},
+            "realistic_d15": {"raw_1of1": first(w_raw, lab15), "confirmed_2of3": first(w_23, lab15),
+                              "confirmed_3of3": first(w_final, lab15), "strong_3of3": first(s_final, lab15)},
+            "class": ev["class"], "fn": ev["fn"], "decomposition_minutes": ev["decomposition"]}
+
+
+def audit():
+    started = clock.perf_counter()
+    p = Panel(load_selection_rows())
+    for d in DELAYS:
+        p.build_labels(d)
+    br = {d: base_rate(p, d) for d in DELAYS}
+    w_raw = p.watch_raw(R1_FINAL_WATCH)
+    w_final = fr.confirm(w_raw, p.seg_start, 3, 3)
+    s_raw = p.strong_raw(R1_FINAL_STRONG)
+    s_final = fr.confirm(s_raw, p.seg_start, 3, 3)
+    gated = p.watch_raw({**R1_FINAL_WATCH, "xs": 0.9, "rel": 1.0})
+    print(f"panel {len(p.rows)} satır, {len(p.sessions)} seans, {clock.perf_counter() - started:.0f} sn", flush=True)
+    watch, strong, single = sweep(p, "WATCH"), sweep(p, "STRONG"), single_feature_sweep(p)
+    print(f"ızgara {len(watch)}+{len(strong)}+{len(single)}, {clock.perf_counter() - started:.0f} sn", flush=True)
+    r1w = {d: fr.metrics(w_final, p.sess, p.labels[d], X) for d in DELAYS}
+    r1s = {d: fr.metrics(s_final, p.sess, p.labels[d], X) for d in DELAYS}
+    n_ev = int(p.labels[15].sess_event.sum())
+    ev = event_analysis(p, w_raw, w_final, s_final, gated)
+    scen = {"A_5m_d15_all_confirm": [q for q in watch if q["delay"] == 15],
+            "B_5m_d0_all_confirm": [q for q in watch if q["delay"] == 0],
+            "C_5m_d0_raw_1of1": [q for q in watch + single if q["delay"] == 0
+                                 and q["config"].get("confirm", (1, 1)) == (1, 1)],
+            "C15_5m_d15_raw_1of1 (kontrol)": [q for q in watch + single if q["delay"] == 15
+                                              and q["config"].get("confirm", (1, 1)) == (1, 1)]}
+    result = {
+        "scope": {"assets": len({s for s, _ in p.sessions}), "sessions": len(p.sessions), "rows": len(p.rows),
+                  "days": [str(min(d for _, d in p.sessions)), str(max(d for _, d in p.sessions))],
+                  "artifact": "momentum_round2/runs/merged_ref_d15.pkl (seçim günleri)",
+                  "untouched_final_read": False, "ktlev_in_grid": False},
+        "base_rate": {"row_precision_base_by_delay": br, "event_sessions": n_ev,
+                      "event_session_rate": n_ev / len(p.sessions), "non_event_sessions": len(p.sessions) - n_ev},
+        "round1_final_by_delay": {"WATCH": {d: brief_point(m) for d, m in r1w.items()},
+                                  "STRONG": {d: brief_point(m) for d, m in r1s.items()}},
+        "watch_frontier": frontier_block(watch, br),
+        "strong_frontier": frontier_block(strong, br),
+        "strong_vs_watch": strong_vs_watch(watch, strong, r1w),
+        "confirmation_cost_watch": confirm_cost(p, w_raw),
+        "confirmation_cost_strong": confirm_cost(p, s_raw),
+        "events": summarize_events(ev["events"]),
+        "event_examples": [{kk: v for kk, v in e.items() if kk not in ("timeline_ns", "firsts_ns")}
+                           | {"timeline": {kk: _clock(v) for kk, v in e["timeline_ns"].items()}}
+                           for e in sorted(ev["events"], key=lambda e: -e["runup_pct"])[:12]],
+        "fp_taxonomy_round1_watch_d15": fp_taxonomy_v2(p, w_final),
+        "information_ceiling": {k: {"points": len(v), "frontier3_size": len(frontier3(v)),
+                                    **frontier_answers(v, br[0] if "d0" in k else br[15])} for k, v in scen.items()},
+        "ktlev_case": ktlev_case(),
+        "elapsed_seconds": None,
+    }
+    result["elapsed_seconds"] = round(clock.perf_counter() - started, 1)
+    write_json("audit.json", result)
+    print("audit.json yazıldı", result["elapsed_seconds"], "sn")
+
+
+# ------------------------------------------------------------------ yüzey noktalarının sağlamlığı (aşama "wf")
+WATCH_TARGET = {"false_positive_rate": ("<=", 0.25), "recall": (">=", 0.40), "lead_fraction_median": ("<=", 0.50)}
+
+
+def subset_labels(lab: fr.LabelArrays, sess: np.ndarray, keep_sess: np.ndarray):
+    """Yalnız `keep_sess` (bool, seans başına) seanslarının satır/etiketleri; seans kimlikleri yeniden numaralanır."""
+    r = keep_sess[sess]
+    uniq, inv = np.unique(sess[r], return_inverse=True)
+    sub = fr.LabelArrays(lab.t_ns[r], lab.entry[r], lab.mfe_close[r], lab.ret_close[r], lab.ok[r],
+                         lab.sess_event[uniq], lab.sess_high_ns[uniq], lab.sess_high[uniq], lab.sess_run_low[uniq])
+    return r, inv, sub
+
+
+def final_for(p: Panel, cfg: dict) -> np.ndarray:
+    if "feature" in cfg:
+        vals = getattr(p, cfg["feature"])
+        return p.ok & np.isfinite(vals) & (vals >= cfg["threshold"])
+    return fr.confirm(p.watch_raw(cfg), p.seg_start, *cfg["confirm"])
+
+
+def surface(p: Panel, rows_mask: np.ndarray, kind: str):
+    """(yapılandırma, nihai alarm dizisi) üreteci. Tek öznitelik eşikleri YALNIZ `rows_mask` satırlarından."""
+    if kind in ("composite", "composite_1of1", "all"):
+        last_key, raw = None, None
+        for cfg in grid(WATCH_GRID):  # "confirm" son anahtar → aynı ham kural ardışık gelir
+            if kind == "composite_1of1" and cfg["confirm"] != (1, 1):
+                continue
+            rkey = tuple((k, v) for k, v in cfg.items() if k != "confirm")
+            if rkey != last_key:
+                last_key, raw = rkey, p.watch_raw(cfg)
+            yield cfg, fr.confirm(raw, p.seg_start, *cfg["confirm"])
+    if kind in ("composite_1of1", "all"):
+        for feat in SINGLE_FEATURES:
+            vals = getattr(p, feat)
+            finite = vals[rows_mask & p.ok & np.isfinite(vals)]
+            for q in QUANTILES:
+                cfg = {"feature": feat, "quantile": q, "threshold": float(np.percentile(finite, q))}
+                yield cfg, final_for(p, cfg)
+
+
+def walk_forward_feasibility(p: Panel, only: tuple[str, ...] | None = None) -> dict:
+    """Her senaryo için: eğitim bloklarında hedefi (YPO≤0.25, duyarlılık≥0.40, lead≤0.50, kesinlik≥1.5×taban)
+    sağlayan en düşük lead'li nokta seçilir → sonraki (görülmemiş) blokta ölçülür. Seçim verisi içinde kalır."""
+    sel_days, _ = selection_scope()
+    day_of_sess = np.array([d for _, d in p.sessions])
+    scenarios = {"A_d15_composite": (15, "composite"), "A_d15_composite_plus_single_1of1": (15, "all"),
+                 "B_d0_composite": (0, "composite"), "C_d0_1of1": (0, "composite_1of1"),
+                 "C15_d15_1of1": (15, "composite_1of1")}
+    out = {}
+    for name, (delay, kind) in scenarios.items():
+        if only is not None and name not in only:
+            continue
+        folds = []
+        for f in ds2.walk_forward_folds(sel_days):
+            tr_s, va_s = np.isin(day_of_sess, f["train"]), np.isin(day_of_sess, f["validate"])
+            tr_rows, tr_inv, tr_lab = subset_labels(p.labels[delay], p.sess, tr_s)
+            va_rows, va_inv, va_lab = subset_labels(p.labels[delay], p.sess, va_s)
+            base_tr = float((tr_lab.mfe_close[tr_lab.ok & np.isfinite(tr_lab.mfe_close)] >= X).mean())
+            base_va = float((va_lab.mfe_close[va_lab.ok & np.isfinite(va_lab.mfe_close)] >= X).mean())
+            pts = [{**fr.metrics(final[tr_rows], tr_inv, tr_lab, X), "config": cfg}
+                   for cfg, final in surface(p, tr_rows, kind)]
+            cons = {**WATCH_TARGET, "precision": (">=", 1.5 * base_tr)}
+            pick = fr.best_under(pts, "lead_fraction_median", False, cons)
+            feasible_train = pick is not None
+            if pick is None:  # hedef eğitimde bile yok → YPO≤0.25 & duyarlılık≥0.40 altında en erken nokta
+                pick = fr.best_under(pts, "lead_fraction_median", False,
+                                     {"false_positive_rate": ("<=", 0.25), "recall": (">=", 0.40)})
+            rec = {"fold": f["fold"], "feasible_on_train": feasible_train}
+            if pick is not None:
+                v = fr.metrics(final_for(p, pick["config"])[va_rows], va_inv, va_lab, X)
+                passed = fr.best_under([v], "recall", True,
+                                       {**WATCH_TARGET, "precision": (">=", 1.5 * base_va)}) is not None
+                rec.update({"config": pick["config"],
+                            "train": {k: pick[k] for k in ("precision", "recall", "false_positive_rate",
+                                                           "lead_fraction_median")},
+                            "validate": {k: v[k] for k in ("precision", "recall", "false_positive_rate",
+                                                           "lead_fraction_median", "median_first_alert_minute")},
+                            "validate_passes_target": passed})
+            folds.append(rec)
+        out[name] = {"folds": folds, "passes": sum(bool(r.get("validate_passes_target")) for r in folds)}
+    return out
+
+
+def wf_stage():
+    started = clock.perf_counter()
+    p = Panel(load_selection_rows())
+    for d in (0, 15):
+        p.build_labels(d)
+    res = walk_forward_feasibility(p)
+    res["target"] = {**{k: list(v) for k, v in WATCH_TARGET.items()}, "precision": [">=", "1.5x base"]}
+    res["elapsed_seconds"] = round(clock.perf_counter() - started, 1)
+    write_json("audit_wf.json", res)
+    print(json.dumps(res, ensure_ascii=False, default=str))
+
+
 def write_json(name, payload):
     RUNS.mkdir(parents=True, exist_ok=True)
     (RUNS / name).write_text(json.dumps(payload, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
 
 
 def main(stage: str):
+    if stage == "audit":
+        return audit()
+    if stage == "wf":
+        return wf_stage()
     if stage != "run":
         raise SystemExit(f"bilinmeyen aşama: {stage}")
     started = clock.perf_counter()
@@ -473,4 +951,5 @@ def main(stage: str):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "run")
+    with au.candidate_selection():  # aday seçimi/yüzey: tüketilmiş final açılamaz
+        main(sys.argv[1] if len(sys.argv) > 1 else "run")

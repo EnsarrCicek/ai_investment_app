@@ -31,6 +31,11 @@ UNTOUCHED_ASSETS: tuple[str, ...] = (
     "LOGO", "MPARK", "QUAGR", "SKBNK", "TABGD", "TKFEN", "TURSG", "VESBE", "AYGAZ", "ISGYO",
 )
 
+# Dokunulmamış final dilim (37 varlık × 28.09–15.10) 20.10.2026'da dondurulmuş aday a9f943dc… ile TÜKETİLDİ
+# (sonuç FAIL). Artık yalnız "research feedback"tir: aday seçimi/eşik/sıralama/model seçimi için KULLANILAMAZ.
+CONSUMED_FINAL = True
+CONSUMED_FINAL_SHA = "a9f943dcb53c6ade6e2a30658ab547ab3bfe3930d5f5e93c2908db1a67cad881"
+
 N_SELECTION_BLOCKS = 4  # seçim seansları 4 ardışık bloğa bölünür → 3 genişleyen walk-forward katı
 
 

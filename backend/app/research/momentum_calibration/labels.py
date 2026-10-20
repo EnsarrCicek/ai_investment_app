@@ -76,7 +76,9 @@ def labels_for_session(bars: pd.DataFrame, day: date, times: list[datetime]) -> 
             continue
         entry = float(opens[j])
         k = int(np.searchsorted(starts, pd.Timestamp(t + timedelta(minutes=60)).as_unit("ns").value, side="left"))
-        out.append(EvalLabel(entry=entry, mfe_60=float(highs[j:k].max() / entry - 1),
+        # T sonrası 60 dk içinde bar yoksa (seans içi boşluk) `label_at` gibi NaN
+        mfe_60 = float(highs[j:k].max() / entry - 1) if k > j else float("nan")
+        out.append(EvalLabel(entry=entry, mfe_60=mfe_60,
                              mfe_close=float(suffix_high[j] / entry - 1), ret_close=float(closes[-1] / entry - 1),
                              low_before=float(prefix_low[j - 1]) if j > 0 else entry))
     return session_outcome(day_bars), out

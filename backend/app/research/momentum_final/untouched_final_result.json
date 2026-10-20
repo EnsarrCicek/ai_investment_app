@@ -1,0 +1,587 @@
+{
+ "sha256": "a9f943dcb53c6ade6e2a30658ab547ab3bfe3930d5f5e93c2908db1a67cad881",
+ "candidate": {
+  "alert_unit": "first alert per asset-session",
+  "benchmark": "XU100",
+  "comparison": ">=",
+  "confirmation": [
+   1,
+   1
+  ],
+  "evaluation": {
+   "event_runup": 0.05,
+   "lead_fraction": "(entry - run_low) / (session_high - run_low), caught only if alert <= peak",
+   "precision_horizon_mfe": 0.03
+  },
+  "extended_feature_config_sha256": "44f7a219974fbe01ca7357c83d5d9b3d559a482b51f8f77ce7c262c5a0372c48",
+  "feasibility_verdict": "MOMENTUM FEASIBILITY: CURRENT DATA SUFFICIENT",
+  "feature": "rel_ret_z_3",
+  "interval": "5m",
+  "level": "WATCH",
+  "missing_feature_policy": "no alert",
+  "pass_criteria": {
+   "false_positive_rate": [
+    "<=",
+    0.25
+   ],
+   "lead_fraction_median": [
+    "<=",
+    0.5
+   ],
+   "precision_vs_base": [
+    ">=",
+    1.5
+   ],
+   "recall": [
+    ">=",
+    0.4
+   ]
+  },
+  "provider_delay_minutes": 15,
+  "round1_engine_config_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab",
+  "selection": {
+   "aggregation": "median of fold-selected numeric thresholds",
+   "artifact": "momentum_round2/runs/merged_ref_d15.pkl",
+   "assets": 50,
+   "days": [
+    "2026-07-30",
+    "2026-09-25"
+   ],
+   "fold_quantiles": [
+    99.3,
+    99.5,
+    99.3
+   ],
+   "fold_thresholds": [
+    5.002456964284509,
+    5.409213934790832,
+    5.094139728812382
+   ],
+   "folds": 3,
+   "folds_passing": 3,
+   "scenario": "C15_d15_1of1",
+   "sessions": 2100
+  },
+  "status_gate": "Round 1 final engine status == OK",
+  "strong_rule": "unchanged Round 1 final GROUPS STRONG (reference only, not part of candidate)",
+  "threshold": 5.094139728812382,
+  "version": "momentum-watch-final-v1"
+ },
+ "delay_minutes": 15,
+ "scope": {
+  "assets": 37,
+  "assets_missing_from_artifact": [],
+  "sessions": 518,
+  "rows": 51282,
+  "days": [
+   "2026-09-28",
+   "2026-10-15"
+  ],
+  "n_days": 14,
+  "events": 69
+ },
+ "watch": {
+  "alert_sessions": 101,
+  "alert_day_ratio": 0.19498069498069498,
+  "precision": 0.16831683168316833,
+  "recall": 0.3333333333333333,
+  "false_positive_rate": 0.14253897550111358,
+  "lead_fraction_median": 0.5625,
+  "median_first_alert_minute": 630.0,
+  "caught_events": 23,
+  "events": 69,
+  "specificity": 0.8574610244988864,
+  "median_first_alert_clock": "10:30"
+ },
+ "watch_ci95_wilson": {
+  "precision": [
+   0.1078277451713678,
+   0.25311208993852896
+  ],
+  "recall": [
+   0.23351050633136186,
+   0.45073524666101994
+  ],
+  "false_positive_rate": [
+   0.11322936109783313,
+   0.1779132812013027
+  ],
+  "counts": {
+   "precision_hits": 17,
+   "alert_sessions": 101,
+   "caught": 23,
+   "events": 69,
+   "false_positive_sessions": 64,
+   "non_event_sessions": 449
+  }
+ },
+ "base_rate": 0.0698787904930337,
+ "pass_table": {
+  "false_positive_rate": {
+   "value": 0.14253897550111358,
+   "op": "<=",
+   "limit": 0.25,
+   "result": "PASS"
+  },
+  "recall": {
+   "value": 0.3333333333333333,
+   "op": ">=",
+   "limit": 0.4,
+   "result": "FAIL"
+  },
+  "lead_fraction_median": {
+   "value": 0.5625,
+   "op": "<=",
+   "limit": 0.5,
+   "result": "FAIL"
+  },
+  "precision_vs_base": {
+   "value": 2.408696980809192,
+   "op": ">=",
+   "limit": 1.5,
+   "result": "PASS"
+  }
+ },
+ "verdict": "MOMENTUM UNTOUCHED FINAL: FAIL",
+ "strong_reference": {
+  "alert_sessions": 26,
+  "alert_day_ratio": 0.05019305019305019,
+  "precision": 0.23076923076923078,
+  "recall": 0.15942028985507245,
+  "false_positive_rate": 0.017817371937639197,
+  "lead_fraction_median": 0.6902654717883213,
+  "median_first_alert_minute": 852.5,
+  "caught_events": 11,
+  "events": 69,
+  "median_first_alert_clock": "14:12"
+ },
+ "strong_ci95_wilson": {
+  "precision": [
+   0.11033849341513308,
+   0.4205155423848758
+  ],
+  "recall": [
+   0.09141824237574027,
+   0.263344818086953
+  ],
+  "false_positive_rate": [
+   0.009055378545160118,
+   0.03476008598918824
+  ],
+  "counts": {
+   "precision_hits": 6,
+   "alert_sessions": 26,
+   "caught": 11,
+   "events": 69,
+   "false_positive_sessions": 8,
+   "non_event_sessions": 449
+  }
+ },
+ "strong_precision_gt_watch": true,
+ "distribution": {
+  "assets": 37,
+  "assets_with_alert": 33,
+  "assets_without_alert": 4,
+  "assets_without_alert_list": [
+   "ENKAI",
+   "EUPWR",
+   "KONTR",
+   "QUAGR"
+  ],
+  "top_assets": [
+   {
+    "asset": "GENIL",
+    "alert_sessions": 9,
+    "share": 0.0891089108910891
+   },
+   {
+    "asset": "TTRAK",
+    "alert_sessions": 6,
+    "share": 0.0594059405940594
+   },
+   {
+    "asset": "DOAS",
+    "alert_sessions": 5,
+    "share": 0.04950495049504951
+   }
+  ],
+  "alerts_per_asset": {
+   "GENIL": 9,
+   "TTRAK": 6,
+   "DOAS": 5,
+   "SMRTG": 5,
+   "TABGD": 5,
+   "AGHOL": 4,
+   "ALFAS": 4,
+   "CEMTS": 4,
+   "ISMEN": 4,
+   "TURSG": 4,
+   "AYGAZ": 3,
+   "CLEBI": 3,
+   "ECILC": 3,
+   "EKGYO": 3,
+   "LOGO": 3,
+   "MPARK": 3,
+   "ODAS": 3,
+   "OYAKC": 3,
+   "TAVHL": 3,
+   "TKFEN": 3,
+   "BRSAN": 2,
+   "BRYAT": 2,
+   "EGEEN": 2,
+   "GWIND": 2,
+   "KARSN": 2,
+   "MAVI": 2,
+   "SKBNK": 2,
+   "YEOTK": 2,
+   "AKSA": 1,
+   "GESAN": 1,
+   "ISGYO": 1,
+   "KORDS": 1,
+   "VESBE": 1
+  },
+  "by_day": {
+   "2026-09-28": {
+    "sessions": 37,
+    "events": 5,
+    "alerts": 11,
+    "false_positives": 7,
+    "caught": 1
+   },
+   "2026-09-29": {
+    "sessions": 37,
+    "events": 9,
+    "alerts": 14,
+    "false_positives": 9,
+    "caught": 3
+   },
+   "2026-09-30": {
+    "sessions": 37,
+    "events": 3,
+    "alerts": 9,
+    "false_positives": 7,
+    "caught": 2
+   },
+   "2026-10-01": {
+    "sessions": 37,
+    "events": 14,
+    "alerts": 9,
+    "false_positives": 3,
+    "caught": 6
+   },
+   "2026-10-02": {
+    "sessions": 37,
+    "events": 8,
+    "alerts": 8,
+    "false_positives": 3,
+    "caught": 3
+   },
+   "2026-10-05": {
+    "sessions": 37,
+    "events": 3,
+    "alerts": 4,
+    "false_positives": 2,
+    "caught": 0
+   },
+   "2026-10-06": {
+    "sessions": 37,
+    "events": 1,
+    "alerts": 2,
+    "false_positives": 1,
+    "caught": 0
+   },
+   "2026-10-07": {
+    "sessions": 37,
+    "events": 2,
+    "alerts": 7,
+    "false_positives": 6,
+    "caught": 1
+   },
+   "2026-10-08": {
+    "sessions": 37,
+    "events": 5,
+    "alerts": 5,
+    "false_positives": 3,
+    "caught": 1
+   },
+   "2026-10-09": {
+    "sessions": 37,
+    "events": 5,
+    "alerts": 8,
+    "false_positives": 6,
+    "caught": 2
+   },
+   "2026-10-12": {
+    "sessions": 37,
+    "events": 2,
+    "alerts": 8,
+    "false_positives": 6,
+    "caught": 1
+   },
+   "2026-10-13": {
+    "sessions": 37,
+    "events": 3,
+    "alerts": 3,
+    "false_positives": 2,
+    "caught": 1
+   },
+   "2026-10-14": {
+    "sessions": 37,
+    "events": 4,
+    "alerts": 6,
+    "false_positives": 4,
+    "caught": 0
+   },
+   "2026-10-15": {
+    "sessions": 37,
+    "events": 5,
+    "alerts": 7,
+    "false_positives": 5,
+    "caught": 2
+   }
+  },
+  "top_day": {
+   "day": "2026-09-29",
+   "alerts": 14,
+   "share": 0.13861386138613863
+  },
+  "shock_days": [
+   "2026-09-28",
+   "2026-09-30",
+   "2026-10-01"
+  ],
+  "fpr_shock_days": {
+   "days": 3,
+   "false_positives": 17,
+   "non_event_sessions": 89,
+   "fpr": 0.19101123595505617
+  },
+  "fpr_normal_days": {
+   "days": 11,
+   "false_positives": 47,
+   "non_event_sessions": 360,
+   "fpr": 0.13055555555555556
+  }
+ },
+ "fp_taxonomy": {
+  "fp_sessions": 64,
+  "primary": {
+   "PRICE_SPIKE_NO_VOLUME": {
+    "count": 29,
+    "share": 0.453,
+    "median_profile": {
+     "price_z": 2.175,
+     "ret_z_3": 2.74,
+     "accel": 4.344,
+     "rel_ret_z_3": 5.841,
+     "xs_ret": 0.94,
+     "relvol_3": 1.147,
+     "gap_pct": -0.093,
+     "score": 29.254,
+     "mfe_close": 0.007,
+     "ret_close": -0.011,
+     "visible_minute": 620.0
+    }
+   },
+   "GAP_THEN_FADE": {
+    "count": 10,
+    "share": 0.156,
+    "median_profile": {
+     "price_z": 3.008,
+     "ret_z_3": 4.64,
+     "accel": null,
+     "rel_ret_z_3": 6.386,
+     "xs_ret": 0.99,
+     "relvol_3": null,
+     "gap_pct": 1.59,
+     "score": 36.071,
+     "mfe_close": 0.001,
+     "ret_close": -0.022,
+     "visible_minute": 620.0
+    }
+   },
+   "BREAKOUT_FAILURE": {
+    "count": 9,
+    "share": 0.141,
+    "median_profile": {
+     "price_z": 6.138,
+     "ret_z_3": 7.109,
+     "accel": 3.706,
+     "rel_ret_z_3": 6.553,
+     "xs_ret": 1.0,
+     "relvol_3": 5.438,
+     "gap_pct": 0.0,
+     "score": 72.739,
+     "mfe_close": 0.004,
+     "ret_close": -0.012,
+     "visible_minute": 660.0
+    }
+   },
+   "BENCHMARK_SHOCK": {
+    "count": 5,
+    "share": 0.078,
+    "median_profile": {
+     "price_z": 7.84,
+     "ret_z_3": 7.84,
+     "accel": 3.468,
+     "rel_ret_z_3": 6.092,
+     "xs_ret": 1.0,
+     "relvol_3": 3.6,
+     "gap_pct": 0.0,
+     "score": 70.368,
+     "mfe_close": 0.01,
+     "ret_close": -0.003,
+     "visible_minute": 820.0
+    }
+   },
+   "VOLUME_SPIKE_NO_CONTINUATION": {
+    "count": 5,
+    "share": 0.078,
+    "median_profile": {
+     "price_z": 5.54,
+     "ret_z_3": 5.54,
+     "accel": 3.358,
+     "rel_ret_z_3": 5.611,
+     "xs_ret": 1.0,
+     "relvol_3": 6.591,
+     "gap_pct": -0.072,
+     "score": 67.306,
+     "mfe_close": 0.0,
+     "ret_close": -0.005,
+     "visible_minute": 715.0
+    }
+   },
+   "OTHER": {
+    "count": 4,
+    "share": 0.062,
+    "median_profile": {
+     "price_z": 5.744,
+     "ret_z_3": 6.723,
+     "accel": 4.697,
+     "rel_ret_z_3": 6.997,
+     "xs_ret": 0.95,
+     "relvol_3": 8.581,
+     "gap_pct": 1.218,
+     "score": 63.374,
+     "mfe_close": 0.017,
+     "ret_close": 0.007,
+     "visible_minute": 620.0
+    }
+   },
+   "SHORT_LIVED_ACCELERATION": {
+    "count": 2,
+    "share": 0.031,
+    "median_profile": {
+     "price_z": 6.402,
+     "ret_z_3": 6.403,
+     "accel": 4.327,
+     "rel_ret_z_3": 5.958,
+     "xs_ret": 1.0,
+     "relvol_3": 9.419,
+     "gap_pct": 0.68,
+     "score": 69.705,
+     "mfe_close": 0.018,
+     "ret_close": 0.012,
+     "visible_minute": 750.0
+    }
+   }
+  },
+  "any_reason": {
+   "PRICE_SPIKE_NO_VOLUME": {
+    "count": 40,
+    "share": 0.625
+   },
+   "SHORT_LIVED_ACCELERATION": {
+    "count": 15,
+    "share": 0.234
+   },
+   "BREAKOUT_FAILURE": {
+    "count": 13,
+    "share": 0.203
+   },
+   "VOLUME_SPIKE_NO_CONTINUATION": {
+    "count": 12,
+    "share": 0.188
+   },
+   "GAP_THEN_FADE": {
+    "count": 10,
+    "share": 0.156
+   },
+   "BENCHMARK_SHOCK": {
+    "count": 5,
+    "share": 0.078
+   },
+   "OTHER": {
+    "count": 4,
+    "share": 0.062
+   },
+   "LATE_DAY_NOISE": {
+    "count": 1,
+    "share": 0.016
+   }
+  }
+ },
+ "fn_taxonomy": {
+  "not_caught_early": 59,
+  "of_which_alert_after_lead_0.5_but_before_peak": 12,
+  "primary": {
+   "NO_EARLY_PRICE_EVIDENCE": {
+    "count": 24,
+    "share": 0.4067796610169492
+   },
+   "FEATURE_THRESHOLD": {
+    "count": 17,
+    "share": 0.288135593220339
+   },
+   "ABRUPT_VERTICAL_JUMP": {
+    "count": 14,
+    "share": 0.23728813559322035
+   },
+   "BASELINE_UNAVAILABLE": {
+    "count": 2,
+    "share": 0.03389830508474576
+   },
+   "BENCHMARK/CROSS_SECTION_GATE": {
+    "count": 2,
+    "share": 0.03389830508474576
+   }
+  },
+  "any_reason": {
+   "NO_EARLY_PRICE_EVIDENCE": {
+    "count": 40,
+    "share": 0.6779661016949152
+   },
+   "FEATURE_THRESHOLD": {
+    "count": 17,
+    "share": 0.288135593220339
+   },
+   "ABRUPT_VERTICAL_JUMP": {
+    "count": 14,
+    "share": 0.23728813559322035
+   },
+   "BASELINE_UNAVAILABLE": {
+    "count": 2,
+    "share": 0.03389830508474576
+   },
+   "BENCHMARK/CROSS_SECTION_GATE": {
+    "count": 2,
+    "share": 0.03389830508474576
+   }
+  },
+  "not_evaluated": [
+   "PROVIDER_DELAY (d0 yasak)",
+   "CONFIRMATION_DELAY (aday 1/1)",
+   "NO_VOLUME_CONFIRMATION (aday hacim şartı içermez)"
+  ]
+ },
+ "finished_at": "2026-10-20 11:58:46.845348+03:00",
+ "seconds": 5.8,
+ "prior_aborted_attempts": [
+  {
+   "sha256": "a9f943dcb53c6ade6e2a30658ab547ab3bfe3930d5f5e93c2908db1a67cad881",
+   "started_at": "2026-10-20 11:56:23.236845+03:00",
+   "status": "aborted_before_metrics",
+   "error": "ValueError: zero-size array to reduction operation maximum (momentum_calibration/labels.py labels_for_session mfe_60, >=60 dk bar boşluğu) — Panel.build_labels sırasında; hiçbir metrik/çıktı üretilmedi"
+  }
+ ]
+}
