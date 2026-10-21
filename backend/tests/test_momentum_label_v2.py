@@ -235,3 +235,80 @@ def test_manifest_canonical_hash_and_freeze(tmp_path):
 def test_committed_manifest_matches_code():
     m = lx.load_manifest()
     assert m["sha256"] == lx.manifest_payload()["sha256"]
+
+
+# ------------------------------------------------------------------ birincil birim: varlık-seans başına ilk WATCH
+FINAL_SHA = "9b9602c18cf13e2bd7c5af8d171b479945be0cefa1ee28fc0cb0df8cba6e1d09"
+
+
+def _one_session(mask, bars, events, unit=lv.FIRST_ALERT, entry=103.0):
+    n = len(mask)
+    return lv.evaluate(np.array(mask, bool), np.zeros(n, int), np.zeros(n, int),
+                       np.array([bar_ns(b) for b in bars], np.int64), np.full(n, entry), [events], unit)
+
+
+def test_primary_unit_is_first_watch_per_asset_session():
+    assert lv.MANIFEST_CONFIG["alert_unit"] == "first_watch_alert_per_asset_session" == lv.FIRST_ALERT
+    assert lv.MANIFEST_CONFIG["sensitivity_alert_unit"] == "each_watch_activation" == lv.ALERT_ONSET
+    # NONE → WATCH → NONE → WATCH: birincil yalnız ilk WATCH başlangıcı
+    m = _one_session([0, 1, 0, 1, 1], [1, 2, 3, 4, 5], [])
+    assert m["alerts"] == 1 and m["alert_unit"] == lv.FIRST_ALERT
+    assert lv.evaluate.__defaults__[0] == lv.FIRST_ALERT  # varsayılan birim birincil
+
+
+def test_second_watch_cannot_rescue_earlier_false_alert():
+    ev = [_ev(10, 20)]
+    mask, bars = [1, 0, 1], [5, 8, 12]  # sabah PRE_EVENT, öğleden sonra olay içinde yeniden WATCH
+    prim = _one_session(mask, bars, ev)
+    assert prim["alert_classes"][lv.PRE_EVENT] == 1 and prim["alert_classes"][lv.IN_EVENT] == 0
+    assert prim["recall_raw_v2"] == 0.0 and prim["precision_v2"] == 0.0 and prim["pre_event_alert_rate"] == 1.0
+    sens = _one_session(mask, bars, ev, unit=lv.ALERT_ONSET)  # yalnız teşhis
+    assert sens["recall_raw_v2"] == 1.0 and sens["precision_v2"] == 0.5
+
+
+def test_first_in_event_alert_is_primary_tp_and_post_peak_is_not():
+    ev = [_ev(10, 20)]
+    tp = _one_session([1, 1], [12, 13], ev)
+    assert tp["recall_raw_v2"] == 1.0 and tp["precision_v2"] == 1.0 and tp["median_lead_v2"] == pytest.approx(0.5)
+    post = _one_session([1, 0, 1], [21, 22, 23], ev)
+    assert post["recall_raw_v2"] == 0.0 and post["precision_v2"] == 0.0 and post["post_peak_alert_rate"] == 1.0
+
+
+def test_multiple_events_primary_alert_binds_only_its_window():
+    evs = [_ev(2, 6), _ev(10, 14)]
+    prim = _one_session([1, 0, 1], [4, 8, 12], evs)
+    rec = prim["_events"]
+    assert [e["caught"] for e in rec] == [True, False]  # ikinci olay birincil metrikte kaçırılmış kalır
+    assert prim["recall_raw_v2"] == 0.5 and prim["alerts"] == 1
+    assert _one_session([1, 0, 1], [4, 8, 12], evs) == prim  # deterministik
+    sens = _one_session([1, 0, 1], [4, 8, 12], evs, unit=lv.ALERT_ONSET)
+    assert [e["caught"] for e in sens["_events"]] == [True, True]
+
+
+def test_sensitivity_mode_available_and_units_validated():
+    ev = [_ev(10, 20)]
+    a = _one_session([1, 0, 1, 1], [5, 8, 12, 13], ev, unit=lv.ALERT_ONSET)
+    b = _one_session([1, 0, 1, 1], [5, 8, 12, 13], ev, unit=lv.FIRST_ALERT)
+    assert a["alert_unit"] != b["alert_unit"] and a["alerts"] == 2 and b["alerts"] == 1
+    with pytest.raises(ValueError):
+        _one_session([1], [12], ev, unit="FIRST_ALERT_PER_SESSION")
+
+
+def test_final_manifest_sha_stable_and_immutable(tmp_path):
+    m = lx.manifest_payload()
+    assert m["sha256"] == FINAL_SHA and m["config"]["manifest_status"] == "FINAL"
+    assert m["config"]["supersedes_draft_sha256"] == lv.DRAFT_SHA256
+    assert lx.cd.canonical_json(m["config"]) == lx.cd.canonical_json(json.loads(lx.cd.canonical_json(m["config"])))
+    # taslak → FINAL tek seferlik geçiş; FINAL değiştirilemez (yeni LABEL VERSION gerekir)
+    draft = {"config": {"version": lv.LABEL_VERSION}, "sha256": lv.DRAFT_SHA256}
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(draft), encoding="utf-8")
+    with pytest.raises(lx.LabelManifestError):  # taslak bozuk (SHA uyuşmuyor) → reddedilir
+        lx.freeze_manifest(path)
+    path.unlink()
+    assert lx.freeze_manifest(path)["sha256"] == FINAL_SHA
+    other = {"config": {**m["config"], "event_threshold": 0.04}}
+    other["sha256"] = lx.cd.sha256_of(other["config"])
+    path.write_text(json.dumps(other), encoding="utf-8")
+    with pytest.raises(lx.LabelManifestError, match="yeni LABEL VERSION"):
+        lx.freeze_manifest(path)

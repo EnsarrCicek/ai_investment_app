@@ -2,10 +2,14 @@
 
 Kullanım (backend klasöründen, sırayla):
     .venv\\Scripts\\python.exe -X utf8 -m app.research.momentum_label_v2.experiment selection
+    .venv\\Scripts\\python.exe -X utf8 -m app.research.momentum_label_v2.experiment freeze
     .venv\\Scripts\\python.exe -X utf8 -m app.research.momentum_label_v2.experiment postmortem
 
 * selection: tasarım ve V1↔V2 karşılaştırması YALNIZ referans evren × seçim seansları; `candidate_selection`
-  bağlamında çalışır (tüketilmiş final açılamaz). Etiket manifesti burada yazılır (SHA-256).
+  bağlamında çalışır (tüketilmiş final açılamaz). Birincil birim: varlık-seans başına ilk WATCH; her aktivasyon
+  yalnız ikincil duyarlılık.
+* freeze: seçim sonuçları ve testler temizse FINAL manifest (kanonik JSON + SHA-256). Sonradan değiştirilemez;
+  tanım değişirse yeni LABEL VERSION gerekir. Tek izinli geçiş: taslak (DRAFT_SHA256) → FINAL.
 * postmortem: manifest dondurulduktan SONRA tüketilmiş finale yalnız açıklayıcı uygulama — "POSTMORTEM ONLY",
   PASS/FAIL üretilmez; eski karar (FAIL) değişmez.
 * Eşikler değişmez: dondurulmuş aday (rel_ret_z_3 ≥ 5.0941…, 1/1, d15) ve Round 1 final WATCH/STRONG yalnız ölçüm
@@ -48,13 +52,16 @@ def manifest_payload() -> dict:
 
 
 def freeze_manifest(path: Path = MANIFEST) -> dict:
-    """İlk çağrı yazar; sonraki çağrılar yalnız AYNI tanımı kabul eder."""
+    """İlk çağrı yazar; sonraki çağrılar yalnız AYNI tanımı kabul eder. Yalnız FINAL olmayan taslak
+    (`lv.DRAFT_SHA256`) bir kez FINAL ile değiştirilebilir."""
     m = manifest_payload()
     if path.exists():
         existing = load_manifest(path)
-        if existing["sha256"] != m["sha256"]:
-            raise LabelManifestError("Label V2 manifesti dondurulmuş; tanım değiştirilemez")
-        return existing
+        if existing["sha256"] == m["sha256"]:
+            return existing
+        if existing["sha256"] != lv.DRAFT_SHA256 or existing["config"].get("manifest_status") == "FINAL":
+            raise LabelManifestError(f"{lv.LABEL_VERSION} manifesti FINAL olarak dondurulmuş; tanım değişikliği "
+                                     "yeni LABEL VERSION gerektirir")
     path.write_text(json.dumps(m, sort_keys=True, indent=1, ensure_ascii=False, allow_nan=False) + "\n",
                     encoding="utf-8")
     return m
@@ -130,7 +137,7 @@ def v1_brief(m: dict, br: float) -> dict:
                 m["precision"] / br if m["precision"] is not None and br else None)}
 
 
-def evaluate(p: fx.Panel, events, mask: np.ndarray, delay: int, unit: str = lv.ALERT_ONSET) -> dict:
+def evaluate(p: fx.Panel, events, mask: np.ndarray, delay: int, unit: str = lv.FIRST_ALERT) -> dict:
     lab = p.labels[delay]
     return lv.evaluate(mask, p.sess, p.seg_start, lab.t_ns, lab.entry, events, unit, lab.mfe_close, fx.X)
 
@@ -157,30 +164,39 @@ def decompose(p: fx.Panel, events, mask: np.ndarray, delay: int) -> dict:
         elif s in caught_first:
             fn["MEASUREMENT_ARTIFACT_PEAK_MISMATCH"] += 1
         elif s in caught_on:
-            fn["CAUGHT_ONLY_BY_LATER_ONSET"] += 1
+            fn["SENSITIVITY_ONLY_LATER_ACTIVATION"] += 1
         else:
             fn["GENUINE_MISS"] += 1
-    # olay düzeyi: kaçırılan değerlendirilebilir olaylar — yalnız tepe sonrası alarm alanlar
+    return {"v1_true_positive_split": dict(tp), "v1_true_positives": sum(tp.values()),
+            "v1_false_negative_split": dict(fn), "v1_false_negatives": sum(fn.values()),
+            "v2_primary_missed_evaluable_events_split": missed_split(lab, events, v2_first),
+            "v2_sensitivity_missed_evaluable_events_split": missed_split(lab, events, v2_on)}
+
+
+def missed_split(lab, events, v2: dict) -> dict:
+    """Kaçırılan değerlendirilebilir olaylar, o birimin alarmlarına göre: tepe sonrası / olay öncesi / başka olayın
+    penceresinde (birincil ilk alarm o güne harcanmış) / hiç alarm yok."""
     alerts_by_sess: dict[int, list[tuple[int, str]]] = {}
-    for a in v2_on["_alerts"]:
+    for a in v2["_alerts"]:
         alerts_by_sess.setdefault(a["sess"], []).append((int(lab.t_ns[a["row"]]), a["class"]))
     miss = Counter()
-    for e in v2_on["_events"]:
+    for e in v2["_events"]:
         if not e["evaluable"] or e["caught"]:
             continue
         ev = events[e["sess"]][e["k"]]
         nxt = [x.start_ns for x in events[e["sess"]] if x.start_ns > ev.peak_ns]
         end = min(nxt) if nxt else np.iinfo(np.int64).max
-        times = [t for t, _ in alerts_by_sess.get(e["sess"], [])]
+        got = alerts_by_sess.get(e["sess"], [])
+        times = [t for t, _ in got]
         if any(ev.peak_ns < t < end for t in times):
             miss["POST_PEAK_ONLY"] += 1
-        elif any(t < ev.start_ns for t in times):
+        elif any(t < ev.start_ns and c == lv.PRE_EVENT for t, c in got):
             miss["PRE_EVENT_ONLY"] += 1
+        elif any(c in (lv.IN_EVENT, lv.IN_EVENT_DUPLICATE) for _, c in got):
+            miss["ALERT_USED_BY_OTHER_EVENT"] += 1
         else:
             miss["NO_ALERT_AROUND_EVENT"] += 1
-    return {"v1_true_positive_split": dict(tp), "v1_true_positives": sum(tp.values()),
-            "v1_false_negative_split": dict(fn), "v1_false_negatives": sum(fn.values()),
-            "v2_missed_evaluable_events_split": dict(miss)}
+    return dict(miss)
 
 
 def masks(p: fx.Panel, cand: dict) -> dict[str, np.ndarray]:
@@ -197,8 +213,8 @@ def compare(p: fx.Panel, events, rules: dict[str, np.ndarray]) -> dict:
         for d in DELAYS:
             out[name][f"d{d}"] = {
                 "V1": v1_brief(fr.metrics(mask, p.sess, p.labels[d], fx.X), br[d]),
-                "V2_alert_onset": _brief(evaluate(p, events, mask, d, lv.ALERT_ONSET)),
-                "V2_first_alert_per_session": _brief(evaluate(p, events, mask, d, lv.FIRST_ALERT))}
+                "V2_primary_first_watch_per_asset_session": _brief(evaluate(p, events, mask, d, lv.FIRST_ALERT)),
+                "V2_sensitivity_each_watch_activation": _brief(evaluate(p, events, mask, d, lv.ALERT_ONSET))}
     return out
 
 
@@ -222,9 +238,9 @@ def _selection():
     events_again, _ = build_events(p)
     cand = cd.load_frozen(mf.MANIFEST)["candidate"]
     rules = masks(p, cand)
-    manifest = freeze_manifest()
     result = {
-        "label_manifest_sha256": manifest["sha256"], "scope": {
+        "label_config_sha256": manifest_payload()["sha256"], "alert_unit": lv.FIRST_ALERT,
+        "sensitivity_alert_unit": lv.ALERT_ONSET, "scope": {
             "assets": len({s for s, _ in p.sessions}), "sessions": len(p.sessions), "rows": len(p.rows),
             "days": [str(min(d for _, d in p.sessions)), str(max(d for _, d in p.sessions))],
             "consumed_final_read": False},
@@ -240,6 +256,12 @@ def _selection():
     result["elapsed_seconds"] = round(clock.perf_counter() - started, 1)
     write_json("selection_v1_v2.json", result)
     print(json.dumps(result, ensure_ascii=False, default=str))
+
+
+def freeze_stage():
+    m = freeze_manifest()
+    print(json.dumps({"version": m["config"]["version"], "status": m["config"]["manifest_status"],
+                      "alert_unit": m["config"]["alert_unit"], "sha256": m["sha256"]}, ensure_ascii=False))
 
 
 def postmortem_stage():
@@ -260,8 +282,8 @@ def postmortem_stage():
            "v1_v2_event_equivalence": {k: v for k, v in v1_v2_event_equivalence(p, events).items()},
            "event_census": event_census(events, gap),
            "V1": v1_brief(fr.metrics(mask, p.sess, p.labels[d], fx.X), br),
-           "V2_alert_onset": _brief(evaluate(p, events, mask, d, lv.ALERT_ONSET)),
-           "V2_first_alert_per_session": _brief(evaluate(p, events, mask, d, lv.FIRST_ALERT)),
+           "V2_primary_first_watch_per_asset_session": _brief(evaluate(p, events, mask, d, lv.FIRST_ALERT)),
+           "V2_sensitivity_each_watch_activation": _brief(evaluate(p, events, mask, d, lv.ALERT_ONSET)),
            "decomposition": decompose(p, events, mask, d)}
     write_json("postmortem_label_v2_final.json", out)
     print(json.dumps(out, ensure_ascii=False, default=str))
@@ -273,7 +295,7 @@ def write_json(name, payload):
 
 
 def main(stage: str):
-    {"selection": selection_stage, "postmortem": postmortem_stage}[stage]()
+    {"selection": selection_stage, "freeze": freeze_stage, "postmortem": postmortem_stage}[stage]()
 
 
 if __name__ == "__main__":

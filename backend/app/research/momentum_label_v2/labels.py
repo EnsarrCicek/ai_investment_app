@@ -14,8 +14,10 @@ V2 (gelecek bilgi yalnız ETİKET için; dedektör girdisine asla girmez):
 * Zamanlar piyasa bar zamanlarıdır; sağlayıcı gecikmesinden bağımsızdır. Gecikme yalnız alarmın görünür zamanını
   değiştirir.
 * Değerlendirilebilir olay: tepe > ilk gözlem (seansın ilk barının bitişi) VE tepe barı > dip barı.
-* Alarm birimi: ALERT_ONSET (seans içinde nihai kural maskesinin yükselen kenarı). TP yalnız
-  event_start ≤ görünür zaman ≤ event_peak; kronolojik bire bir eşleme.
+* Birincil alarm birimi: varlık-seans başına İLK WATCH alarmı (ürün anlamı: o gün bir kez bildirim). Sonraki
+  yeniden girişler yeni TP üretmez, ilk yanlış alarmı temizlemez, duyarlılığı artırmaz. Her WATCH aktivasyonu
+  (yükselen kenar) yalnız ikincil duyarlılık teşhisidir. TP yalnız event_start ≤ görünür zaman ≤ event_peak;
+  kronolojik bire bir eşleme.
 """
 
 from __future__ import annotations
@@ -45,11 +47,15 @@ POST_PEAK = "POST_PEAK_ALERT"
 NO_EVENT = "NO_EVENT_SESSION_ALERT"
 ALERT_CLASSES = (IN_EVENT, IN_EVENT_DUPLICATE, PRE_EVENT, POST_PEAK, NO_EVENT)
 
-ALERT_ONSET = "ALERT_ONSET"
-FIRST_ALERT = "FIRST_ALERT_PER_SESSION"
+FIRST_ALERT = "first_watch_alert_per_asset_session"  # birincil (ileriye dönük metrikler)
+ALERT_ONSET = "each_watch_activation"  # ikincil duyarlılık teşhisi
+DRAFT_SHA256 = "3adfa556ac579cbd8f3712b1ca4d93b310bac74ced21b9501158afe5022793b4"  # alert_unit = aktivasyon taslağı
 
 MANIFEST_CONFIG = {
     "version": LABEL_VERSION,
+    "manifest_status": "FINAL",
+    "supersedes_draft_sha256": DRAFT_SHA256,
+    "change_policy": "immutable; any change to the label definition requires a new LABEL VERSION and a new manifest",
     "bar_interval": "5m",
     "timestamps": "market bar start times (Europe/Istanbul); provider-delay independent",
     "event_threshold": EVENT_THRESHOLD,
@@ -66,23 +72,31 @@ MANIFEST_CONFIG = {
     "opening_gap_policy": "session open / previous session close - 1 >= event_threshold -> OPENING_GAP_EVENT session "
                           "flag; separate class, never an intraday event, never in intraday denominators",
     "alert_time": "visible time = information time + provider delay",
-    "alert_unit": ALERT_ONSET,
-    "alert_unit_definition": "rising edge of the final rule mask within an asset-session (first row, or row whose "
-                             "previous row in the same session was not alerting)",
-    "alert_unit_sensitivity": FIRST_ALERT,
+    "alert_unit": FIRST_ALERT,
+    "alert_unit_definition": "only the first row of an asset-session where the final rule mask is on; later "
+                             "re-entries (NONE -> WATCH again) produce no new true positive, do not clear an earlier "
+                             "false alert and do not add recall",
+    "sensitivity_alert_unit": ALERT_ONSET,
+    "sensitivity_alert_unit_definition": "rising edge of the final rule mask within an asset-session (first row, or "
+                                         "row whose previous row in the same session was not alerting); diagnostic "
+                                         "only, never a primary metric",
     "alert_classes": list(ALERT_CLASSES),
     "true_positive": "event_start <= alert_visible_time <= event_peak",
     "pre_event_alert_policy": "alert outside every event window and before the start of a later event in the same "
                               "session -> PRE_EVENT_ALERT; never a true positive",
     "post_peak_policy": "alert outside every event window with no later event in the session -> POST_PEAK_ALERT; "
                         "never a true positive",
-    "matching": "chronological one-to-one: each alert onset (time order) matches the earliest unmatched event whose "
-                "window contains it; further onsets inside a matched window are IN_EVENT_DUPLICATE",
+    "matching": "chronological one-to-one: the primary first alert can match only the event window that contains "
+                "it (earliest unmatched); one alert never catches two events; other events of the session stay "
+                "missed in the primary metric. Sensitivity: each activation in time order matches the earliest "
+                "unmatched event whose window contains it; further activations in a matched window are "
+                "IN_EVENT_DUPLICATE",
     "lead_definition": "(entry - event_low) / (event_high - event_low) on the matched swing; entry = open of first bar "
                        "starting at/after visible time; clipped to [0, 1] for safety only",
     "lead_target": LEAD_TARGET,
-    "precision_definition": "IN_EVENT onsets (matched + duplicate) / all onsets",
-    "fpr_definition": "non-event sessions (no qualifying swing) with >= 1 onset / non-event sessions",
+    "precision_definition": "primary: asset-sessions whose first alert is IN_EVENT / alerted asset-sessions "
+                            "(sensitivity: IN_EVENT activations incl. duplicates / all activations)",
+    "fpr_definition": "non-event sessions (no qualifying swing) with an alert / non-event sessions",
     "recall_raw_definition": "matched events / all events",
     "recall_evaluable_definition": "matched evaluable events / evaluable events",
     "provider_delay_independent": True,
@@ -213,11 +227,13 @@ def lead_v2(entry: float, event: Swing) -> float | None:
 
 
 def evaluate(alert_mask: np.ndarray, sess: np.ndarray, seg_start: np.ndarray, t_ns: np.ndarray, entry: np.ndarray,
-             events: list[list[Swing]], unit: str = ALERT_ONSET, mfe_close: np.ndarray | None = None,
+             events: list[list[Swing]], unit: str = FIRST_ALERT, mfe_close: np.ndarray | None = None,
              x: float = 0.03) -> dict:
     """Satır dizileri (seans, zaman sıralı) + seans başına olay listeleri → V2 metrikleri ve olay/alarm kayıtları.
 
     `t_ns` = alarmın GÖRÜNÜR zamanı (gecikme senaryosuna göre); `events` gecikmeden bağımsızdır."""
+    if unit not in (FIRST_ALERT, ALERT_ONSET):
+        raise ValueError(f"bilinmeyen alarm birimi: {unit}")
     alerts = onsets(alert_mask, seg_start) if unit == ALERT_ONSET else first_only(alert_mask, sess)
     a_idx = np.flatnonzero(alerts)
     by_sess: dict[int, list[int]] = {}
