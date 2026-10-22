@@ -7,6 +7,7 @@ import 'features/dashboard/dashboard_screen.dart';
 import 'features/funds/funds_screen.dart';
 import 'features/macro/macro_screen.dart';
 import 'features/portfolio/portfolio_screen.dart';
+import 'features/research_collector/application/collector_scheduler.dart';
 import 'features/settings/settings_screen.dart';
 import 'firebase_options.dart';
 import 'services/notification_service.dart';
@@ -16,6 +17,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MyApp());
+  // MOBILE_SHADOW araştırma toplayıcısı: yalnız Android, yalnız yerel DB; hata uygulamayı etkilemez.
+  initializeCollectorBackground();
 }
 
 // AŞAMA 68: kullanıcı isteği — "renk paketlerini modern hale getir, renk

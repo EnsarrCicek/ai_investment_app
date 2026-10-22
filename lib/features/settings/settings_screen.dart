@@ -8,6 +8,7 @@ import '../analysts/analysts_hub_screen.dart';
 import '../guide/guide_screen.dart';
 import '../ipo/ipo_list_screen.dart';
 import '../notifications/notification_history_screen.dart';
+import '../research_collector/presentation/research_collector_page.dart';
 import '../strategy_lab/strategy_lab_screen.dart';
 import '../usage/usage_screen.dart';
 
@@ -142,6 +143,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.chevron_right),
               onTap: _sendingTest ? null : _sendTestNotification,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.storage_outlined),
+              title: const Text('Araştırma Veri Toplayıcı'),
+              subtitle: const Text('MOBILE SHADOW — BIST 1m/5m günlük yerel arşiv (primary veri değildir)'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ResearchCollectorPage()),
+              ),
             ),
           ),
           const SizedBox(height: 8),
