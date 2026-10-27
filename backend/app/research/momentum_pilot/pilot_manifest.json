@@ -1,0 +1,32 @@
+{
+ "manifest": {
+  "alert_unit": "first_watch_alert_per_asset_session",
+  "created_at": "2026-10-27T07:48:42.124419+00:00",
+  "development_access_cutoff": "2026-10-26",
+  "full_session_definition": "collector integrity.classify_sessions: benchmark XU100 5m first bar <= 10:05 and last bar >= 17:50 (Europe/Istanbul); session_date >= prospective_start_session; not a consumed-final date; no weekday/holiday inference",
+  "holdout_access": "forbidden until ONE candidate is frozen after pilot completion; then used once",
+  "holdout_policy": "all_full_sessions_after_pilot_cutoff",
+  "holdout_target_full_sessions": 20,
+  "label": "MOMENTUM_EVENT_LABEL_V2",
+  "label_v2_sha256": "9b9602c18cf13e2bd7c5af8d171b479945be0cefa1ee28fc0cb0df8cba6e1d09",
+  "mobile_data_role": "MOBILE_SHADOW (quality comparison only; never replaces primary bars)",
+  "pilot_cutoff_session": null,
+  "pilot_metric_label": "PILOT / DEVELOPMENT ONLY",
+  "pilot_policy": "first_5_full_observed_sessions",
+  "pilot_session_count": 5,
+  "pilot_sessions": [
+   "2026-10-22",
+   "2026-10-23",
+   "2026-10-26"
+  ],
+  "policy_sha256": "b530512387b5e60520f1c51b74c57fedcd9f4c9f8d2067fcad46e9fc8c1a4720",
+  "previous_manifest_sha256": null,
+  "primary_data_source": "WINDOWS_PRIMARY",
+  "prospective_start_session": "2026-10-22",
+  "status": "PILOT_ACCUMULATING",
+  "study_manifest_sha256": "635ff0b15c8387174779b105e8f45c9767184cab6b5ea13fb16a679cacab598b",
+  "universe_sha256": "2d96684a0e83b59bf0ee93d3affd9f0b7e95f6e402863f25375d5a752fc687f0",
+  "version": "MOMENTUM_PILOT_SPLIT_V1"
+ },
+ "sha256": "7a98e01791000b56f6edc0c8433428b62e89ab877c9b9bb64c207c059529aa32"
+}
