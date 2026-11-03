@@ -1,0 +1,62 @@
+{
+ "manifest": {
+  "conclusion": "OHLCV_ONLY_NOT_SUFFICIENT_FOR_CURRENT_TARGET",
+  "created_at": "2026-11-03T11:47:56.917074+00:00",
+  "evidence_result_sha256": {
+   "pilot_deep_2026-10-30.json": "8c80ce7508d172d1617f5fd80b59edb4cce2e007222ff9dd597c6cfcf73d0d05",
+   "pilot_ranking_2026-10-30.json": "83a335012f38295a8b1effac911af21ab955e75800909cb838071502a01a6853",
+   "pilot_redesign_2026-10-30.json": "271cbac515bfcfb872dc8271243f36dd59034dc59c661824108f44c8b4eb6e3b"
+  },
+  "failed_architecture_families": [
+   "absolute threshold rules (Round 1 WATCH/STRONG, historical frozen candidate, gated variants)",
+   "redesigned precursor features (compression/volume/relative-strength/structure/regime)",
+   "simple ML (logistic regression, shallow gradient boosting)",
+   "two-stage precursor + confirmation",
+   "cross-sectional Top-K ranking (3 composite scores, K 1/3/5, persistence 1-3)",
+   "learning-to-rank (logistic within-timestamp)"
+  ],
+  "future_holdout": "UNREAD (2026-11-02 onward)",
+  "kind": "RESEARCH_CONCLUSION (not a candidate freeze)",
+  "label_v2_sha256": "9b9602c18cf13e2bd7c5af8d171b479945be0cefa1ee28fc0cb0df8cba6e1d09",
+  "measured_latency_minutes": {
+   "1m": {
+    "max": 170.775,
+    "median": 18.122,
+    "min": 15.091,
+    "n": 9417,
+    "p25": 16.366,
+    "p75": 19.362,
+    "p90": 47.468,
+    "symbols": 5
+   },
+   "5m": {
+    "max": 167.753,
+    "median": 15.637,
+    "min": 15.061,
+    "n": 4513,
+    "p25": 15.209,
+    "p75": 20.108,
+    "p90": 46.211,
+    "symbols": 11
+   },
+   "method": "PROBE first_seen - bar_end over the 5 PILOT sessions; 5-minute probe cadence makes values an upper bound"
+  },
+  "pilot_manifest_sha256": "d7bb301233841ed278d041c15bd88103763dae3ebdd6f80115af082a8ac44dfd",
+  "provider": {
+   "api_key": false,
+   "intervals": [
+    "1m",
+    "5m"
+   ],
+   "name": "yahoo_finance",
+   "type": "public chart endpoint, delayed intraday OHLCV"
+  },
+  "targets": {
+   "FPR_v2_max": 0.25,
+   "median_visible_lead_v2_max": 0.5,
+   "recall_evaluable_v2_min": 0.4
+  },
+  "version": "MOMENTUM_DATA_GAP_V1"
+ },
+ "sha256": "9ab7a88ae39c9a1dc885779bdf080bcf194ea819ac2ea7a1594d38552461e9c9"
+}
