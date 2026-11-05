@@ -39,7 +39,8 @@ LAG_LABEL = "ARCHIVAL DISCOVERY LAG (received_at - published_at; NOT provider ne
 FORBIDDEN_KEYS = ("precision", "recall", "fpr", "lead", "alert", "label", "mfe", "peak", "v2_event", "candidate",
                   "return", "outcome")
 # Önceden sabit hazırlık ölçütleri (sonuç fiyatı kullanılmaz)
-READINESS = {"published_at_present_min": 0.99, "clock_skew_max": 0.01, "duplicate_conflicts_max": 0,
+READINESS = {"published_at_present_min": 0.99, "clock_skew_max": 0.01, "storage_conflicts_max": 0,
+             "source_revisions_fail_readiness": False,
              "raw_preserved_runs_min": 1.0, "continuity_days_min": 5, "max_gap_minutes_in_window": 15}
 TAXONOMY = ("A_GENERAL_MARKET_MACRO", "B_FOREIGN_MARKET", "C_COMMODITY_FX", "D_COMPANY_NAME_NO_TICKER",
             "E_NON_BIST_COMPANY", "F_AMBIGUOUS", "G_OTHER")
@@ -167,17 +168,11 @@ def collection_health(db, raw_dir: Path) -> dict:
             "rss_items_per_fetch": dist([s.get("rss_items_in_feed") for s in summ]),
             "new_items_per_fetch": dist([s.get("items_inserted") for s in summ]),
             "duplicates_per_fetch": dist([s.get("duplicates") for s in summ]),
-            "duplicate_conflicts_distinct": db.execute(
-                "SELECT COUNT(*) FROM (SELECT DISTINCT message, raw_hash FROM source_failures WHERE provider='foreks' "
-                "AND error_type='DUPLICATE_CONFLICT')").fetchone()[0],
-            "duplicate_conflict_log_rows": db.execute(
-                "SELECT COUNT(*) FROM source_failures WHERE provider='foreks' AND error_type='DUPLICATE_CONFLICT'"
-            ).fetchone()[0],
             "runs_with_raw_response": len(shas), "runs_before_raw_saving": len(summ) - len(shas),
             "raw_response_files": len(files), "raw_response_files_hash_valid": valid,
             "distinct_raw_sha_in_runs": len(set(shas)),
             "raw_sha_all_present_on_disk": set(shas) <= {f.name.split(".")[0] for f in files},
-            "_runs": [(r[2], r[3], r[1]) for r in runs], "_shas": shas}
+            "_runs": [(r[2], r[3], r[1]) for r in runs], "_shas": shas, "_summaries": summ}
 
 
 def logical_items(db) -> list[dict]:
@@ -284,10 +279,109 @@ def duplicate_quality(db, items: list[dict], raw_dir: Path, shas: list[str]) -> 
             "same_content_hash_different_item_key": multi("content_hash"),
             "same_headline_different_item_key": sum(len(v) > 1 for v in head.values()),
             "same_url_hash_different_item_key": multi("url_hash"),
-            "duplicate_conflict_failures": db.execute("SELECT COUNT(*) FROM (SELECT DISTINCT message, raw_hash "
-                                                      "FROM source_failures WHERE "
-                                                      "error_type LIKE 'DUPLICATE_CONFLICT%')").fetchone()[0],
             "records_rewritten": False}
+
+
+# ------------------------------------------------------------------ düzenleme / tekrar / depolama çakışması
+_LEGACY_RE = re.compile(r"^DUPLICATE_CONFLICT: item_key=(\S+) symbol=(\S+)$")
+
+
+def revision_quality(db, summaries: list[dict], provider: str = "foreks") -> dict:
+    """Üç ayrı durum: DUPLICATE (aynı içerik), SOURCE_REVISION (aynı öğe, sağlayıcı sonradan farklı içerik; normal),
+    STORAGE_CONFLICT (depolama/kimlik beklentisini ihlal eden, düzenlemeyle açıklanamayan durum). Eski
+    DUPLICATE_CONFLICT satırları denetim kanıtıdır; DEĞİŞTİRİLMEZ, yalnız yorumlanır."""
+    legacy = db.execute("SELECT message, raw_hash, received_at FROM source_failures WHERE provider=? AND "
+                        "error_type='DUPLICATE_CONFLICT'", (provider,)).fetchall()
+    legacy_distinct = {}
+    for msg, rh, at in legacy:
+        m = _LEGACY_RE.match(msg)
+        key = (m.group(1), m.group(2), rh) if m else ("?", "?", rh)
+        legacy_distinct.setdefault(key, at)
+    revs = db.execute("SELECT item_key, symbol, original_raw_hash, revision_raw_hash, received_at, evidence "
+                      "FROM source_revisions WHERE provider=?", (provider,)).fetchall()
+    rev_keys = {(k, s_, r) for k, s_, _, r, _, _ in revs}
+    distinct = rev_keys | set(legacy_distinct)
+    canon = {(k, s_): (rh, rec, uh) for k, s_, rh, rec, uh in db.execute(
+        "SELECT item_key, symbol, raw_hash, received_at, source_url_hash FROM news_events WHERE provider=?",
+        (provider,)).fetchall()}
+    conflicts = []
+    by_item = defaultdict(set)
+    for (k, _), (rh, _, _) in canon.items():
+        by_item[k].add(rh)
+    conflicts += [{"type": "SAME_ITEM_DIFFERENT_CANONICAL_CONTENT_ACROSS_SYMBOLS", "item_key": k}
+                  for k, v in by_item.items() if len(v) > 1]
+    for k, s_, orig, r, rec, _ in revs:
+        c = canon.get((k, s_))
+        if c is None or c[0] != orig:
+            conflicts.append({"type": "REVISION_PROVENANCE_MISMATCH", "item_key": k, "symbol": s_})
+        elif _dt(rec) < _dt(c[1]):
+            conflicts.append({"type": "REVISION_RECEIVED_BEFORE_ORIGINAL", "item_key": k, "symbol": s_})
+    for (k, s_, _r) in legacy_distinct:
+        if (k, s_) not in canon:
+            conflicts.append({"type": "LEGACY_CONFLICT_WITHOUT_CANONICAL_ROW", "item_key": k, "symbol": s_})
+    url = defaultdict(set)
+    for (k, _), (_, _, uh) in canon.items():
+        if uh:
+            url[uh].add(k)
+    conflicts += [{"type": "SAME_URL_DIFFERENT_ITEM_KEY", "item_keys": sorted(v)} for v in url.values() if len(v) > 1]
+    trig = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+    uniq = any("revision_raw_hash" in (sql or "") for (sql,) in db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='source_revisions'"))
+    dup_rows = db.execute("SELECT COUNT(*) FROM (SELECT provider, item_key, symbol, revision_raw_hash, COUNT(*) c FROM "
+                          "source_revisions GROUP BY 1,2,3,4 HAVING c > 1)").fetchone()[0]
+    repeats_logged = len(legacy) - len(legacy_distinct)
+    # eski özetler known_revision_repeats, yenileri source_revisions_known yazar; ikisi aynı çalıştırmada yok
+    repeats_runs = sum((x.get("source_revisions_known") or x.get("known_revision_repeats") or 0)
+                       + (x.get("known_conflict_repeats") or 0) for x in summaries)
+    write_conflicts = db.execute("SELECT COUNT(*) FROM source_failures WHERE provider=? AND "
+                                 "error_type='STORAGE_CONFLICT'", (provider,)).fetchone()[0]
+    conflicts += [{"type": "STORAGE_CONFLICT_AT_WRITE"}] * write_conflicts
+    return {"duplicates": sum(x.get("duplicates") or 0 for x in summaries),
+            "distinct_source_revisions": len(distinct),
+            "known_revision_repeats": repeats_logged + repeats_runs,
+            "storage_conflicts": len(conflicts), "storage_conflict_examples": conflicts[:5],
+            "legacy_conflict_rows": len(legacy),
+            "distinct_revision_variants": len(legacy_distinct),
+            "legacy_known_revision_repeats": repeats_logged,
+            "legacy_revisions_migrated": sum(e == "LEGACY_DUPLICATE_CONFLICT_ROWS" for *_, e in revs),
+            "source_revision_rows": len(revs),
+            "canonical_rows_immutable": {"news_events_no_update", "news_events_no_delete"} <= trig
+            and not any(c["type"].startswith(("SAME_ITEM", "REVISION_PROVENANCE")) for c in conflicts),
+            "revision_tracking_deterministic": uniq and dup_rows == 0
+            and {"source_revisions_no_update", "source_revisions_no_delete"} <= trig,
+            "historical_rows_mutated": False,
+            "semantics": {"DUPLICATE": "same logical item, same content hash",
+                          "SOURCE_REVISION": "same provider+item_key+symbol, provider later returned different "
+                                             "content; canonical row immutable; each distinct revision recorded once",
+                          "STORAGE_CONFLICT": "storage/identity expectation violated and not explainable as a "
+                                              "provider revision (deterministic checks only; no price data)"}}
+
+
+def discovery_lag(items: list[dict], runs: list[tuple], max_gap_min: float = 15.0) -> dict:
+    """Arşiv keşif gecikmesi iki ayrı nüfusta: toplayıcı çevrimiçiyken yayımlanan (iki ardışık başarılı getirme
+    arası <= 15 dk olan aralık içinde) ve toplayıcı/bilgisayar çevrimdışıyken yayımlanan öğeler. Hiçbiri sağlayıcı
+    ağ gecikmesi DEĞİLDİR."""
+    ok = sorted(_dt(r[0]) for r in runs if r[2] == "COMPLETED")
+    online = [(a, b) for a, b in zip(ok, ok[1:]) if (b - a).total_seconds() / 60 <= max_gap_min]
+    gaps = [{"from": a.isoformat(), "to": b.isoformat(), "minutes": round((b - a).total_seconds() / 60, 1)}
+            for a, b in zip(ok, ok[1:]) if (b - a).total_seconds() / 60 > max_gap_min]
+    start = ok[0] if ok else None
+    inside, offline = [], []
+    for i in items:
+        if not i["published_at"]:
+            continue
+        p, r = _dt(i["published_at"]), _dt(i["received_at"])
+        if start is None or p <= start:
+            continue  # arşiv başlamadan önceki birikim (ayrı raporlanır)
+        lag = (r - p).total_seconds() / 60
+        (inside if any(a <= p <= b for a, b in online) else offline).append(lag)
+    return {"metric_definition": LAG_LABEL,
+            "collection_window_items": {"population": "ARCHIVAL DISCOVERY LAG - published while collector online",
+                                        **dist(inside)},
+            "offline_discovery_items": {"population": "ARCHIVAL DISCOVERY LAG - published while collector/machine "
+                                                 "offline (NOT provider delay)", **dist(offline)},
+            "collector_offline_gap_detected": bool(gaps), "offline_gap_count": len(gaps),
+            "offline_gap_minutes_total": round(sum(g["minutes"] for g in gaps), 1), "offline_gaps": gaps[-10:]}
 
 
 def event_types(items: list[dict]) -> dict:
@@ -334,14 +428,16 @@ def recent_log_failures(log_dir: Path = LOG_DIR, n_files: int = 5) -> dict:
             sum(x.get("status") == "SKIPPED_ALREADY_RUNNING" for x in lines), "examples": bad[-3:]}
 
 
-def readiness(coll: dict, ts: dict, dup: dict, res: dict, cont: dict) -> dict:
+def readiness(coll: dict, ts: dict, rev: dict, res: dict, cont: dict, integrity_ok: bool = True) -> dict:
     gaps_ok = all(g <= READINESS["max_gap_minutes_in_window"] for g in cont["max_gap_minutes_by_day"].values())
     raw_ok = coll["raw_sha_all_present_on_disk"] and coll["raw_response_files"] == coll["raw_response_files_hash_valid"]
     checks = {
         "published_at_quality": (ts["published_at_present_pct"] or 0) >= 100 * READINESS["published_at_present_min"],
         "received_at_quality": (ts["clock_skew_flagged_pct"] or 0) <= 100 * READINESS["clock_skew_max"]
         and ts["future_timestamp_flagged_pct"] == 0,
-        "duplicate_stability": dup["duplicate_conflict_failures"] <= READINESS["duplicate_conflicts_max"],
+        # SOURCE_REVISION tek başına başarısızlık DEĞİL; gerçek STORAGE_CONFLICT ve bütünlük ihlali başarısızlık
+        "duplicate_revision_handling": rev["canonical_rows_immutable"] and rev["revision_tracking_deterministic"]
+        and rev["storage_conflicts"] <= READINESS["storage_conflicts_max"] and integrity_ok,
         "raw_response_preservation": raw_ok,
         "source_continuity_gaps": gaps_ok and coll["failed_fetches"] == 0,
         "source_continuity_days": cont["days_with_fetches"] >= READINESS["continuity_days_min"],
@@ -374,14 +470,17 @@ def report(root: Path = DEFAULT_ROOT, raw_dir: Path = RAW_DIR / "foreks", now: d
         res = symbol_resolution(items)
         unr = unresolved_analysis(items, desc, forms, universe)
         dup = duplicate_quality(s.db, items, raw_dir, coll["_shas"])
+        rev = revision_quality(s.db, coll["_summaries"])
+        lag = discovery_lag(items, coll["_runs"])
         cont = continuity(coll["_runs"], now)
+        integrity_ok = s.integrity()["ok"]
     finally:
         s.close()
     out = {"generated_at": now.isoformat(), "scope": "DATA QUALITY ONLY (no prices, events, alerts or outcomes)",
            "foreks_health": {k: v for k, v in coll.items() if not k.startswith("_")}, "rss_continuity": cont,
-           "timestamp_quality": ts, "symbol_resolution": res, "unresolved": unr, "duplicate_quality": dup,
-           "event_type_distribution": event_types(items),
-           "catalyst_readiness": readiness(coll, ts, dup, res, cont)}
+           "timestamp_quality": ts, "discovery_lag": lag, "symbol_resolution": res, "unresolved": unr,
+           "duplicate_quality": dup, "revision_quality": rev, "event_type_distribution": event_types(items),
+           "catalyst_readiness": readiness(coll, ts, rev, res, cont, integrity_ok)}
     if with_scheduler:
         out["news_scheduler"] = {**scheduler_health(), "log": recent_log_failures()}
     return out

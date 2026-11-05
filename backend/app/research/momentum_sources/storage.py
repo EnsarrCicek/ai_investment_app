@@ -26,7 +26,12 @@ DB_NAME = "secondary.sqlite"
 NAMESPACE = "momentum_secondary"
 YAHOO_STORE = (mm.HERE / "store").resolve()
 CONFLICT_KNOWN = "DUPLICATE_CONFLICT_KNOWN"  # daha önce kaydedilmiş aynı çakışmanın tekrar görülmesi
+SOURCE_REVISION = "SOURCE_REVISION"  # source_revisions.revision_type satır türü
+SOURCE_REVISION_NEW = "SOURCE_REVISION_NEW"  # aynı öğenin (item_key × sembol) ilk kez görülen farklı içeriği
+REVISION_KNOWN = "SOURCE_REVISION_KNOWN"  # daha önce kaydedilmiş aynı düzenlemenin tekrar görülmesi
+STORAGE_CONFLICT = "STORAGE_CONFLICT"  # kimlik/depolama beklentisi ihlali (düzenlemeyle açıklanamaz)
 APPEND_ONLY = ("trade_ticks", "order_flow", "order_book", "news_events", "source_failures", "source_metadata",
+               "source_revisions",
                "kap_disclosures", "kap_members", "kap_securities", "kap_attachments_metadata", "kap_failures",
                "kap_checkpoints")
 _ROLE = f"source_role TEXT NOT NULL CHECK (source_role = '{SECONDARY_ROLE}')"
@@ -52,6 +57,12 @@ CREATE TABLE IF NOT EXISTS news_events(id INTEGER PRIMARY KEY AUTOINCREMENT, {_C
   symbol TEXT NOT NULL, company TEXT, published_at TEXT, headline TEXT NOT NULL, event_type TEXT NOT NULL,
   event_importance TEXT, source_url_hash TEXT, content_hash TEXT NOT NULL, published_at_semantics TEXT,
   item_key TEXT NOT NULL, run_id TEXT, UNIQUE(provider, item_key, symbol));
+CREATE TABLE IF NOT EXISTS source_revisions(id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,
+  item_key TEXT NOT NULL, symbol TEXT NOT NULL, original_raw_hash TEXT NOT NULL, revision_raw_hash TEXT NOT NULL,
+  first_seen_revision_at TEXT NOT NULL, source_timestamp TEXT, received_at TEXT NOT NULL,
+  revision_type TEXT NOT NULL CHECK (revision_type = 'SOURCE_REVISION'), headline TEXT, content_hash TEXT,
+  evidence TEXT NOT NULL, run_id TEXT, {_ROLE},
+  UNIQUE(provider, item_key, symbol, revision_raw_hash));
 CREATE TABLE IF NOT EXISTS source_failures(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, provider TEXT NOT NULL,
   source_timestamp TEXT, received_at TEXT NOT NULL, error_type TEXT NOT NULL, message TEXT NOT NULL, raw_hash TEXT,
   {_ROLE});
@@ -199,9 +210,18 @@ class SecondaryStore:
         return bool(cur.rowcount)
 
     def add_news(self, n, run_id: str | None = None) -> str:
-        """'NEW' / 'DUPLICATE' / 'DUPLICATE_CONFLICT' / 'DUPLICATE_CONFLICT_KNOWN'. Mantıksal anahtar = sağlayıcının
-        kalıcı öğe kimliği (`item_key`, yoksa raw_hash) × sembol. Aynı anahtar farklı içerikle dönerse orijinal
-        DEĞİŞMEZ; çakışma `source_failures`'a YALNIZ ilk kez yazılır (aynı düzenlenmiş içerik sonra KNOWN)."""
+        """'NEW' / 'DUPLICATE' / 'SOURCE_REVISION_NEW' / 'SOURCE_REVISION_KNOWN' / 'STORAGE_CONFLICT'. Mantıksal
+        anahtar = sağlayıcının
+        kalıcı öğe kimliği (`item_key`, yoksa raw_hash) × sembol.
+
+        * DUPLICATE: aynı öğe, aynı içerik (raw_hash).
+        * SOURCE_REVISION_NEW: aynı öğe, sağlayıcı sonradan FARKLI içerik döndürdü (ör. başlık düzenlemesi). Kanonik
+          `news_events` satırı DEĞİŞMEZ; her farklı düzenleme `source_revisions`'a bir kez yazılır.
+        * SOURCE_REVISION_KNOWN: zaten kayıtlı düzenleme tekrar görüldü (yeni satır yok, hata değil).
+        * STORAGE_CONFLICT: ekleme yok sayıldı ama kanonik satır bulunamadı ya da düzenleme satırı yazılamadı;
+          `source_failures`'a bir kez kaydedilir, hiçbir satır değiştirilmez.
+        Eski sürümün `source_failures` DUPLICATE_CONFLICT satırları denetim kanıtıdır, değiştirilmez; böyle bir eski
+        kayıt varsa düzenleme ilk görülme zamanı o kayıttan alınarak `source_revisions`'a bir kez taşınır."""
         key = n.item_key or n.raw_hash
         cur = self.db.execute(
             "INSERT OR IGNORE INTO news_events(provider, source_timestamp, received_at, received_ns, timestamp_status, "
@@ -214,15 +234,44 @@ class SecondaryStore:
              n.published_at_semantics, key, run_id))
         if cur.rowcount:
             return "NEW"
-        old = self.db.execute("SELECT raw_hash FROM news_events WHERE provider=? AND item_key=? AND symbol=?",
-                              (n.provider, key, n.symbol)).fetchone()[0]
+        row = self.db.execute("SELECT raw_hash FROM news_events WHERE provider=? AND item_key=? AND symbol=?",
+                              (n.provider, key, n.symbol)).fetchone()
+        if row is None:
+            return self._storage_conflict(n, key, run_id, "canonical row missing after ignored insert")
+        old = row[0]
         if old == n.raw_hash:
             return "DUPLICATE"
-        msg = f"DUPLICATE_CONFLICT: item_key={key} symbol={n.symbol}"
-        if self._conflict_known("source_failures", n.provider, msg, n.raw_hash):
-            return CONFLICT_KNOWN
-        self.log_failure(run_id, n.provider, n.received_at, msg, n.published_at, n.raw_hash)
-        return "DUPLICATE_CONFLICT"
+        return self._record_revision(n, key, old, run_id)
+
+    def _record_revision(self, n, key: str, original: str, run_id: str | None) -> str:
+        if self.db.execute("SELECT 1 FROM source_revisions WHERE provider=? AND item_key=? AND symbol=? AND "
+                           "revision_raw_hash=?", (n.provider, key, n.symbol, n.raw_hash)).fetchone():
+            return REVISION_KNOWN
+        legacy = self.db.execute("SELECT MIN(received_at) FROM source_failures WHERE provider=? AND "
+                                 "error_type='DUPLICATE_CONFLICT' AND message=? AND raw_hash=?",
+                                 (n.provider, f"DUPLICATE_CONFLICT: item_key={key} symbol={n.symbol}",
+                                  n.raw_hash)).fetchone()[0]
+        first_seen = legacy or _iso(n.received_at)
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO source_revisions(provider, item_key, symbol, original_raw_hash, revision_raw_hash, "
+            "first_seen_revision_at, source_timestamp, received_at, revision_type, headline, content_hash, evidence, "
+            "run_id, source_role) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (n.provider, key, n.symbol, original, n.raw_hash, first_seen, _iso(n.published_at), _iso(n.received_at),
+             SOURCE_REVISION, n.headline, n.content_hash,
+             "LEGACY_DUPLICATE_CONFLICT_ROWS" if legacy else "OBSERVED", run_id, SECONDARY_ROLE))
+        if not cur.rowcount:
+            return self._storage_conflict(n, key, run_id, "revision row not written")
+        return REVISION_KNOWN if legacy else SOURCE_REVISION_NEW
+
+    def _storage_conflict(self, n, key: str, run_id: str | None, why: str) -> str:
+        msg = f"STORAGE_CONFLICT: item_key={key} symbol={n.symbol} ({why})"
+        if not self.db.execute("SELECT 1 FROM source_failures WHERE provider=? AND error_type='STORAGE_CONFLICT' AND "
+                               "message=? AND raw_hash IS ?", (n.provider, msg, n.raw_hash)).fetchone():
+            self.db.execute("INSERT INTO source_failures(run_id, provider, source_timestamp, received_at, error_type, "
+                            "message, raw_hash, source_role) VALUES (?,?,?,?,?,?,?,?)",
+                            (run_id, n.provider, _iso(n.published_at), _iso(n.received_at), STORAGE_CONFLICT, msg,
+                             n.raw_hash, SECONDARY_ROLE))
+        return STORAGE_CONFLICT
 
     # ---- durum (model metriği YOK)
     # ---- resmi KAP (ayrı tablolar; Foreks ile birleştirme yok)

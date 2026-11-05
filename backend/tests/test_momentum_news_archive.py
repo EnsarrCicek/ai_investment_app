@@ -89,11 +89,15 @@ def test_replay_duplicates_and_conflicts_never_overwrite(tmp_path, monkeypatch, 
                    "AKBNK ve GARAN"))
     serve(monkeypatch, changed)
     code, res = call(tmp_path)
-    assert res["foreks"]["duplicate_conflicts"] == 2 and res["foreks"]["items_inserted"] == 0 and code == 0
+    assert res["foreks"]["source_revisions_new"] == 2 and res["foreks"]["items_inserted"] == 0 and code == 0
+    _, res = call(tmp_path)  # aynı düzenleme tekrar görülür → yeni düzenleme değil
+    assert res["foreks"]["source_revisions_new"] == 0 and res["foreks"]["source_revisions_known"] == 2
+    assert res["foreks"]["storage_conflicts"] == 0 and res["foreks"]["failures"] == 0  # bilinen düzenleme hata değil
     s = SecondaryStore(tmp_path / "store" / "momentum_secondary", readonly=True)
     assert s.db.execute("SELECT DISTINCT headline FROM news_events WHERE item_key='foreks:aa01'").fetchall() == \
         [("AKBNK yeni sözleşme imzaladı",)]
-    assert s.db.execute("SELECT COUNT(*) FROM source_failures WHERE error_type='DUPLICATE_CONFLICT'").fetchone()[0] == 2
+    assert s.db.execute("SELECT COUNT(*) FROM source_revisions").fetchone()[0] == 2  # iki sembol × bir düzenleme
+    assert s.db.execute("SELECT COUNT(*) FROM source_failures").fetchone()[0] == 0  # düzenleme hata değildir
     s.close()
 
 

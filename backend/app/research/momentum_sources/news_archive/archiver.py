@@ -53,8 +53,10 @@ def run(adapters, store: SecondaryStore, now_fn=lambda: datetime.now(timezone.ut
         res = Counter(store.add_news(i, run_id) for i in items)
         stats = getattr(a, "last_stats", {}) or {}
         summary = {"records": len(items), "items_inserted": res["NEW"], "duplicates": res["DUPLICATE"],
-                   "duplicate_conflicts": res["DUPLICATE_CONFLICT"], "failures": res["DUPLICATE_CONFLICT"],
-                   "known_conflict_repeats": res["DUPLICATE_CONFLICT_KNOWN"],
+                   # bilinen düzenleme tekrarı hata DEĞİL; failures yalnız gerçek getirme/işleme hatası
+                   "source_revisions_new": res["SOURCE_REVISION_NEW"],
+                   "source_revisions_known": res["SOURCE_REVISION_KNOWN"],
+                   "storage_conflicts": res["STORAGE_CONFLICT"], "failures": 0,
                    "items_received": stats.get("items_received", len(items)),
                    "rss_items_in_feed": stats.get("rss_items_in_feed"),
                    "items_resolved_to_universe": stats.get("items_resolved_to_universe"),
@@ -104,7 +106,8 @@ def invoke(sources: list[str], max_symbols: int = 0, root=DEFAULT_ROOT, lock_pat
             "timestamp": now_fn().isoformat(), "run_id": v.get("run_id"), "provider": provider,
             "started_at": v.get("started_at"), "finished_at": v.get("finished_at"), "exit_code": code,
             "status": v["status"], **{k: v.get(k) for k in ("items_received", "items_inserted", "duplicates",
-                                                            "duplicate_conflicts", "failures", "symbols_resolved",
+                                                            "source_revisions_new", "source_revisions_known",
+                                                            "storage_conflicts", "failures", "symbols_resolved",
                                                             "symbols_unresolved", "rss_items_in_feed",
                                                             "items_resolved_to_universe")},
             "error": v.get("error")})
