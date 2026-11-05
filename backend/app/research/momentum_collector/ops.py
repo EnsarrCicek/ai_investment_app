@@ -100,20 +100,43 @@ def eod_already_ok(a: st.Archive, day: date) -> bool:
     return False
 
 
-def verify_after_eod(a: st.Archive, m: dict, run_id: str, now: datetime, snap: dict) -> dict:
-    """Hafif EOD sonrası denetim (sonuç değil): SQLite, çalıştırma tamam, ham hash'ler, kısmi bar yok, gelecekte
-    first_seen yok, manifest/etiket/evren SHA'ları değişmemiş."""
-    status = a.db.execute("SELECT status FROM runs WHERE run_id=?", (run_id,)).fetchone()
-    reqs = a.db.execute("SELECT raw_path, response_hash FROM requests WHERE run_id=?", (run_id,)).fetchall()
-    base = ig.verify_archive(a, m)
-    checks = {"sqlite_integrity": base["sqlite_integrity"], "run_completed": bool(status) and status[0] == "COMPLETED",
-              "raw_hashes_valid": all(a.raw_hash_valid(p, h) for p, h in reqs),
-              "no_partial_in_bars": base["no_partial_in_bars"],
-              "no_future_first_seen": a.db.execute("SELECT COUNT(*) FROM bars WHERE first_seen_ns > ?",
-                                                   (st.ts_ns(now),)).fetchone()[0] == 0,
-              "append_only_triggers": base["append_only_triggers"],
-              **{k: v for k, v in sn.anchors(m, snap).items() if k != "ok"}}
-    out = {"ok": all(checks.values()), **checks}
+def consistent_integrity_check(a: st.Archive, m: dict, run_id: str, snap: dict,
+                               clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> dict:
+    """Hafif EOD sonrası denetim (sonuç değil; YAZIM YOK): SQLite, çalıştırma tamam, ham hash'ler, kısmi bar yok,
+    gelecekte first_seen yok, manifest/etiket/evren SHA'ları değişmemiş.
+
+    Tutarlı okuma sınırı (EOD ↔ Probe yarışı düzeltmesi): önce SQLite okuma anlık görüntüsü kurulur (BEGIN + ilk
+    okuma; WAL), SONRA duvar saati sınırı alınır. Anlık görüntüde görünen her satır sınırdan önce işlenmiştir
+    (first_seen ≤ işleme ≤ sınır); doğrulama sürerken bağımsız Probe'un sonradan işlediği meşru satırlar bu okumada
+    görünmez. Ek olarak gelecek-zaman denetimi görünür `rowid` yüksek-su işaretiyle sınırlanır. Görünen bir satırın
+    first_seen'i sınırdan büyükse gerçekten imkânsızdır → başarısız. first_seen okunur, asla değiştirilmez."""
+    db = a.db
+    db.execute("BEGIN")
+    try:
+        high_watermark = db.execute("SELECT COALESCE(MAX(rowid), 0) FROM bars").fetchone()[0]  # anlık görüntü burada
+        boundary = clock()
+        status = db.execute("SELECT status FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        reqs = db.execute("SELECT raw_path, response_hash FROM requests WHERE run_id=?", (run_id,)).fetchall()
+        base = ig.verify_archive(a, m)
+        checks = {"sqlite_integrity": base["sqlite_integrity"],
+                  "run_completed": bool(status) and status[0] == "COMPLETED",
+                  "raw_hashes_valid": all(a.raw_hash_valid(p, h) for p, h in reqs),
+                  "no_partial_in_bars": base["no_partial_in_bars"],
+                  "no_future_first_seen": db.execute("SELECT COUNT(*) FROM bars WHERE rowid <= ? AND first_seen_ns > ?",
+                                                     (high_watermark, st.ts_ns(boundary))).fetchone()[0] == 0,
+                  "append_only_triggers": base["append_only_triggers"],
+                  **{k: v for k, v in sn.anchors(m, snap).items() if k != "ok"}}
+    finally:
+        db.execute("COMMIT")  # salt okuma işlemini kapatır (yazım yok)
+    return {"ok": all(checks.values()), **checks,
+            "validation_boundary": boundary.astimezone(timezone.utc).isoformat(),
+            "visible_high_watermark_rowid": high_watermark}
+
+
+def verify_after_eod(a: st.Archive, m: dict, run_id: str, now: datetime, snap: dict,
+                     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> dict:
+    """`consistent_integrity_check` + sonucun `eod_verifications`'a kaydı (verified_at = çağıranın `now`'ı)."""
+    out = consistent_integrity_check(a, m, run_id, snap, clock)
     a.db.execute("INSERT INTO eod_verifications(run_id, verified_at, ok, details) VALUES (?,?,?,?)",
                  (run_id, now.astimezone(timezone.utc).isoformat(), int(out["ok"]), json.dumps(out, sort_keys=True)))
     return out
@@ -192,6 +215,7 @@ def _collect(kind, m, snap, rec, source_factory, now, archive_root, today, eod_k
 HEALTH_KEYS = ("manifest_status", "prospective_start", "days_elapsed", "sessions_observed", "assets_seen_today",
                "bars_5m_today", "bars_1m_today", "latest_probe", "latest_eod", "probe_failures_today",
                "eod_failures_today", "identity_mismatches", "archive_integrity", "anchors_ok", "code_matches_snapshot",
+               "original_snapshot_matches", "approved_amendment_chain_valid", "amendments",
                "coverage_status", "collection_gaps", "no_session_observed", "visibility_latency_probe_only")
 
 
@@ -208,7 +232,12 @@ def health(now: datetime | None = None, manifest_path: Path = mm.MANIFEST_PATH,
     try:
         snap = sn.load(snapshot_path)
         out["anchors_ok"] = sn.anchors(m, snap)["ok"]
-        out["code_matches_snapshot"] = sn.code_matches(snap)["code_matches_snapshot"]
+        out["code_matches_snapshot"] = sn.code_matches(snap)["code_matches_snapshot"]  # ham eşleşme (gizlenmez)
+        from app.research.momentum_collector import amendments as am
+        chain = am.verify_chain(snap)
+        out["original_snapshot_matches"] = chain["original_snapshot_matches"]
+        out["approved_amendment_chain_valid"] = chain["approved_amendment_chain_valid"]
+        out["amendments"] = chain["amendments"]
     except sn.SnapshotError as exc:
         out["anchors_ok"] = False
         out["code_matches_snapshot"] = str(exc)

@@ -1,3 +1,4 @@
+import hashlib
 import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -30,6 +31,22 @@ SOURCE = "foreks"
 PUBLISHER = "Foreks"
 
 _HABER_ID_RE = re.compile(r"haber_id=([0-9a-f]+)")
+# Güncel Foreks RSS bağlantı biçimi (2026-11'de gözlendi): `/haber/detay/<24 haneli hex kimlik>/<kategori>/...`
+# — `haber_id=` artık yok. Eski biçim (`/haber/detay/<slug>?haber_id=<id>`) desteklenmeye devam eder.
+_DETAIL_ID_RE = re.compile(r"/haber/detay/([0-9a-f]{16,})(?:[/?#]|$)")
+
+
+def _item_id(link: str, guid: str) -> str:
+    """Kalıcı öğe kimliği (Firestore doküman kimliği olarak kullanılır; `/` içermez). Öncelik:
+    1) eski `haber_id=<id>`  2) güncel `/haber/detay/<id>/`  3) guid (yoksa bağlantı) SHA-256'sı (deterministik).
+    Not: eski ve güncel biçimin aynı kimlik uzayını paylaştığı doğrulanmadı; aynı kimlik görülürse aynı haber
+    sayılır (ör. `foreks:<id>`), farklı kimlikler farklı haber kalır."""
+    for rx in (_HABER_ID_RE, _DETAIL_ID_RE):
+        for text in (link, guid):
+            m = rx.search(text)
+            if m:
+                return m.group(1)
+    return "guid-" + hashlib.sha256((guid or link).encode("utf-8")).hexdigest()[:24]
 
 # İki haberin "aynı olayın neredeyse birebir tekrarı" sayılması için gereken
 # başlık kelime-kümesi benzerliği (Jaccard). Aynı sembol için art arda gelen,
@@ -114,19 +131,19 @@ class ForeksNewsProvider:
         # Sembol başına daha önce eklenmiş haberlerin kelime kümeleri — neredeyse
         # aynı haberi (bkz. modül docstring'i) elemek için.
         kept_tokens_by_symbol: dict[str, list[set[str]]] = {}
+        seen_ids: set[str] = set()
 
         items: list[NewsRawItem] = []
         for entry in root.findall(".//channel/item")[:limit]:
             title = (entry.findtext("title") or "").strip()
             link = (entry.findtext("link") or "").strip()
+            guid = (entry.findtext("guid") or "").strip()
             pub_date_text = entry.findtext("pubDate")
             description = _clean_html(entry.findtext("description"))
 
             if not title or not link or not pub_date_text:
                 continue
-            id_match = _HABER_ID_RE.search(link)
-            if not id_match:
-                continue
+            external_id = f"foreks:{_item_id(link, guid)}"
 
             try:
                 published_at = parsedate_to_datetime(pub_date_text)
@@ -138,6 +155,9 @@ class ForeksNewsProvider:
             related_assets = self._detect_related_assets(f"{title} {description}", symbols)
             if not related_assets:
                 continue  # Bu haber bilinen hiçbir BIST varlığına değinmiyor — atla.
+            if external_id in seen_ids:
+                continue  # aynı yanıtta aynı haber (ör. eski + güncel bağlantıyla) iki kez üretilmez
+            seen_ids.add(external_id)
 
             tokens = _title_tokens(title)
             is_duplicate = False
@@ -156,7 +176,7 @@ class ForeksNewsProvider:
 
             items.append(
                 NewsRawItem(
-                    external_id=f"foreks:{id_match.group(1)}",
+                    external_id=external_id,
                     title=title,
                     summary=description,
                     url=link,
