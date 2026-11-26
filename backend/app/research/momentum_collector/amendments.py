@@ -39,26 +39,58 @@ EXPLANATION = ("Integrity validator changed to use a consistent read boundary; p
                "approved_amendment_chain_valid separately. New file amendments.py holds this record logic.")
 
 
+# İkinci düzeltme: EOD kurtarma çalıştırması ↔ hedef seans kimliği
+AMD002_ID = "AMD-002-EOD-RECOVERY-SESSION-IDENTITY"
+AMD002 = {"amendment_id": AMD002_ID, "reason": "EOD_RECOVERY_SESSION_IDENTITY",
+          "affected_files": (PREFIX + "ops.py", PREFIX + "amendments.py"),
+          "flags": {"semantic_change": False, "data_collection_change": False, "data_rewrite": False,
+                    "bar_value_change": False, "first_seen_change": False, "schedule_change": False,
+                    "idempotency_fix": True},
+          "explanation": ("Completion check now keys successful EOD state to the target market session rather than "
+                          "execution calendar date. A verified, failure-free EOD started before FINAL_AFTER_LOCAL "
+                          "(18:30 Europe/Istanbul) on day D (e.g. a morning recovery run finalizing D-1) no longer "
+                          "marks session D as completed, so the evening EOD for D is not skipped; a run started at or "
+                          "after 18:30 on D still makes later EOD triggers for D SKIPPED_ALREADY_COMPLETED. Bars, "
+                          "first_seen, raw hashes, revisions, partial-bar rules, FULL/SHORT definition, universe, "
+                          "coverage thresholds, Probe cadence and EOD schedule are unchanged. amendments.py gains "
+                          "the generic record builder for this amendment.")}
+
+
 class AmendmentError(RuntimeError):
     pass
 
 
-def build_record(snap: dict, created_at: str, previous_sha256: str | None) -> dict:
+def build_record(snap: dict, created_at: str, previous_sha256: str | None, spec: dict | None = None,
+                 base_hashes: dict | None = None) -> dict:
+    """`spec` yoksa AMD-001 (geriye uyumlu). `base_hashes`: zincirde önceki kayıtların bıraktığı dosya SHA'ları
+    (yoksa asıl anlık görüntü) — her dosyanın old_file_sha256'sı buradan alınır."""
     old = snap["snapshot"]["tracked_file_hashes"]
+    base = dict(old) if base_hashes is None else base_hashes
     now = sn.file_hashes()
     files = []
-    for f in AFFECTED_FILES:
+    for f in (spec["affected_files"] if spec else AFFECTED_FILES):
         if f not in now:
             raise AmendmentError(f"etkilenen dosya yok: {f}")
-        files.append({"path": f, "change_type": "MODIFIED" if f in old else "ADDED",
-                      "old_file_sha256": old.get(f), "new_file_sha256": now[f]})
-    record = {"amendment_id": AMENDMENT_ID, "timestamp": created_at, "reason": REASON, "affected_files": files,
+        files.append({"path": f, "change_type": "MODIFIED" if f in base else "ADDED",
+                      "old_file_sha256": base.get(f), "new_file_sha256": now[f]})
+    flags = spec["flags"] if spec else {"semantic_change": False, "data_collection_change": False,
+                                        "data_rewrite": False, "first_seen_change": False, "schedule_change": False}
+    record = {"amendment_id": spec["amendment_id"] if spec else AMENDMENT_ID, "timestamp": created_at,
+              "reason": spec["reason"] if spec else REASON, "affected_files": files,
               "old_snapshot_sha256": snap["snapshot_sha256"],
               "prospective_manifest_sha256": snap["snapshot"]["study_manifest_sha256"],
-              "previous_amendment_sha256": previous_sha256,
-              "semantic_change": False, "data_collection_change": False, "data_rewrite": False,
-              "first_seen_change": False, "schedule_change": False, "explanation": EXPLANATION}
+              "previous_amendment_sha256": previous_sha256, **flags,
+              "explanation": spec["explanation"] if spec else EXPLANATION}
     return {"record": record, "record_sha256": sn.cd.sha256_of(record)}
+
+
+def chain_file_hashes(snap: dict, chain: list[dict]) -> dict:
+    """Asıl anlık görüntü + zincirdeki kayıtların sırayla uyguladığı yeni dosya SHA'ları."""
+    out = dict(snap["snapshot"]["tracked_file_hashes"])
+    for d in chain:
+        for f in d["record"]["affected_files"]:
+            out[f["path"]] = f["new_file_sha256"]
+    return out
 
 
 def _check(doc: dict) -> dict:
@@ -144,7 +176,18 @@ def validate_readonly(root: Path = st.PRIMARY_ROOT) -> dict:
 def main(argv: list[str]) -> int:
     cmd = argv[0] if argv else "status"
     snap = sn.load()
-    if cmd == "record":
+    if cmd == "record-amd002":
+        chain = load_chain()
+        done = [d for d in chain if d["record"]["amendment_id"] == AMD002_ID]
+        if done:
+            print(json.dumps(done[0], ensure_ascii=False, indent=1))
+            return 0
+        if [d["record"]["amendment_id"] for d in chain] != [AMENDMENT_ID]:
+            raise AmendmentError("AMD-002 yalnız AMD-001'den sonra kaydedilir")
+        doc = write_record(build_record(snap, datetime.now(timezone.utc).isoformat(), chain[-1]["record_sha256"],
+                                        AMD002, chain_file_hashes(snap, chain)))
+        print(json.dumps(doc, ensure_ascii=False, indent=1))
+    elif cmd == "record":
         chain = load_chain()
         prev = chain[-1]["record_sha256"] if chain else None
         if any(d["record"]["amendment_id"] == AMENDMENT_ID for d in chain):

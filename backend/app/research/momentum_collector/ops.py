@@ -6,8 +6,10 @@
   veri yazmaz, `SKIPPED_ALREADY_RUNNING` loglar, çıkış kodu 0.
 * Başlangıç sınırı: yerel tarih < prospective_start_session → hiçbir depo açılmaz (`SKIPPED_BEFORE_START`).
 * Sonda yalnız hafta içi 09:55–18:30 (`SKIPPED_OUTSIDE_WINDOW`; gecikmeli başlatmada bile).
-* EOD: aynı gün doğrulanmış ve sembol hatası olmayan bir EOD varsa sonraki tetiklemeler `SKIPPED_ALREADY_COMPLETED`;
-  aksi halde yeniden çalışır (idempotent). Sonrasında hafif bütünlük denetimi; hata → çıkış 2 (yeniden deneme).
+* EOD: HEDEF SEANS (çalıştırma gününün seansı) doğrulanmış ve sembol hatası olmayan bir EOD ile zaten tamamlandıysa
+  sonraki tetiklemeler `SKIPPED_ALREADY_COMPLETED`; aksi halde yeniden çalışır (idempotent). Tamamlanma çalıştırmanın
+  takvim gününe değil hedef seansa bağlıdır: 18:30'dan önce başlayan (sabah kurtarma) EOD yalnız önceki seansları
+  tamamlar, o günün seansını tamamlanmış SAYMAZ (AMD-002). Sonrasında hafif bütünlük denetimi; hata → çıkış 2 (yeniden deneme).
 * Loglar Git dışı `store/logs/` altında JSON satırları; gizli bilgi yazılmaz.
 """
 
@@ -91,11 +93,22 @@ def _local(now: datetime) -> datetime:
     return now.astimezone(ISTANBUL_TZ)
 
 
-def eod_already_ok(a: st.Archive, day: date) -> bool:
+def finalized_through(started: datetime) -> date:
+    """Bir EOD çalıştırmasının tamamlamış sayılabileceği EN SON hedef seans tarihi (ÇALIŞTIRMA tarihi ≠ SEANS tarihi).
+    Yerel `mm.FINAL_AFTER_LOCAL` (18:30) ve sonrasında başlayan çalıştırma o günün seansını da kapsar; daha önce
+    başlayan (ör. sabah kurtarma) çalıştırma yalnız önceki günlerin seanslarını kapsar."""
+    local = _local(started)
+    return local.date() if local.time() >= mm.FINAL_AFTER_LOCAL else local.date() - timedelta(days=1)
+
+
+def eod_already_ok(a: st.Archive, target_session: date) -> bool:
+    """HEDEF SEANS `target_session` başarıyla tamamlandı mı? (Bugün herhangi bir EOD çalıştı mı DEĞİL.)
+    Doğrulanmış, sembol hatası olmayan ve `finalized_through >= target_session` olan bir EOD çalıştırması gerekir."""
     rows = a.db.execute("SELECT r.started_at, r.summary FROM runs r JOIN eod_verifications v ON v.run_id = r.run_id "
                         "WHERE r.mode='EOD' AND r.status='COMPLETED' AND v.ok=1").fetchall()
     for started, summary in rows:
-        if _local(datetime.fromisoformat(started)).date() == day and not json.loads(summary)["symbols_failed"]:
+        if finalized_through(datetime.fromisoformat(started)) >= target_session \
+                and not json.loads(summary)["symbols_failed"]:
             return True
     return False
 
@@ -187,9 +200,13 @@ def scheduled_run(kind: str, *, source_factory: Callable[[], col.CollectorSource
 def _collect(kind, m, snap, rec, source_factory, now, archive_root, today, eod_kwargs) -> int:
     a = st.Archive(archive_root, "primary")
     try:
-        if kind == "eod" and eod_already_ok(a, today):
-            rec["status"] = "SKIPPED_ALREADY_COMPLETED"
-            return EXIT_OK
+        if kind == "eod":
+            target_session = today  # zamanlanmış EOD'nin hedefi: çalıştırma gününün piyasa seansı
+            rec["target_session_date"] = str(target_session)
+            rec["run_finalizes_through"] = str(finalized_through(now()))
+            if eod_already_ok(a, target_session):
+                rec["status"] = "SKIPPED_ALREADY_COMPLETED"
+                return EXIT_OK
         source = source_factory()
         if kind == "probe":
             s = vp.probe_once(a, source, m, now)

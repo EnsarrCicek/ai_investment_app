@@ -190,7 +190,7 @@ def test_no_collection_semantic_change():
     src = inspect.getsource(ops)
     assert "first_seen_ns > ?" in src  # gelecek-zaman denetimi duruyor
     for unchanged in ("vp.probe_once(a, source, m, now)", "col.run_eod(a, source, m, now=now, **eod_kwargs)",
-                      "eod_already_ok(a, today)"):
+                      "eod_already_ok(a, target_session)"):
         assert unchanged in src
 
 
