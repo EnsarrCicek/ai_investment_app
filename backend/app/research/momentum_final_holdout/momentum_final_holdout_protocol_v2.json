@@ -1,0 +1,955 @@
+{
+ "created_at": "2026-11-26T12:50:35.181593+00:00",
+ "git_head": "caad151ce6ed285bb88ee6462e858b730d069c10",
+ "manifest_sha256": "e033cf9d7f7099639674dc8fdbc944e3e584ce7387ad1d90e52364c781f22882",
+ "protocol": {
+  "alert_unit": {
+   "primary": "first_watch_alert_per_asset_session",
+   "repeated_activations": "collapsed to the first alert per asset-session; never inflate alert counts (activation count reported as diagnostic only)"
+  },
+  "asset_eligibility": {
+   "AEFES": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "AGHOL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "AKBNK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "AKSA": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "AKSEN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ALARK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ALFAS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ARCLK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ASELS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ASTOR": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "AYGAZ": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "BERA": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "BIMAS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "BRSAN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "BRYAT": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "BTCIM": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CANTE": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CCOLA": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CEMTS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CIMSA": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CLEBI": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CVKMD": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "CWENE": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "DOAS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "DOHOL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ECILC": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "EGEEN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "EKGYO": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ENJSA": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ENKAI": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "EREGL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "EUPWR": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "FENER": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "FROTO": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "GARAN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "GENIL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "GESAN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "GSRAY": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "GUBRF": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "GWIND": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "HALKB": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "HEKTS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ISCTR": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ISGYO": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ISMEN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "KARSN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "KCHOL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "KONTR": {
+    "full_sessions_observed": 23,
+    "reason": "valid prospective FULL sessions 0 < 18 (5m bars < 0.8 x benchmark bars per session); median per-session bar share 0.041",
+    "status": "NOT_EVALUABLE_ASSET",
+    "valid_sessions": 0
+   },
+   "KORDS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "KRDMD": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "LOGO": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "MAVI": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "MGROS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "MIATK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "MPARK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ODAS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "OTKAR": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "OYAKC": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "PETKM": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "PGSUS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "QUAGR": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "SAHOL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "SASA": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "SISE": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "SKBNK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "SMRTG": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "SOKM": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TABGD": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TAVHL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TCELL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "THYAO": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TKFEN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TOASO": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TRENJ": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TSKB": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TTKOM": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TTRAK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TUKAS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TUPRS": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "TURSG": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ULKER": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "VAKBN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "VESBE": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "VESTL": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "YEOTK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "YKBNK": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   },
+   "ZOREN": {
+    "full_sessions_observed": 23,
+    "status": "EVALUABLE_ASSET",
+    "valid_sessions": 23
+   }
+  },
+  "asset_eligibility_policy": {
+   "applied_uniformly_to_all_assets": true,
+   "frozen_at_full_sessions": [
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-30",
+    "2026-11-02",
+    "2026-11-03",
+    "2026-11-04",
+    "2026-11-05",
+    "2026-11-06",
+    "2026-11-09",
+    "2026-11-10",
+    "2026-11-11",
+    "2026-11-12",
+    "2026-11-13",
+    "2026-11-16",
+    "2026-11-17",
+    "2026-11-18",
+    "2026-11-19",
+    "2026-11-20",
+    "2026-11-23",
+    "2026-11-24",
+    "2026-11-25"
+   ],
+   "not_evaluable_status": "NOT_EVALUABLE_ASSET",
+   "rule": "EVALUABLE iff valid prospective FULL sessions >= 18; valid session = 5m bars >= 0.8 x benchmark 5m bars that session (collector rule)"
+  },
+  "change_reasons": [
+   "original 87-asset universe fails predeclared per-asset minimum (>= 18 valid sessions): KONTR 0",
+   "uniform objective asset eligibility policy applied to all assets; evaluable list frozen before reading holdout outcomes",
+   "add D20 provider sensitivity (no effect on PASS/FAIL)",
+   "add actual observed-availability mode based on first_seen (no effect on PASS/FAIL)"
+  ],
+  "change_type": "EXPLICIT_COVERAGE_POLICY_CHANGE",
+  "coverage_requirements": {
+   "min_asset_sessions_over_evaluable": 1566,
+   "min_valid_sessions_per_evaluable_asset": 18
+  },
+  "disclosure": {
+   "generalization": "results generalize ONLY to the evaluable assets listed here, not to the original 87-asset universe",
+   "original_87_asset_design_meets_coverage": false,
+   "unverified_notes": {
+    "KONTR": "possible non-continuous (single-price/auction-like) trading method NOT verified from official BIST/KAP sources; not used as a justification"
+   }
+  },
+  "evaluable_universe": {
+   "count": 86,
+   "sha256": "19c0c02d566a820d0d84e8dcc9872123682e71e7f7ca2193a6307b33c1a47138",
+   "symbols": [
+    "AEFES",
+    "AGHOL",
+    "AKBNK",
+    "AKSA",
+    "AKSEN",
+    "ALARK",
+    "ALFAS",
+    "ARCLK",
+    "ASELS",
+    "ASTOR",
+    "AYGAZ",
+    "BERA",
+    "BIMAS",
+    "BRSAN",
+    "BRYAT",
+    "BTCIM",
+    "CANTE",
+    "CCOLA",
+    "CEMTS",
+    "CIMSA",
+    "CLEBI",
+    "CVKMD",
+    "CWENE",
+    "DOAS",
+    "DOHOL",
+    "ECILC",
+    "EGEEN",
+    "EKGYO",
+    "ENJSA",
+    "ENKAI",
+    "EREGL",
+    "EUPWR",
+    "FENER",
+    "FROTO",
+    "GARAN",
+    "GENIL",
+    "GESAN",
+    "GSRAY",
+    "GUBRF",
+    "GWIND",
+    "HALKB",
+    "HEKTS",
+    "ISCTR",
+    "ISGYO",
+    "ISMEN",
+    "KARSN",
+    "KCHOL",
+    "KORDS",
+    "KRDMD",
+    "LOGO",
+    "MAVI",
+    "MGROS",
+    "MIATK",
+    "MPARK",
+    "ODAS",
+    "OTKAR",
+    "OYAKC",
+    "PETKM",
+    "PGSUS",
+    "QUAGR",
+    "SAHOL",
+    "SASA",
+    "SISE",
+    "SKBNK",
+    "SMRTG",
+    "SOKM",
+    "TABGD",
+    "TAVHL",
+    "TCELL",
+    "THYAO",
+    "TKFEN",
+    "TOASO",
+    "TRENJ",
+    "TSKB",
+    "TTKOM",
+    "TTRAK",
+    "TUKAS",
+    "TUPRS",
+    "TURSG",
+    "ULKER",
+    "VAKBN",
+    "VESBE",
+    "VESTL",
+    "YEOTK",
+    "YKBNK",
+    "ZOREN"
+   ]
+  },
+  "excluded_assets": {
+   "KONTR": {
+    "full_sessions_observed": 23,
+    "reason": "valid prospective FULL sessions 0 < 18 (5m bars < 0.8 x benchmark bars per session); median per-session bar share 0.041",
+    "status": "NOT_EVALUABLE_ASSET",
+    "valid_sessions": 0
+   }
+  },
+  "exploratory_reference": {
+   "affects_pass_fail": false,
+   "architectures": [
+    "A3",
+    "A4",
+    "A5d",
+    "ranking_policies",
+    "logistic",
+    "GBM",
+    "two_stage_precursor"
+   ],
+   "status": "NOT INCLUDED (definitions not frozen as candidates before holdout)"
+  },
+  "forbidden": [
+   "threshold tuning",
+   "model training",
+   "candidate selection",
+   "Pilot-2",
+   "Label V3",
+   "news-based candidate"
+  ],
+  "gate": {
+   "future_holdout_full_sessions_min": 20,
+   "requires": [
+    "frozen eligibility policy and evaluable list",
+    "evaluable coverage",
+    "raw hash integrity",
+    "AMD-001 + AMD-002 chain",
+    "original snapshot integrity",
+    "Label V2 SHA",
+    "protocol V1 + V2 SHA",
+    "rule config SHA",
+    "one-shot protection",
+    "holdout not consumed",
+    "evaluation sessions and raw fingerprint identical between preflight and execution"
+   ]
+  },
+  "holdout_outcomes_read_at_creation": false,
+  "label": {
+   "sha256": "9b9602c18cf13e2bd7c5af8d171b479945be0cefa1ee28fc0cb0df8cba6e1d09",
+   "unchanged": [
+    "swing definition",
+    "event start",
+    "peak definition",
+    "non-overlap logic",
+    "evaluable definition",
+    "PRE_OBSERVATION handling",
+    "IN_EVENT",
+    "IN_EVENT_DUPLICATE",
+    "PRE_EVENT",
+    "POST_PEAK",
+    "NO_EVENT"
+   ],
+   "version": "MOMENTUM_EVENT_LABEL_V2"
+  },
+  "latency": {
+   "foreks": "availability = received_at; published_at never used for availability; published_at->received_at archival discovery lag reported separately",
+   "yahoo": "d15 visible time per established provider visibility semantics; never converted to zero latency"
+  },
+  "metric_definitions": {
+   "FP": "primary alerts - TP",
+   "FPR": "non-event asset-sessions with >=1 primary alert / non-event asset-sessions",
+   "TP": "primary alerts classified IN_EVENT or IN_EVENT_DUPLICATE (Label V2)",
+   "alarm_density_per_session": "primary alerts / asset-sessions per session date",
+   "median_visible_lead": "Label V2 median_lead_v2 over caught events at d15"
+  },
+  "metrics": [
+   "evaluable_events",
+   "primary_alerts",
+   "TP",
+   "FP",
+   "precision",
+   "raw_recall",
+   "evaluable_recall",
+   "non_event_sessions",
+   "FPR",
+   "median_visible_lead",
+   "lead_le_0_50_share",
+   "pre_observation_events",
+   "post_peak_alerts",
+   "duplicate_alerts",
+   "alarm_density_per_session"
+  ],
+  "modes": {
+   "A_D15_PROVIDER_SIMULATION": {
+    "delay_minutes": 15,
+    "role": "PRIMARY PASS/FAIL",
+    "semantics": "collected bars under theoretical 15-minute provider delay; NOT evidence of real-time observation"
+   },
+   "B_D20_PROVIDER_SENSITIVITY": {
+    "delay_minutes": 20,
+    "role": "SENSITIVITY ONLY; never changes PASS/FAIL",
+    "semantics": "same rows visible 20 minutes after information time; does not guarantee actual provider delay; no best-delay selection"
+   },
+   "C_ACTUAL_OBSERVED_AVAILABILITY": {
+    "asset_session_live_evaluable": ">= 0.8 of its rows timely (all dependencies incl. XU100 where required)",
+    "minimum": ">= 100 live-evaluable asset-sessions per rule, else NOT_EVALUABLE_LIVE_COVERAGE",
+    "role": "DESCRIPTIVE ONLY; never changes PASS/FAIL",
+    "row_timely": "visible - information_time <= 30 min",
+    "rule_dependencies": {
+     "A_ROUND1_FINAL_WATCH_3OF3_D15": [
+      "ASSET"
+     ],
+     "B_ROUND1_FINAL_STRONG_3OF3_D15": [
+      "ASSET"
+     ],
+     "C_FROZEN_REL_RET_Z3_1OF1_D15": [
+      "ASSET",
+      "BENCHMARK"
+     ]
+    },
+    "scope": "probe-observed assets/time ranges reported separately; never generalized to all evaluable assets",
+    "semantics": "row usable only from max(first_seen) of every bar it depends on (bar_end <= information time, full history of each dependency); first-seen values only (revisions never applied); EOD-recovered bars visible only when first seen; rows visible after the session's last benchmark bar end are unusable"
+   }
+  },
+  "multiple_rules": "each rule PASS/FAIL independently; holdout is NOT model selection; best rule is NOT promoted to a new candidate; if none pass, current OHLCV architectures do not satisfy the target",
+  "one_shot": {
+   "completion_marker": "FINAL_HOLDOUT_CONSUMED",
+   "pre_execution_record": "write-once: protocol SHA, Label V2 SHA, amendment chain status, eligible sessions, raw input fingerprints, code HEAD, timestamp",
+   "rerun_label": "REANALYSIS_OF_CONSUMED_HOLDOUT (never used for candidate selection)"
+  },
+  "original_universe": {
+   "count": 87,
+   "sha256": "2d96684a0e83b59bf0ee93d3affd9f0b7e95f6e402863f25375d5a752fc687f0",
+   "symbols": [
+    "AEFES",
+    "AGHOL",
+    "AKBNK",
+    "AKSA",
+    "AKSEN",
+    "ALARK",
+    "ALFAS",
+    "ARCLK",
+    "ASELS",
+    "ASTOR",
+    "AYGAZ",
+    "BERA",
+    "BIMAS",
+    "BRSAN",
+    "BRYAT",
+    "BTCIM",
+    "CANTE",
+    "CCOLA",
+    "CEMTS",
+    "CIMSA",
+    "CLEBI",
+    "CVKMD",
+    "CWENE",
+    "DOAS",
+    "DOHOL",
+    "ECILC",
+    "EGEEN",
+    "EKGYO",
+    "ENJSA",
+    "ENKAI",
+    "EREGL",
+    "EUPWR",
+    "FENER",
+    "FROTO",
+    "GARAN",
+    "GENIL",
+    "GESAN",
+    "GSRAY",
+    "GUBRF",
+    "GWIND",
+    "HALKB",
+    "HEKTS",
+    "ISCTR",
+    "ISGYO",
+    "ISMEN",
+    "KARSN",
+    "KCHOL",
+    "KONTR",
+    "KORDS",
+    "KRDMD",
+    "LOGO",
+    "MAVI",
+    "MGROS",
+    "MIATK",
+    "MPARK",
+    "ODAS",
+    "OTKAR",
+    "OYAKC",
+    "PETKM",
+    "PGSUS",
+    "QUAGR",
+    "SAHOL",
+    "SASA",
+    "SISE",
+    "SKBNK",
+    "SMRTG",
+    "SOKM",
+    "TABGD",
+    "TAVHL",
+    "TCELL",
+    "THYAO",
+    "TKFEN",
+    "TOASO",
+    "TRENJ",
+    "TSKB",
+    "TTKOM",
+    "TTRAK",
+    "TUKAS",
+    "TUPRS",
+    "TURSG",
+    "ULKER",
+    "VAKBN",
+    "VESBE",
+    "VESTL",
+    "YEOTK",
+    "YKBNK",
+    "ZOREN"
+   ]
+  },
+  "pass_rule": "PASS iff ALL primary targets met; missing metric = FAIL; no weighted score; no 'almost pass'; no post-hoc threshold change",
+  "previous_protocol": {
+   "manifest_sha256": "fce3263123ec93782380358600d71d041e0631d3253c166edb2965cd37d4e1e4",
+   "protocol_sha256": "39be406f16cfcc0e94c869a4bb385638c77bc90aec665c0ab97671036d7a5d32",
+   "status": "PRESERVED_UNCHANGED",
+   "version": "MOMENTUM_FINAL_HOLDOUT_PROTOCOL_V1"
+  },
+  "primary_targets": {
+   "FPR": [
+    "<=",
+    0.25
+   ],
+   "evaluable_recall": [
+    ">=",
+    0.4
+   ],
+   "median_visible_lead": [
+    "<=",
+    0.5
+   ]
+  },
+  "rules": [
+   {
+    "config_sha256": "4201b2e9219ca8f4e571256dd906e691fbe035986c8bc1021d1d72b01b7fa85b",
+    "definition": {
+     "confirmation": [
+      3,
+      3
+     ],
+     "level": "WATCH",
+     "provider_delay_minutes": 15,
+     "raw_rule": {
+      "accel": null,
+      "confirm": [
+       3,
+       3
+      ],
+      "need_ps": true,
+      "price": 0.5,
+      "rel": null,
+      "score": 40,
+      "xs": null
+     },
+     "round1_engine_config_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab"
+    },
+    "label": "A) existing Round 1 WATCH",
+    "rule_id": "A_ROUND1_FINAL_WATCH_3OF3_D15",
+    "source_artifact": "momentum_round2.experiment.ROUND1_FINAL / momentum_feasibility.experiment",
+    "source_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab",
+    "status": "EVALUABLE"
+   },
+   {
+    "config_sha256": "b0a83da41791f005ff2802eb2483a602671e54927cd7c5d9d719ec7df7b98fc6",
+    "definition": {
+     "confirmation": [
+      3,
+      3
+     ],
+     "level": "STRONG",
+     "provider_delay_minutes": 15,
+     "raw_rule": {
+      "price": 0.75,
+      "score": 60,
+      "xs": null
+     },
+     "round1_engine_config_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab"
+    },
+    "label": "B) existing Round 1 STRONG",
+    "rule_id": "B_ROUND1_FINAL_STRONG_3OF3_D15",
+    "source_artifact": "momentum_round2.experiment.ROUND1_FINAL / momentum_feasibility.experiment",
+    "source_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab",
+    "status": "EVALUABLE"
+   },
+   {
+    "config_sha256": "9fad9d7ca63f700f62ff34266656a2fdc1a40c27d729e81e2d071de8f874ece2",
+    "definition": {
+     "benchmark": "XU100",
+     "comparison": ">=",
+     "confirmation": [
+      1,
+      1
+     ],
+     "feature": "rel_ret_z_3",
+     "interval": "5m",
+     "missing_feature_policy": "no alert",
+     "provider_delay_minutes": 15,
+     "status_gate": "Round 1 final engine status == OK",
+     "threshold": 5.094139728812382
+    },
+    "label": "C) frozen feasibility relative-return rule",
+    "rule_id": "C_FROZEN_REL_RET_Z3_1OF1_D15",
+    "source_artifact": "momentum_final/frozen_candidate.json",
+    "source_sha256": "a9f943dcb53c6ade6e2a30658ab547ab3bfe3930d5f5e93c2908db1a67cad881",
+    "status": "EVALUABLE"
+   }
+  ],
+  "secondary_news_analysis": {
+   "allowed_statements": [
+    "X% of evaluable events had prospectively received company-specific news within 60 minutes",
+    "news-observed events had descriptive lead distribution Y"
+   ],
+   "availability": "received_at in (observation - window, observation]",
+   "company_specific": "symbol == asset (UNRESOLVED excluded)",
+   "eligibility": "NEWS-ELIGIBLE only if Foreks collector operational for the whole window: completed fetches with consecutive gaps <= 15 min covering it and window after first prospective fetch; otherwise NEWS_NOT_OBSERVED (never NO_NEWS)",
+   "fields": [
+    "published_at",
+    "received_at",
+    "symbol",
+    "event_type",
+    "source revision state"
+   ],
+   "observation_points": {
+    "alert": "primary alert visible time (d15)",
+    "event": "V2 event start"
+   },
+   "revisions": "SOURCE_REVISION_NEW / SOURCE_REVISION_KNOWN / STORAGE_CONFLICT semantics; one logical catalyst per (provider, item_key, symbol); revisions never add catalysts",
+   "role": "DESCRIPTIVE ONLY; never tunes OHLCV rules; no news threshold/classifier/candidate",
+   "source": "Foreks prospective archive (momentum_secondary.news_events canonical rows)",
+   "strata": [
+    "event_type == other",
+    "event_type != other"
+   ],
+   "windows_minutes": [
+    15,
+    30,
+    60
+   ]
+  },
+  "split": {
+   "evaluation_sessions": "first 20 FULL holdout sessions in date order",
+   "full_session_definition": "collector integrity.classify_sessions",
+   "holdout_start": "2026-11-02",
+   "pilot_cutoff_session": "2026-10-30",
+   "pilot_manifest_sha256": "d7bb301233841ed278d041c15bd88103763dae3ebdd6f80115af082a8ac44dfd"
+  },
+  "stress_breakdowns": {
+   "broad_market_high_participation_sessions": "share >= 0.3",
+   "intraday_events": "event start >= 10:30 Europe/Istanbul",
+   "normal_sessions": "session dates with V2-event asset-session share < 0.3",
+   "opening_period_events": "event start < 10:30 Europe/Istanbul",
+   "yahoo_latency_lost_events": "evaluable events with peak - start < 15 min (uncatchable at d15)"
+  },
+  "version": "MOMENTUM_FINAL_HOLDOUT_PROTOCOL_V2"
+ },
+ "protocol_sha256": "d5e5af7a4d5132f0bdf81cffbe9f991b01b54576d7384b47a63f832b2ba1d5b7"
+}

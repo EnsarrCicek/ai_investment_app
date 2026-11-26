@@ -1,0 +1,231 @@
+{
+ "created_at": "2026-11-23T12:52:28.371088+00:00",
+ "git_head": "caad151ce6ed285bb88ee6462e858b730d069c10",
+ "manifest_sha256": "fce3263123ec93782380358600d71d041e0631d3253c166edb2965cd37d4e1e4",
+ "protocol": {
+  "alert_unit": {
+   "primary": "first_watch_alert_per_asset_session",
+   "repeated_activations": "collapsed to the first alert per asset-session; never inflate alert counts (activation count reported as diagnostic only)"
+  },
+  "exploratory_reference": {
+   "affects_pass_fail": false,
+   "architectures": [
+    "A3",
+    "A4",
+    "A5d",
+    "ranking_policies",
+    "logistic",
+    "GBM",
+    "two_stage_precursor"
+   ],
+   "status": "NOT INCLUDED (definitions not frozen as candidates before holdout)"
+  },
+  "forbidden": [
+   "threshold tuning",
+   "model training",
+   "candidate selection",
+   "Pilot-2",
+   "Label V3",
+   "news-based candidate"
+  ],
+  "gate": {
+   "future_holdout_full_sessions_min": 20,
+   "requires": [
+    "archive integrity OK",
+    "required raw files exist and hash-valid",
+    "Label V2 fingerprint matches",
+    "protocol manifest fingerprint matches",
+    "no previous final evaluation start or completion record"
+   ]
+  },
+  "label": {
+   "sha256": "9b9602c18cf13e2bd7c5af8d171b479945be0cefa1ee28fc0cb0df8cba6e1d09",
+   "unchanged": [
+    "swing definition",
+    "event start",
+    "peak definition",
+    "non-overlap logic",
+    "evaluable definition",
+    "PRE_OBSERVATION handling",
+    "IN_EVENT",
+    "IN_EVENT_DUPLICATE",
+    "PRE_EVENT",
+    "POST_PEAK",
+    "NO_EVENT"
+   ],
+   "version": "MOMENTUM_EVENT_LABEL_V2"
+  },
+  "latency": {
+   "foreks": "availability = received_at; published_at never used for availability; published_at->received_at archival discovery lag reported separately",
+   "yahoo": "d15 visible time per established provider visibility semantics; never converted to zero latency"
+  },
+  "metric_definitions": {
+   "FP": "primary alerts - TP",
+   "FPR": "non-event asset-sessions with >=1 primary alert / non-event asset-sessions",
+   "TP": "primary alerts classified IN_EVENT or IN_EVENT_DUPLICATE (Label V2)",
+   "alarm_density_per_session": "primary alerts / asset-sessions per session date",
+   "median_visible_lead": "Label V2 median_lead_v2 over caught events at d15"
+  },
+  "metrics": [
+   "evaluable_events",
+   "primary_alerts",
+   "TP",
+   "FP",
+   "precision",
+   "raw_recall",
+   "evaluable_recall",
+   "non_event_sessions",
+   "FPR",
+   "median_visible_lead",
+   "lead_le_0_50_share",
+   "pre_observation_events",
+   "post_peak_alerts",
+   "duplicate_alerts",
+   "alarm_density_per_session"
+  ],
+  "multiple_rules": "each rule PASS/FAIL independently; holdout is NOT model selection; best rule is NOT promoted to a new candidate; if none pass, current OHLCV architectures do not satisfy the target",
+  "one_shot": {
+   "completion_marker": "FINAL_HOLDOUT_CONSUMED",
+   "pre_execution_record": "write-once: protocol SHA, Label V2 SHA, amendment chain status, eligible sessions, raw input fingerprints, code HEAD, timestamp",
+   "rerun_label": "REANALYSIS_OF_CONSUMED_HOLDOUT (never used for candidate selection)"
+  },
+  "pass_rule": "PASS iff ALL primary targets met; missing metric = FAIL; no weighted score; no 'almost pass'; no post-hoc threshold change",
+  "primary_targets": {
+   "FPR": [
+    "<=",
+    0.25
+   ],
+   "evaluable_recall": [
+    ">=",
+    0.4
+   ],
+   "median_visible_lead": [
+    "<=",
+    0.5
+   ]
+  },
+  "rules": [
+   {
+    "config_sha256": "4201b2e9219ca8f4e571256dd906e691fbe035986c8bc1021d1d72b01b7fa85b",
+    "definition": {
+     "confirmation": [
+      3,
+      3
+     ],
+     "level": "WATCH",
+     "provider_delay_minutes": 15,
+     "raw_rule": {
+      "accel": null,
+      "confirm": [
+       3,
+       3
+      ],
+      "need_ps": true,
+      "price": 0.5,
+      "rel": null,
+      "score": 40,
+      "xs": null
+     },
+     "round1_engine_config_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab"
+    },
+    "label": "A) existing Round 1 WATCH",
+    "rule_id": "A_ROUND1_FINAL_WATCH_3OF3_D15",
+    "source_artifact": "momentum_round2.experiment.ROUND1_FINAL / momentum_feasibility.experiment",
+    "source_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab",
+    "status": "EVALUABLE"
+   },
+   {
+    "config_sha256": "b0a83da41791f005ff2802eb2483a602671e54927cd7c5d9d719ec7df7b98fc6",
+    "definition": {
+     "confirmation": [
+      3,
+      3
+     ],
+     "level": "STRONG",
+     "provider_delay_minutes": 15,
+     "raw_rule": {
+      "price": 0.75,
+      "score": 60,
+      "xs": null
+     },
+     "round1_engine_config_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab"
+    },
+    "label": "B) existing Round 1 STRONG",
+    "rule_id": "B_ROUND1_FINAL_STRONG_3OF3_D15",
+    "source_artifact": "momentum_round2.experiment.ROUND1_FINAL / momentum_feasibility.experiment",
+    "source_sha256": "00ae932221aa53ba7a94a6e258c30d3daeee855d153a6c0025cd6f7cad814fab",
+    "status": "EVALUABLE"
+   },
+   {
+    "config_sha256": "9fad9d7ca63f700f62ff34266656a2fdc1a40c27d729e81e2d071de8f874ece2",
+    "definition": {
+     "benchmark": "XU100",
+     "comparison": ">=",
+     "confirmation": [
+      1,
+      1
+     ],
+     "feature": "rel_ret_z_3",
+     "interval": "5m",
+     "missing_feature_policy": "no alert",
+     "provider_delay_minutes": 15,
+     "status_gate": "Round 1 final engine status == OK",
+     "threshold": 5.094139728812382
+    },
+    "label": "C) frozen feasibility relative-return rule",
+    "rule_id": "C_FROZEN_REL_RET_Z3_1OF1_D15",
+    "source_artifact": "momentum_final/frozen_candidate.json",
+    "source_sha256": "a9f943dcb53c6ade6e2a30658ab547ab3bfe3930d5f5e93c2908db1a67cad881",
+    "status": "EVALUABLE"
+   }
+  ],
+  "secondary_news_analysis": {
+   "allowed_statements": [
+    "X% of evaluable events had prospectively received company-specific news within 60 minutes",
+    "news-observed events had descriptive lead distribution Y"
+   ],
+   "availability": "received_at in (observation - window, observation]",
+   "company_specific": "symbol == asset (UNRESOLVED excluded)",
+   "eligibility": "NEWS-ELIGIBLE only if Foreks collector operational for the whole window: completed fetches with consecutive gaps <= 15 min covering it and window after first prospective fetch; otherwise NEWS_NOT_OBSERVED (never NO_NEWS)",
+   "fields": [
+    "published_at",
+    "received_at",
+    "symbol",
+    "event_type",
+    "source revision state"
+   ],
+   "observation_points": {
+    "alert": "primary alert visible time (d15)",
+    "event": "V2 event start"
+   },
+   "revisions": "SOURCE_REVISION_NEW / SOURCE_REVISION_KNOWN / STORAGE_CONFLICT semantics; one logical catalyst per (provider, item_key, symbol); revisions never add catalysts",
+   "role": "DESCRIPTIVE ONLY; never tunes OHLCV rules; no news threshold/classifier/candidate",
+   "source": "Foreks prospective archive (momentum_secondary.news_events canonical rows)",
+   "strata": [
+    "event_type == other",
+    "event_type != other"
+   ],
+   "windows_minutes": [
+    15,
+    30,
+    60
+   ]
+  },
+  "split": {
+   "evaluation_sessions": "first 20 FULL holdout sessions in date order",
+   "full_session_definition": "collector integrity.classify_sessions",
+   "holdout_start": "2026-11-02",
+   "pilot_cutoff_session": "2026-10-30",
+   "pilot_manifest_sha256": "d7bb301233841ed278d041c15bd88103763dae3ebdd6f80115af082a8ac44dfd"
+  },
+  "stress_breakdowns": {
+   "broad_market_high_participation_sessions": "share >= 0.3",
+   "intraday_events": "event start >= 10:30 Europe/Istanbul",
+   "normal_sessions": "session dates with V2-event asset-session share < 0.3",
+   "opening_period_events": "event start < 10:30 Europe/Istanbul",
+   "yahoo_latency_lost_events": "evaluable events with peak - start < 15 min (uncatchable at d15)"
+  },
+  "version": "MOMENTUM_FINAL_HOLDOUT_PROTOCOL_V1"
+ },
+ "protocol_sha256": "39be406f16cfcc0e94c869a4bb385638c77bc90aec665c0ab97671036d7a5d32"
+}
